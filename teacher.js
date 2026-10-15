@@ -276,9 +276,9 @@ function runBlock(a) {
       }, a.shared ? "공개 끝내기" : "학생에게 공개")),
     h("p", { class: a.shared ? "pill on" : "pill" }, a.shared ? "학생에게 공개 중 (" + (a.named ? "이름과 함께" : "이름 없이") + ")" : "학생에게는 보이지 않음"),
     h("p", { class: "muted small" }, "응답 " + docs.length + " / " + students.length + "명" + (avg ? " · 평균 " + avg : "")),
-    summaryView(a.questions, docs),
+    summaryView(a.questions, docs, { openFile }),
     h("div", { class: "row" },
-      h("button", { class: "ghost", type: "button", onclick() { openModal(a.title, h("div", { class: "big-view" }, summaryView(a.questions, docsOf(a)))); } }, "크게 보기"),
+      h("button", { class: "ghost", type: "button", onclick() { openModal(a.title, h("div", { class: "big-view" }, summaryView(a.questions, docsOf(a), { openFile }))); } }, "크게 보기"),
       h("button", { class: "ghost", type: "button", onclick() { openModal(a.title + " · 학생별", responseTable(a)); } }, "학생별 표"),
       h("button", { class: "ghost", type: "button", onclick() { downloadCSV([a], lesson.code + "_" + a.title); } }, "CSV")));
 }
@@ -291,7 +291,7 @@ function responseTable(a) {
       const r = responses.find((x) => x.activity_id === a.id && x.student_id === s.id);
       return h("tr", { class: r ? "" : "missing" }, h("td", {}, s.class_no), h("td", {}, s.name),
         a.kind === "quiz" ? h("td", {}, r && r.total ? r.score + "/" + r.total : "") : null,
-        a.questions.map((q) => h("td", {}, r ? answerText(r.answers[q.id]) : "")),
+        a.questions.map((q) => h("td", {}, !r ? "" : q.type === "file" ? fileLinks(r.answers[q.id], openFile) : answerText(r.answers[q.id]))),
         h("td", {}, r ? fmtTime(r.updated_at) : "미제출"));
     }))));
 }
@@ -475,7 +475,7 @@ function editor() {
   const qs = e.questions.map((q, i) => {
     const typeSel = h("select", {
       "aria-label": "질문 종류",
-      onchange() { q.type = typeSel.value; if (q.type === "choice" || q.type === "multi") { q.options = q.options && q.options.length ? q.options : ["", ""]; } delete q.answer; redraw(); },
+      onchange() { q.type = typeSel.value; if (q.type === "choice" || q.type === "multi") { q.options = q.options && q.options.length ? q.options : ["", ""]; } if (q.type === "file") q.accept = q.accept || "any"; delete q.answer; redraw(); },
     }, Object.entries(TYPE_NAME).map(([k, v]) => h("option", { value: k, selected: q.type === k }, v)));
     const move = (d) => { const j = i + d; if (j < 0 || j >= e.questions.length) return; [e.questions[i], e.questions[j]] = [e.questions[j], e.questions[i]]; redraw(); };
     const text = h("input", { type: "text", maxlength: 300, value: q.text, placeholder: "질문을 입력하세요", oninput() { q.text = text.value; } });
@@ -505,6 +505,9 @@ function editor() {
             redraw();
           },
         }), h("span", {}, o)))) : null;
+    const acceptSel = q.type === "file" ? h("select", { "aria-label": "받을 파일", onchange() { q.accept = acceptSel.value; } },
+      h("option", { value: "any", selected: q.accept !== "image" }, "사진·문서 (PDF, 한글, 워드, 엑셀, PPT 등)"),
+      h("option", { value: "image", selected: q.accept === "image" }, "사진만 (휴대폰에서 바로 찍기)")) : null;
     const explain = e.kind === "quiz" ? h("input", { type: "text", maxlength: 300, value: q.explain || "", placeholder: "해설 (선택)", oninput() { q.explain = explain.value.trim() || undefined; } }) : null;
     return h("article", { class: "q-edit stack" },
       h("div", { class: "row" }, h("strong", {}, "질문 " + (i + 1)), typeSel, h("span", { class: "spacer" }),
@@ -513,6 +516,8 @@ function editor() {
         h("button", { class: "link danger", type: "button", onclick() { if (e.questions.length > 1) { e.questions.splice(i, 1); redraw(); } } }, "삭제")),
       h("label", {}, "질문", text),
       choice ? h("label", {}, "보기 (한 줄에 하나씩)", opts) : null,
+      acceptSel ? h("label", {}, "받을 파일", acceptSel) : null,
+      acceptSel ? h("p", { class: "muted small" }, "학생은 " + FILE_COUNT + "개까지, 한 개에 " + fileSize(FILE_MAX) + "까지 올립니다. 파일은 교사만 열어 볼 수 있고, 「학생에게 공개」해도 친구들에게는 파일 이름만 보입니다.") : null,
       answerPick,
       explain ? h("label", {}, "해설", explain) : null,
       e.kind === "quiz" && !choice ? h("p", { class: "muted small" }, "글로 답하는 질문은 자동 채점하지 않습니다.") : null);
@@ -531,6 +536,7 @@ function editor() {
         if (q.options.length < 2) { msg.textContent = (i + 1) + "번 질문의 보기를 두 개 이상 적으세요."; return; }
         if (new Set(q.options).size !== q.options.length) { msg.textContent = (i + 1) + "번 질문에 같은 보기가 두 번 있습니다."; return; }
       } else { delete q.options; delete q.answer; }
+      if (q.type === "file") q.accept = q.accept === "image" ? "image" : "any"; else delete q.accept;
     }
     if (e.questions.length && e.description.trim()) e.questions[0].intro = e.description.trim();
     const row = { kind: e.kind, title: e.title, page: e.page, show_answer: e.show_answer, named: e.named, questions: e.questions };
@@ -557,6 +563,7 @@ function editor() {
     if (!confirm("「" + e.title + "」을(를) 지울까요? 학생 응답도 함께 지워집니다.")) return;
     const { error } = await sb.from("activities").delete().eq("id", e.id);
     if (error) { msg.textContent = error.message; return; }
+    await removeSubmissionFiles(lesson.id, e.id);
     activities = activities.filter((a) => a.id !== e.id);
     editing = null;
     drawBuild();
@@ -702,6 +709,7 @@ function drawSettings() {
     await removeSlideFiles(lesson);
     const { error } = await sb.from("lessons").delete().eq("id", lesson.id);
     if (error) return alert(error.message);
+    await removeSubmissionFiles(lesson.id);
     await loadLessons(null);
   }
 
@@ -924,6 +932,33 @@ async function removeSlideFiles(l) {
   const folder = decodeURIComponent(m[1]);
   const { data } = await sb.storage.from("slides").list(folder.replace(/\/$/, ""), { limit: 1000 });
   if (data && data.length) await sb.storage.from("slides").remove(data.map((o) => folder + o.name));
+}
+
+// ---------- 학생이 올린 파일 ----------
+// 저장소는 비공개라 10분짜리 주소를 받아 연다. 그림·PDF·글은 새 탭에서 보고, 나머지는 원래 이름으로 내려받는다.
+async function openFile(f) {
+  const view = /^(image\/(jpeg|png|gif|webp)|application\/pdf|text\/plain)$/.test(fileTypeOf(f.path));
+  const win = view ? window.open("", "_blank") : null;   // 팝업 차단을 피하려고 누른 즉시 연다
+  const { data, error } = await sb.storage.from("submissions").createSignedUrl(f.path, 600, view ? undefined : { download: f.name });
+  if (error) {
+    if (win) win.close();
+    return alert("파일을 열지 못했습니다: " + error.message + (/not found/i.test(error.message) ? " · 수업이나 활동을 지우면서 함께 지워졌을 수 있습니다." : ""));
+  }
+  if (win) win.location = data.signedUrl;
+  else location.href = data.signedUrl;
+}
+
+// 활동(또는 수업 전체)을 지울 때 학생이 올린 파일도 지운다. 파일 이름이 「수업/활동_학생_….확장자」 꼴이다.
+async function removeSubmissionFiles(lessonId, activityId) {
+  const st = sb.storage.from("submissions");
+  for (let round = 0; round < 50; round++) {
+    const { data, error } = await st.list(lessonId, { limit: 1000, search: activityId || "" });
+    if (error || !data || !data.length) return;
+    const names = data.filter((o) => o.id && (!activityId || o.name.startsWith(activityId + "_"))).map((o) => lessonId + "/" + o.name);
+    if (!names.length) return;
+    const r = await st.remove(names);
+    if (r.error || data.length < 1000) return;
+  }
 }
 
 // ---------- CSV ----------

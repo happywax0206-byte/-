@@ -63,6 +63,14 @@ legend { font-weight: 500; margin-bottom: .5rem; padding: 0; }
 .option:has(input:checked) { border: 2px solid var(--accent); background: var(--accent-soft); }
 .option.right { border: 2px solid var(--ok); background: var(--ok-soft); }
 .right-mark { color: var(--ok); font-size: .82rem; margin-left: auto; }
+.q-label { font-weight: 500; }
+.file-pick { position: relative; align-self: flex-start; flex-direction: row; align-items: center; min-height: 46px; padding: 0 1rem; border: 2px dashed var(--accent); border-radius: 10px; color: var(--accent); font-weight: 700; cursor: pointer; }
+.file-pick input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.file-pick:focus-within { outline: 3px solid var(--accent-soft); }
+.file-list { display: grid; gap: .35rem; }
+.file-item { display: flex; align-items: center; gap: .6rem; padding: .4rem .8rem; border: 1px solid var(--line); border-radius: 10px; overflow-wrap: anywhere; }
+.file-name { flex: 1; min-width: 0; }
+.file-link { padding: 0; min-height: 0; text-decoration: underline; text-align: left; }
 
 /* 버튼 */
 button { font: inherit; border-radius: 10px; min-height: 44px; padding: 0 1rem; cursor: pointer; }

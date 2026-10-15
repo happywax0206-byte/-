@@ -280,6 +280,9 @@ declare
   a activities;
   sc int;
   tot int;
+  q jsonb;
+  f jsonb;
+  pre text;
 begin
   select * into s from students where token = p_token and p_token is not null;
   if not found then return jsonb_build_object('error', 'logged_out'); end if;
@@ -292,6 +295,23 @@ begin
   if jsonb_typeof(p_answers) is distinct from 'object' or octet_length(p_answers::text) > 20000 then
     return jsonb_build_object('error', 'too_big');
   end if;
+
+  -- 파일 답: 이 학생이 이 활동에 받은 자리(student_upload_ticket)에 실제로 올린 파일만 받는다
+  pre := a.lesson_id || '/' || a.id || '_' || s.id || '_';
+  for q in select value from jsonb_array_elements(a.questions) loop
+    if q ->> 'type' = 'file' and p_answers ? (q ->> 'id') then
+      f := p_answers -> (q ->> 'id');
+      if jsonb_typeof(f) is distinct from 'array' or jsonb_array_length(f) > 5 then
+        return jsonb_build_object('error', 'bad_file');
+      end if;
+      if exists (select 1 from jsonb_array_elements(f) x
+                 where jsonb_typeof(x) <> 'object'
+                    or left(coalesce(x ->> 'path', ''), length(pre)) <> pre
+                    or not exists (select 1 from storage.objects o where o.bucket_id = 'submissions' and o.name = x ->> 'path')) then
+        return jsonb_build_object('error', 'bad_file');
+      end if;
+    end if;
+  end loop;
 
   if a.kind = 'quiz' then
     if exists (select 1 from responses where student_id = s.id and activity_id = a.id) then
@@ -366,6 +386,81 @@ create policy slides_teacher_read on storage.objects for select to authenticated
 create policy slides_teacher_insert on storage.objects for insert to authenticated with check (bucket_id = 'slides' and is_teacher());
 create policy slides_teacher_update on storage.objects for update to authenticated using (bucket_id = 'slides' and is_teacher()) with check (bucket_id = 'slides' and is_teacher());
 create policy slides_teacher_delete on storage.objects for delete to authenticated using (bucket_id = 'slides' and is_teacher());
+
+-- ------------------------------------------------------------
+-- 학생이 답으로 올리는 파일(질문 종류 「파일 올리기」): 비공개 저장소. 교사만 열어 보고 지운다.
+-- 학생은 로그인하지 않으므로, 먼저 student_upload_ticket 으로 올릴 자리(파일 이름)를 받고 15분 안에 그 자리에만 올릴 수 있다.
+-- 파일 이름: 수업id/활동id_학생id_무작위.확장자
+-- ------------------------------------------------------------
+create table if not exists upload_tickets (
+  name       text primary key,
+  student_id uuid not null references students(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+create index if not exists upload_tickets_student on upload_tickets (student_id, created_at);
+alter table upload_tickets enable row level security;   -- 정책 없음: 아래 함수로만 쓴다
+
+create or replace function student_upload_ticket(p_token text, p_activity uuid, p_ext text)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare
+  s students;
+  a activities;
+  l lessons;
+  n text;
+begin
+  select * into s from students where token = p_token and p_token is not null;
+  if not found then return jsonb_build_object('error', 'logged_out'); end if;
+  select * into a from activities where id = p_activity;
+  if not found or a.kind = 'sim'
+     or not exists (select 1 from lesson_students where lesson_id = a.lesson_id and student_id = s.id)
+     or not exists (select 1 from jsonb_array_elements(a.questions) q where q ->> 'type' = 'file') then
+    return jsonb_build_object('error', 'no_activity');
+  end if;
+  select * into l from lessons where id = a.lesson_id;
+  if not l.open then return jsonb_build_object('error', 'closed'); end if;
+  if a.kind = 'quiz' and exists (select 1 from responses where student_id = s.id and activity_id = a.id) then
+    return jsonb_build_object('error', 'already');
+  end if;
+  if coalesce(p_ext, '') !~ '^[a-z0-9]{1,5}$' then return jsonb_build_object('error', 'bad_file'); end if;
+  delete from upload_tickets where created_at < now() - interval '1 day';
+  if (select count(*) from upload_tickets where student_id = s.id and created_at > now() - interval '1 hour') >= 40 then
+    return jsonb_build_object('error', 'too_many');
+  end if;
+  n := a.lesson_id || '/' || a.id || '_' || s.id || '_' || encode(gen_random_bytes(8), 'hex') || '.' || p_ext;
+  insert into upload_tickets (name, student_id) values (n, s.id);
+  return jsonb_build_object('path', n);
+end $$;
+
+create or replace function submission_ticket_ok(p_name text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from upload_tickets where name = p_name and created_at > now() - interval '15 minutes')
+$$;
+
+revoke all on function student_upload_ticket(text, uuid, text) from public;
+revoke all on function submission_ticket_ok(text) from public;
+grant execute on function student_upload_ticket(text, uuid, text) to anon, authenticated;
+grant execute on function submission_ticket_ok(text) to anon, authenticated;
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+  values ('submissions', 'submissions', false, 10485760, array[
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif', 'application/pdf', 'text/plain',
+    'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/x-hwp', 'application/vnd.hancom.hwpx', 'application/zip',
+    'audio/mpeg', 'audio/mp4', 'video/mp4', 'video/quicktime'])
+  on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists submissions_student_insert on storage.objects;
+drop policy if exists submissions_student_read on storage.objects;
+drop policy if exists submissions_teacher_read on storage.objects;
+drop policy if exists submissions_teacher_delete on storage.objects;
+create policy submissions_student_insert on storage.objects for insert to anon, authenticated
+  with check (bucket_id = 'submissions' and submission_ticket_ok(name));
+create policy submissions_student_read on storage.objects for select to anon, authenticated
+  using (bucket_id = 'submissions' and submission_ticket_ok(name));
+create policy submissions_teacher_read on storage.objects for select to authenticated using (bucket_id = 'submissions' and is_teacher());
+create policy submissions_teacher_delete on storage.objects for delete to authenticated using (bucket_id = 'submissions' and is_teacher());
 
 -- ------------------------------------------------------------
 -- 교사 이메일: happywax0206@gmail.com 을 자기 이메일(소문자)로 바꾸세요. 여러 명이면 줄을 더하면 됩니다.

@@ -10,7 +10,30 @@ const sb = configured ? supabase.createClient(SB_URL, String(SUPABASE_KEY).trim(
 const CREDIT = { name: "이효송", year: 2026 };
 
 const KIND_NAME = { slide: "슬라이드 질문", survey: "설문", quiz: "퀴즈", sim: "시뮬레이션" };
-const TYPE_NAME = { choice: "하나 고르기", multi: "여러 개 고르기", short: "짧은 글", long: "긴 글" };
+const TYPE_NAME = { choice: "하나 고르기", multi: "여러 개 고르기", short: "짧은 글", long: "긴 글", file: "파일 올리기" };
+
+// 학생이 답으로 올리는 파일. setup.sql 의 submissions 저장소와 같은 종류·크기만 받는다.
+const FILE_MAX = 10 * 1024 * 1024;
+const FILE_COUNT = 5;   // 한 질문에 올릴 수 있는 파일 수
+const FILE_TYPES = {
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp", heic: "image/heic", heif: "image/heif",
+  pdf: "application/pdf", txt: "text/plain",
+  doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ppt: "application/vnd.ms-powerpoint", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  hwp: "application/x-hwp", hwpx: "application/vnd.hancom.hwpx", zip: "application/zip",
+  mp3: "audio/mpeg", m4a: "audio/mp4", mp4: "video/mp4", mov: "video/quicktime",
+};
+const fileExt = (name) => (/\.([a-z0-9]{1,5})$/i.exec(name || "") || [])[1]?.toLowerCase() || "";
+const fileTypeOf = (name) => FILE_TYPES[fileExt(name)] || "";
+const fileAccept = (q) => q.accept === "image" ? "image/*" : "image/*," + Object.keys(FILE_TYPES).map((x) => "." + x).join(",");
+const fileSize = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + "MB" : Math.max(1, Math.round(n / 1024)) + "KB";
+
+// 올린 파일 목록. open 이 있으면(교사 화면) 이름을 눌러 열어 본다
+function fileLinks(list, open) {
+  return [].concat(list ?? []).map((f, i) => [i ? ", " : null,
+    open ? h("button", { class: "link file-link", type: "button", onclick() { open(f); } }, f.name) : h("span", {}, f.name)]);
+}
 
 // 화면 요소 만들기. 학생이 쓴 글은 늘 글자(텍스트)로만 넣는다(innerHTML을 쓰지 않음).
 function h(tag, attrs, ...kids) {
@@ -71,7 +94,7 @@ function fmtTime(t) {
 
 // 응답 하나를 글로: 여러 개 고르기는 쉼표로 잇는다
 function answerText(v) {
-  if (Array.isArray(v)) return v.join(", ");
+  if (Array.isArray(v)) return v.map((x) => (x && typeof x === "object" ? x.name : x)).join(", ");
   return v == null ? "" : String(v);
 }
 
@@ -121,6 +144,11 @@ function summaryView(questions, docs, opts) {
   return questions.map((q, i) => {
     const answered = docs.filter((d) => !isEmptyAnswer(d.answers[q.id]));
     const head = h("p", { class: "sum-q" }, (i + 1) + ". " + q.text);
+    if (q.type === "file") {
+      return h("div", { class: "sum-block" }, head,
+        answered.length ? answered.map((d) => h("p", { class: "note" }, d.name ? h("strong", {}, d.name + " · ") : null, fileLinks(d.answers[q.id], opts.openFile)))
+          : h("p", { class: "muted small" }, opts.empty || "아직 응답이 없습니다."));
+    }
     if (q.type === "choice" || q.type === "multi") {
       return h("div", { class: "sum-block" }, head, q.options.map((o) => {
         const n = answered.filter((d) => [].concat(d.answers[q.id]).includes(o)).length;

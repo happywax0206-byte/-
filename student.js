@@ -341,6 +341,78 @@ function simCard(a) {
   return c.el;
 }
 
+// ---------- 파일 답 ----------
+// 고르면 바로 올리고, 답(values)에는 올린 자리와 이름만 적는다. 「저장하기」를 눌러야 제출된다.
+// 올릴 자리는 서버가 정해 준다(student_upload_ticket): 학생은 그 자리에만 올릴 수 있고, 남의 파일은 볼 수 없다.
+function fileField(a, q, label, values, locked, changed) {
+  const list = h("div", { class: "file-list" });
+  const msg = h("p", { class: "small" });
+  const input = h("input", { type: "file", multiple: true, accept: fileAccept(q), hidden: locked, onchange: pick });
+  const files = () => [].concat(values[q.id] ?? []);
+  const draw = () => list.replaceChildren(...files().map((f, i) => h("div", { class: "file-item" },
+    h("span", { class: "file-name" }, f.name), h("span", { class: "muted small" }, fileSize(f.size)),
+    locked ? null : h("button", { class: "link danger", type: "button", onclick() {
+      values[q.id] = files().filter((_, j) => j !== i);
+      draw();
+      changed();
+    } }, "빼기"))));
+
+  async function pick() {
+    const picked = [...input.files];
+    input.value = "";
+    if (!picked.length) return;
+    if (!state.lesson.open) { msg.className = "error small"; msg.textContent = "지금은 제출이 닫혀 있어서 올릴 수 없습니다."; return; }
+    if (files().length + picked.length > FILE_COUNT) { msg.className = "error small"; msg.textContent = "파일은 " + FILE_COUNT + "개까지 올릴 수 있습니다."; return; }
+    input.disabled = true;
+    msg.className = "status";
+    try {
+      for (const original of picked) {
+        msg.textContent = "올리는 중… " + original.name;
+        const f = await shrinkImage(original);
+        const ext = fileExt(f.name);
+        const type = FILE_TYPES[ext];
+        if (!type || (q.accept === "image" && !type.startsWith("image/"))) throw new Error(original.name + ": " + (q.accept === "image" ? "사진만 올릴 수 있습니다." : "올릴 수 없는 파일 종류입니다."));
+        if (f.size > FILE_MAX) throw new Error(original.name + ": " + fileSize(FILE_MAX) + "가 넘습니다.");
+        const { data, error } = await sb.rpc("student_upload_ticket", { p_token: token, p_activity: a.id, p_ext: ext });
+        if (error) throw error;
+        if (data.error === "logged_out") return logout("다시 입장해 주세요.");
+        if (data.error) throw new Error({ closed: "지금은 제출이 닫혀 있습니다.", already: "이미 제출한 퀴즈입니다.", too_many: "잠시 뒤에 다시 올리세요(한 시간에 40개까지)." }[data.error] || data.error);
+        const up = await sb.storage.from("submissions").upload(data.path, f, { contentType: type, upsert: false });
+        if (up.error) throw up.error;
+        values[q.id] = files().concat({ path: data.path, name: f.name, size: f.size });
+        draw();
+        changed();
+      }
+      msg.textContent = "올렸습니다. 아래 「저장하기」를 눌러야 제출됩니다.";
+    } catch (e) {
+      msg.className = "error small";
+      msg.textContent = "올리지 못했습니다: " + (e.message || e);
+    }
+    input.disabled = false;
+  }
+
+  draw();
+  return h("div", { class: "stack" },
+    h("p", { class: "q-label" }, label),
+    locked ? null : h("label", { class: "file-pick" }, q.accept === "image" ? "사진 고르기 · 찍기" : "파일 고르기", input),
+    locked ? null : h("p", { class: "muted small" }, (q.accept === "image" ? "사진" : "사진, PDF, 한글·워드·엑셀·PPT 등") + " · " + FILE_COUNT + "개까지 · 한 개에 " + fileSize(FILE_MAX) + "까지"),
+    list, msg);
+}
+
+// 휴대폰 사진은 커서 가로세로 2000px JPG로 줄여 올린다. 줄이지 못하면(예: 일부 브라우저의 HEIC) 원본 그대로.
+async function shrinkImage(f) {
+  if (!/^image\/(jpeg|png|webp|heic|heif)$/.test(f.type) || f.size < 1500000) return f;
+  try {
+    const bmp = await createImageBitmap(f);
+    const k = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
+    const c = h("canvas", { width: Math.round(bmp.width * k), height: Math.round(bmp.height * k) });
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise((ok) => c.toBlob(ok, "image/jpeg", 0.85));
+    if (!blob || blob.size >= f.size) return f;
+    return new File([blob], f.name.replace(/\.[^.]*$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch (_) { return f; }
+}
+
 // ---------- 활동 카드 ----------
 function draftKey(a) { return "cra-draft:" + token + ":" + a.id; }
 
@@ -417,6 +489,8 @@ function buildForm(c) {
           }),
           h("span", {}, o), right ? h("strong", { class: "right-mark" }, "정답") : null);
       }));
+    } else if (q.type === "file") {
+      control = fileField(a, q, label, values, quizDone, saveDraft);
     } else {
       const input = q.type === "short"
         ? h("input", { type: "text", maxlength: 200, value: values[q.id] || "", disabled: quizDone })
@@ -445,6 +519,7 @@ function buildForm(c) {
     if (error) err.textContent = "저장하지 못했습니다. 다시 시도하세요. (" + error.message + ")";
     else if (data.error === "closed") err.textContent = "지금은 제출이 닫혀 있습니다. 선생님이 열면 다시 저장하세요.";
     else if (data.error === "already") err.textContent = "이미 제출한 퀴즈입니다.";
+    else if (data.error === "bad_file") err.textContent = "올린 파일을 확인하지 못했습니다. 파일을 빼고 다시 올려 주세요.";
     else if (data.error === "logged_out") return logout("다시 입장해 주세요.");
     else if (data.error) err.textContent = "저장하지 못했습니다. (" + data.error + ")";
     else {
