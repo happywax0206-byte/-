@@ -48,10 +48,17 @@ button:disabled { opacity: .45; cursor: default; }
 .check { display: flex; gap: 18px; flex-wrap: wrap; }
 .check label { font-weight: 600; display: flex; align-items: center; gap: 6px; cursor: pointer; }
 select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; padding: 6px 14px; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.sel { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
 .stat { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
 .stat .k { color: var(--muted); font-size: .85rem; }
 .stat .v { font-size: 1.45rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.viewbar { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; margin-bottom: 10px; }
+.viewbar h2 { margin: 0; flex: 1 1 auto; }
+.note { background: var(--grid); border-radius: 10px; padding: 8px 12px; margin-top: 10px; font-size: .92rem; }
 canvas { display: block; width: 100%; }
 #main { height: 380px; }
 #zoom { height: 210px; }
@@ -92,8 +99,8 @@ ul { margin: 6px 0; padding-left: 20px; }
       <div class="ctl">
         <label>두 소리의 진동수 차이 Δf = f₂ − f₁</label>
         <div class="line">
-          <input type="range" id="dfr" min="0" max="20" step="0.1" value="3">
-          <input type="number" id="dfn" min="0" max="20" step="0.1" value="3"> Hz
+          <input type="range" id="dfr" min="0" max="20" step="0.1" value="2">
+          <input type="number" id="dfn" min="0" max="20" step="0.1" value="2"> Hz
         </div>
         <div class="row presets" style="margin-top:6px">
           <span class="hint">빠른 선택:</span>
@@ -103,7 +110,7 @@ ul { margin: 6px 0; padding-left: 20px; }
       </div>
       <div class="ctl">
         <label><span class="dot" style="background:var(--c2)"></span>소리 2의 진동수 f₂</label>
-        <div class="stat" style="padding:6px 12px"><span class="v" id="f2v">443.0 Hz</span></div>
+        <div class="stat" style="padding:6px 12px"><span class="v" id="f2v">442.0 Hz</span></div>
       </div>
       <div class="ctl">
         <label>들려줄 소리</label>
@@ -117,32 +124,47 @@ ul { margin: 6px 0; padding-left: 20px; }
         <label>음량</label>
         <div class="line"><input type="range" id="vol" min="0" max="1" step="0.01" value="0.6"></div>
       </div>
-      <div class="ctl">
-        <label>그래프에 보여 줄 시간</label>
-        <select id="win">
-          <option value="0.02">0.02초 (파동 하나하나 보기)</option>
-          <option value="0.1">0.1초</option>
-          <option value="0.5">0.5초</option>
-          <option value="1">1초</option>
-          <option value="2" selected>2초 (맥놀이 보기)</option>
-          <option value="4">4초</option>
-        </select>
-      </div>
     </div>
   </section>
 
   <section class="card">
     <div class="stats">
-      <div class="stat"><div class="k">맥놀이 진동수 f<sub>b</sub> = |f₁ − f₂|</div><div class="v" id="fb">3.0 Hz</div></div>
-      <div class="stat"><div class="k">맥놀이 주기 T<sub>b</sub> = 1 / f<sub>b</sub></div><div class="v" id="tb">0.33 초</div></div>
-      <div class="stat"><div class="k">들리는 소리의 높이 (f₁ + f₂) / 2</div><div class="v" id="fc">441.5 Hz</div></div>
-      <div class="stat"><div class="k">한마디로</div><div class="v" id="say" style="font-size:1.05rem">1초에 3번 커졌다 작아져요</div></div>
+      <div class="stat"><div class="k">맥놀이 진동수 f<sub>b</sub> = |f₁ − f₂|</div><div class="v" id="fb">2.0 Hz</div></div>
+      <div class="stat"><div class="k">맥놀이 주기 T<sub>b</sub> = 1 / f<sub>b</sub></div><div class="v" id="tb">0.50 초</div></div>
+      <div class="stat"><div class="k">들리는 소리의 높이 (f₁ + f₂) / 2</div><div class="v" id="fc">441.0 Hz</div></div>
+      <div class="stat"><div class="k">한마디로</div><div class="v" id="say" style="font-size:1.05rem">1초에 2번 커졌다 작아져요</div></div>
     </div>
   </section>
 
   <section class="card">
-    <h2>파형 (오른쪽 끝이 지금 들리는 소리)</h2>
+    <div class="viewbar">
+      <h2>파형</h2>
+      <div class="seg" id="modeSeg">
+        <button data-mode="slow" class="sel">느리게 보기</button>
+        <button data-mode="real">실제 파형</button>
+      </div>
+      <label id="speedBox">화면 속도
+        <select id="speed">
+          <option value="1">소리와 같은 박자</option>
+          <option value="0.5">2배 느리게</option>
+          <option value="0.2">5배 느리게</option>
+          <option value="0.1" selected>10배 느리게</option>
+          <option value="0.05">20배 느리게</option>
+        </select>
+      </label>
+      <label id="winBox" hidden>보여 줄 시간
+        <select id="win">
+          <option value="0.02">0.02초 (파동 하나하나)</option>
+          <option value="0.1">0.1초</option>
+          <option value="0.5">0.5초</option>
+          <option value="1">1초</option>
+          <option value="2" selected>2초 (맥놀이 전체)</option>
+          <option value="4">4초</option>
+        </select>
+      </label>
+    </div>
     <canvas id="main"></canvas>
+    <div class="note" id="viewNote"></div>
   </section>
 
   <section class="card">
@@ -179,14 +201,21 @@ ul { margin: 6px 0; padding-left: 20px; }
   const $ = id => document.getElementById(id);
   const TAU = Math.PI * 2;
   const TONE_GAIN = 0.4;
+  // 느리게 보기: 그림 속 소리 1은 1초에 PIC_F번만 떨리고, 화면에는 그림 속 시간 PIC_WIN초를 보여 준다.
+  // 두 파동의 진동수 차이(Δf)는 실제와 같게 두어, 맥놀이 박자는 진짜 소리와 같은 규칙을 따른다.
+  const PIC_F = 20, PIC_WIN = 1.5;
 
-  const state = { f1: 440, df: 3, on: [true, true], vol: 0.6, win: 2, playing: false, frozen: false, frozenT: 0 };
+  const state = { f1: 440, df: 2, on: [true, true], vol: 0.6, win: 2, mode: 'slow', speed: 0.1, playing: false, frozen: false, frozenT: 0 };
   let ctx = null, master = null, tones = [], startT = 0;
   // 진동수가 바뀐 순간마다 위상을 이어 붙여 기록한다: phase(t) = p + 2πf(t − t0)
-  let segs = [[{ t: 0, p: 0, f: 440 }], [{ t: 0, p: 0, f: 443 }]];
+  let segs = [[{ t: 0, p: 0, f: 440 }], [{ t: 0, p: 0, f: 442 }]];
+  // 느린 그림의 기록: 화면이 바뀔 때마다 (그림 속 시간, 소리 1 위상, 두 파동의 위상 차, 켜짐 여부)를 쌓는다
+  const pic = { hist: [], lastT: 0, tau: 0 };
 
   const freqs = () => [state.f1, state.f1 + state.df];
+  const amp = i => (state.on[i] ? 1 : 0);
 
+  // ---------- 실제 파형 ----------
   function phaseAt(i, t) {
     const s = segs[i];
     let k = s.length - 1;
@@ -194,12 +223,58 @@ ul { margin: 6px 0; padding-left: 20px; }
     const g = s[k];
     return g.p + TAU * g.f * (t - g.t);
   }
-  const amp = i => (state.on[i] ? 1 : 0);
-  function y(i, t) { return t < startT ? 0 : amp(i) * Math.sin(phaseAt(i, t)); }
-  function env(t) {
-    if (t < startT) return 0;
-    const a = amp(0), b = amp(1);
-    return Math.sqrt(Math.max(0, a * a + b * b + 2 * a * b * Math.cos(phaseAt(0, t) - phaseAt(1, t))));
+  const real = {
+    y1: t => (t < startT ? 0 : amp(0) * Math.sin(phaseAt(0, t))),
+    y2: t => (t < startT ? 0 : amp(1) * Math.sin(phaseAt(1, t))),
+    diff: t => (t < startT ? null : phaseAt(1, t) - phaseAt(0, t)),
+    a: t => (t < startT ? [0, 0] : [amp(0), amp(1)]),
+  };
+
+  // ---------- 느린 그림 ----------
+  function picReset() {
+    pic.hist = [{ tau: 0, p1: 0, D: 0, a1: amp(0), a2: amp(1) }];
+    pic.tau = 0;
+    pic.lastT = startT;
+  }
+  function picAdvance() {
+    if (!state.playing || state.frozen) return;
+    const t = nowT();
+    const dt = t - pic.lastT;
+    if (dt <= 0) return;
+    pic.lastT = t;
+    const last = pic.hist[pic.hist.length - 1];
+    const dtau = state.speed * dt;
+    pic.hist.push({
+      tau: last.tau + dtau,
+      p1: last.p1 + TAU * PIC_F * dtau,
+      D: last.D + TAU * state.df * dtau,
+      a1: amp(0), a2: amp(1),
+    });
+    pic.tau = last.tau + dtau;
+    while (pic.hist.length > 2 && pic.hist[1].tau < pic.tau - PIC_WIN - 1) pic.hist.shift();
+  }
+  function picAt(tau) {
+    if (!state.playing) return { p1: TAU * PIC_F * tau, D: TAU * state.df * tau, a1: amp(0), a2: amp(1) };
+    const h = pic.hist;
+    if (tau < h[0].tau) return null;
+    let lo = 0, hi = h.length - 1;
+    if (tau >= h[hi].tau) return h[hi];
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; (h[m].tau <= tau ? (lo = m) : (hi = m)); }
+    const A = h[lo], B = h[hi], u = (tau - A.tau) / (B.tau - A.tau);
+    return { p1: A.p1 + (B.p1 - A.p1) * u, D: A.D + (B.D - A.D) * u, a1: B.a1, a2: B.a2 };
+  }
+  const slow = {
+    y1: t => { const s = picAt(t); return s ? s.a1 * Math.sin(s.p1) : 0; },
+    y2: t => { const s = picAt(t); return s ? s.a2 * Math.sin(s.p1 + s.D) : 0; },
+    diff: t => { const s = picAt(t); return s ? s.D : null; },
+    a: t => { const s = picAt(t); return s ? [s.a1, s.a2] : [0, 0]; },
+  };
+
+  function envOf(m, t) {
+    const d = m.diff(t);
+    if (d === null) return 0;
+    const [a, b] = m.a(t);
+    return Math.sqrt(Math.max(0, a * a + b * b + 2 * a * b * Math.cos(d)));
   }
 
   // ---------- 소리 ----------
@@ -226,6 +301,7 @@ ul { margin: 6px 0; padding-left: 20px; }
     master.gain.linearRampToValueAtTime(state.vol, T + 0.05);
     state.playing = true;
     state.frozen = false;
+    picReset();
     updateButtons();
   }
 
@@ -265,6 +341,7 @@ ul { margin: 6px 0; padding-left: 20px; }
       resetStatic();
     }
     updateStats();
+    updateNote();
   }
 
   function applyOn(i) {
@@ -282,7 +359,7 @@ ul { margin: 6px 0; padding-left: 20px; }
     $('freeze').disabled = !state.playing;
     $('freeze').textContent = state.frozen ? '▶ 화면 다시 움직이기' : '⏸ 화면 멈춤';
     $('playHint').textContent = state.playing
-      ? (state.frozen ? '화면만 멈췄어요. 소리는 계속 나고 있어요.' : '소리가 나는 중입니다. 오른쪽 끝이 지금 들리는 소리예요.')
+      ? (state.frozen ? '화면만 멈췄어요. 소리는 계속 나고 있어요.' : '소리가 나는 중입니다. 그래프 오른쪽 끝이 "지금"이에요.')
       : '버튼을 누르면 소리가 납니다. 스피커 음량을 확인하세요.';
   }
 
@@ -296,6 +373,21 @@ ul { margin: 6px 0; padding-left: 20px; }
     $('fc').textContent = fmt((f1 + f2) / 2, 1) + ' Hz';
     $('say').textContent = fb === 0 ? '맥놀이가 없어요 (일정한 소리)'
       : '1초에 ' + (Number.isInteger(fb) ? fb : fmt(fb, 1)) + '번 커졌다 작아져요';
+  }
+
+  function updateNote() {
+    const n = $('viewNote');
+    if (state.mode === 'real') {
+      n.innerHTML = '실제 진동수 그대로 그린 파형입니다. 1초에 ' + Math.round(state.f1) +
+        '번이나 떨려서 촘촘하게 보여요. 0.02초를 고르면 파동 하나하나가 보입니다.';
+      return;
+    }
+    const slowTxt = state.speed === 1
+      ? '<b>커졌다 작아지는 박자는 지금 들리는 소리와 같아요.</b>'
+      : '화면 전체를 <b>' + Math.round(1 / state.speed) + '배 느리게</b> 움직여서, 그림 속 맥놀이는 실제 소리보다 ' +
+        Math.round(1 / state.speed) + '배 천천히 커졌다 작아져요.';
+    n.innerHTML = '실제 소리는 1초에 ' + Math.round(state.f1) + '번 떨려서 눈으로 볼 수 없어요. ' +
+      '그래서 그림에서는 파동이 훨씬 천천히 떨리도록 그렸어요(두 소리의 진동수 차이 Δf는 그대로). ' + slowTxt;
   }
 
   function bindPair(rangeId, numId, key, min, max) {
@@ -318,12 +410,21 @@ ul { margin: 6px 0; padding-left: 20px; }
   [0, 1].forEach(i => $('on' + (i + 1)).addEventListener('change', e => { state.on[i] = e.target.checked; applyOn(i); }));
   $('vol').addEventListener('input', e => { state.vol = Number(e.target.value); applyVol(); });
   $('win').addEventListener('change', e => { state.win = Number(e.target.value); });
+  $('speed').addEventListener('change', e => { state.speed = Number(e.target.value); updateNote(); });
+  document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
+    state.mode = b.dataset.mode;
+    document.querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('sel', x === b));
+    $('speedBox').hidden = state.mode !== 'slow';
+    $('winBox').hidden = state.mode !== 'real';
+    updateNote();
+  }));
 
   $('play').addEventListener('click', () => { state.playing ? stop() : start(); });
   $('freeze').addEventListener('click', () => {
     if (!state.playing) return;
     state.frozen = !state.frozen;
     if (state.frozen) state.frozenT = nowT();
+    else pic.lastT = nowT();
     updateButtons();
   });
 
@@ -367,19 +468,31 @@ ul { margin: 6px 0; padding-left: 20px; }
     g.stroke();
   }
 
-  function drawMain(tEnd) {
+  // 지금 보기 방식에 맞는 파동 함수와 시간 범위
+  function view() {
+    const [f1, f2] = freqs();
+    if (state.mode === 'slow') {
+      const end = state.playing ? pic.tau : PIC_WIN;
+      return { m: slow, t0: end - PIC_WIN, t1: end, end, maxF: PIC_F + state.df, carrier: PIC_F + state.df / 2,
+        n1: '소리 1 (실제 ' + fmt(f1, 1) + ' Hz · 그림은 느리게)', n2: '소리 2 (실제 ' + fmt(f2, 1) + ' Hz · 그림은 느리게)' };
+    }
+    const end = state.frozen ? state.frozenT : nowT();
+    return { m: real, t0: end - state.win, t1: end, end, maxF: Math.max(f1, f2), carrier: (f1 + f2) / 2,
+      n1: '소리 1 (' + fmt(f1, 1) + ' Hz)', n2: '소리 2 (' + fmt(f2, 1) + ' Hz)' };
+  }
+
+  function drawMain(v) {
     const { g, w, h } = fit($('main'));
     const left = 8, right = w - 8, axisH = 22;
-    const t0 = tEnd - state.win, t1 = tEnd;
-    const [f1, f2] = freqs();
-    const cyclesPerPx = Math.max(f1, f2) * state.win / (right - left);
+    const { m, t0, t1 } = v;
+    const cyclesPerPx = v.maxF * (t1 - t0) / (right - left);
     const spp = Math.min(12, Math.max(1, Math.ceil(cyclesPerPx * 10)));
 
     const usable = h - axisH;
     const lanes = [
-      { name: '소리 1  (' + fmt(f1, 1) + ' Hz)', fn: t => y(0, t), max: 1, color: colors.c1, frac: 0.22, on: state.on[0] },
-      { name: '소리 2  (' + fmt(f2, 1) + ' Hz)', fn: t => y(1, t), max: 1, color: colors.c2, frac: 0.22, on: state.on[1] },
-      { name: '합친 소리 = 실제로 들리는 소리', fn: t => y(0, t) + y(1, t), max: 2, color: colors.sum, frac: 0.56, env: true, on: true },
+      { name: v.n1, fn: m.y1, max: 1, color: colors.c1, frac: 0.22, on: state.on[0] },
+      { name: v.n2, fn: m.y2, max: 1, color: colors.c2, frac: 0.22, on: state.on[1] },
+      { name: '합친 소리 = 실제로 들리는 소리', fn: t => m.y1(t) + m.y2(t), max: 2, color: colors.sum, frac: 0.56, env: true, on: true },
     ];
     let top = 0;
     g.font = '13px system-ui, sans-serif';
@@ -392,14 +505,14 @@ ul { margin: 6px 0; padding-left: 20px; }
       g.beginPath(); g.moveTo(left, mid); g.lineTo(right, mid); g.stroke();
 
       g.globalAlpha = L.on ? 1 : 0.25;
-      g.strokeStyle = L.color; g.lineWidth = idx === 2 ? 1.6 : 1.2;
+      g.strokeStyle = L.color; g.lineWidth = idx === 2 ? 2 : 1.5;
       trace(g, L.fn, t0, t1, left, right, mid, scale, spp);
       g.globalAlpha = 1;
 
       if (L.env && state.on[0] && state.on[1]) {
         g.strokeStyle = colors.env; g.lineWidth = 2; g.setLineDash([6, 5]);
-        trace(g, env, t0, t1, left, right, mid, scale, 1);
-        trace(g, t => -env(t), t0, t1, left, right, mid, scale, 1);
+        trace(g, t => envOf(m, t), t0, t1, left, right, mid, scale, 1);
+        trace(g, t => -envOf(m, t), t0, t1, left, right, mid, scale, 1);
         g.setLineDash([]);
       }
       g.fillStyle = L.on ? colors.ink : colors.muted;
@@ -407,17 +520,22 @@ ul { margin: 6px 0; padding-left: 20px; }
       top += lh;
     });
 
-    // 시간 눈금
+    // 시간 눈금 (느리게 보기에서는 그림 속 시간이 실제와 달라 숫자를 쓰지 않는다)
     g.strokeStyle = colors.line; g.beginPath(); g.moveTo(left, usable); g.lineTo(right, usable); g.stroke();
     g.fillStyle = colors.muted; g.font = '12px system-ui, sans-serif';
-    const ticks = 4;
-    for (let k = 0; k <= ticks; k++) {
-      const x = left + (right - left) * k / ticks;
-      const v = state.playing ? -state.win * (1 - k / ticks) : state.win * k / ticks;
-      let label = (Math.abs(v) < 1e-9 ? '0' : fmt(v, state.win < 0.1 ? 3 : state.win < 1 ? 2 : 1)) + '초';
-      if (state.playing && k === ticks) label = '지금';
-      g.textAlign = k === 0 ? 'left' : k === ticks ? 'right' : 'center';
-      g.fillText(label, x, h - 6);
+    if (state.mode === 'real') {
+      const ticks = 4;
+      for (let k = 0; k <= ticks; k++) {
+        const x = left + (right - left) * k / ticks;
+        const val = state.playing ? -state.win * (1 - k / ticks) : state.win * k / ticks;
+        let label = (Math.abs(val) < 1e-9 ? '0' : fmt(val, state.win < 0.1 ? 3 : state.win < 1 ? 2 : 1)) + '초';
+        if (state.playing && k === ticks) label = '지금';
+        g.textAlign = k === 0 ? 'left' : k === ticks ? 'right' : 'center';
+        g.fillText(label, x, h - 6);
+      }
+    } else {
+      g.textAlign = 'left'; g.fillText(state.playing ? '← 조금 전' : '시간 →', left, h - 6);
+      if (state.playing) { g.textAlign = 'right'; g.fillText('지금', right, h - 6); }
     }
     g.textAlign = 'left';
 
@@ -427,21 +545,21 @@ ul { margin: 6px 0; padding-left: 20px; }
     }
   }
 
-  function drawZoom(tEnd) {
+  function drawZoom(v) {
     const { g, w, h } = fit($('zoom'));
-    const [f1, f2] = freqs();
-    const span = 4 / ((f1 + f2) / 2);
-    const t0 = tEnd - span, t1 = tEnd;
+    const { m, end } = v;
+    const span = 3 / v.carrier;
+    const t0 = end - span, t1 = end;
     const left = 8, right = w - 8, mid = h / 2, scale = (h / 2 - 14) / 2;
 
     g.strokeStyle = colors.grid; g.lineWidth = 1;
-    [-2, -1, 0, 1, 2].forEach(v => { g.beginPath(); g.moveTo(left, mid - v * scale); g.lineTo(right, mid - v * scale); g.stroke(); });
+    [-2, -1, 0, 1, 2].forEach(k => { g.beginPath(); g.moveTo(left, mid - k * scale); g.lineTo(right, mid - k * scale); g.stroke(); });
 
     g.lineWidth = 2;
-    if (state.on[0]) { g.strokeStyle = colors.c1; trace(g, t => y(0, t), t0, t1, left, right, mid, scale, 2); }
-    if (state.on[1]) { g.strokeStyle = colors.c2; trace(g, t => y(1, t), t0, t1, left, right, mid, scale, 2); }
+    if (state.on[0]) { g.strokeStyle = colors.c1; trace(g, m.y1, t0, t1, left, right, mid, scale, 2); }
+    if (state.on[1]) { g.strokeStyle = colors.c2; trace(g, m.y2, t0, t1, left, right, mid, scale, 2); }
     g.strokeStyle = colors.sum; g.lineWidth = 3;
-    trace(g, t => y(0, t) + y(1, t), t0, t1, left, right, mid, scale, 2);
+    trace(g, t => m.y1(t) + m.y2(t), t0, t1, left, right, mid, scale, 2);
 
     g.font = '12px system-ui, sans-serif';
     let x = left + 4;
@@ -451,15 +569,16 @@ ul { margin: 6px 0; padding-left: 20px; }
 
     // 오른쪽 표시판
     const both = state.on[0] && state.on[1];
-    const e = env(tEnd);
+    const e = envOf(m, end);
     $('ampBar').style.width = (e / 2 * 100).toFixed(1) + '%';
-    if (!both || tEnd < startT) {
+    let d = m.diff(end);
+    if (!both || d === null) {
       $('phaseDeg').textContent = '—';
       $('phaseState').textContent = both ? '—' : '소리가 하나뿐이라 맥놀이 없음';
       $('phaseState').style.color = colors.muted;
       return;
     }
-    let d = (phaseAt(1, tEnd) - phaseAt(0, tEnd)) % TAU;
+    d %= TAU;
     if (d < 0) d += TAU;
     let deg = d * 180 / Math.PI;
     if (deg > 180) deg = 360 - deg;
@@ -471,14 +590,17 @@ ul { margin: 6px 0; padding-left: 20px; }
   }
 
   function frame() {
-    const t = state.frozen ? state.frozenT : nowT();
-    drawMain(t);
-    drawZoom(t);
+    picAdvance();
+    const v = view();
+    drawMain(v);
+    drawZoom(v);
     requestAnimationFrame(frame);
   }
 
+  resetStatic();
   updateStats();
   updateButtons();
+  updateNote();
   requestAnimationFrame(frame);
 })();
 </script>
