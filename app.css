@@ -205,6 +205,10 @@ main.lesson .slide { cursor: zoom-in; }
 .thumb figcaption { display: flex; justify-content: space-between; align-items: center; font-size: .82rem; color: var(--muted); }
 .thumb .link { min-height: 32px; padding: 0 .3rem; font-size: .82rem; }
 .thumbs img { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 6px; }
+.thumb[draggable="true"] img { cursor: grab; }
+.thumb.dragging { opacity: .4; }
+.thumb.drop-before img { box-shadow: -4px 0 0 var(--accent); }
+.thumb.drop-after img { box-shadow: 4px 0 0 var(--accent); }
 progress { width: 100%; height: 10px; }
 input[type=file] { font: inherit; max-width: 100%; }
 
