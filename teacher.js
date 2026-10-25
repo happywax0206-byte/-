@@ -336,11 +336,81 @@ function showJoin() {
 const newId = () => Math.random().toString(36).slice(2, 8);
 const newQuestion = (type) => ({ id: newId(), type: type || "choice", text: "", options: ["", ""] });
 
+// 활동 목록: 손잡이(⋮⋮)를 끌어 순서를 바꾼다. 활동은 쪽 순서로 보이므로 같은 쪽(시작 쪽) 안에서만 옮긴다.
+let dragId = null;
+let moving = false;
+
+function activityList() {
+  if (!activities.length) return h("p", { class: "muted small" }, "아직 활동이 없습니다.");
+  const pageOf = (a) => a.page ?? null;
+  const clearMarks = () => document.querySelectorAll(".act-row.drop-before, .act-row.drop-after").forEach((el) => el.classList.remove("drop-before", "drop-after"));
+  let after = false;
+  const row = (a) => h("div", {
+    class: "act-row", draggable: "true",
+    ondragstart(ev) {
+      if (moving) return ev.preventDefault();
+      dragId = a.id;
+      ev.dataTransfer.effectAllowed = "move";
+      ev.dataTransfer.setData("text/plain", a.id);
+      ev.currentTarget.classList.add("dragging");
+    },
+    ondragend(ev) { dragId = null; ev.currentTarget.classList.remove("dragging"); clearMarks(); },
+    ondragover(ev) {
+      const d = activities.find((x) => x.id === dragId);
+      if (!d || d.id === a.id || pageOf(d) !== pageOf(a)) return;
+      ev.preventDefault();
+      const r = ev.currentTarget.getBoundingClientRect();
+      after = ev.clientY > r.top + r.height / 2;
+      clearMarks();
+      ev.currentTarget.classList.add(after ? "drop-after" : "drop-before");
+    },
+    ondrop(ev) { ev.preventDefault(); clearMarks(); if (dragId) moveActivity(dragId, a.id, after); },
+  },
+    h("span", { class: "drag-handle", title: "끌어서 순서 바꾸기", "aria-hidden": "true" }, "⋮⋮"),
+    h("button", {
+      type: "button", class: "act-item" + (editing && editing.id === a.id ? " on" : ""),
+      onclick() { editing = JSON.parse(JSON.stringify(a)); drawBuild(); },
+    }, h("span", { class: "muted small" }, activityName(a) + " · " + whereText(a)), h("span", {}, a.title)));
+  // 쪽마다 묶어서 보인다(슬라이드 수업)
+  const groups = [];
+  for (const a of activities) {
+    const g = groups[groups.length - 1];
+    if (g && g.page === pageOf(a)) g.items.push(a);
+    else groups.push({ page: pageOf(a), items: [a] });
+  }
+  const showHeads = lesson.slide_count > 0 && groups.some((g) => g.page != null);
+  return h("div", { class: "stack" },
+    groups.map((g) => [showHeads ? h("p", { class: "act-group-head" }, g.page == null ? "언제든" : g.page + "쪽") : null, g.items.map(row)]),
+    activities.length > 1 ? h("p", { class: "muted small" }, showHeads ? "⋮⋮를 끌어 같은 쪽 안에서 순서를 바꿉니다. 다른 쪽으로 옮기려면 활동을 열어 「어디에 보일까요?」를 바꾸세요." : "⋮⋮를 끌어 순서를 바꿉니다.") : null);
+}
+
+async function moveActivity(fromId, toId, after) {
+  const from = activities.find((x) => x.id === fromId);
+  if (!from || moving) return;
+  const group = activities.filter((x) => (x.page ?? null) === (from.page ?? null));
+  const order = group.filter((x) => x !== from);
+  const at = order.findIndex((x) => x.id === toId);
+  if (at < 0) return;
+  order.splice(at + (after ? 1 : 0), 0, from);
+  if (order.every((x, k) => x === group[k])) return;
+  const changed = order.map((x, k) => [x, k]).filter(([x, k]) => x.sort !== k);
+  changed.forEach(([x, k]) => { x.sort = k; });
+  activities = sortActivities(activities);
+  drawBuild();
+  moving = true;
+  const results = await Promise.all(changed.map(([x, k]) => sb.from("activities").update({ sort: k }).eq("id", x.id)));
+  moving = false;
+  const bad = results.find((r) => r.error);
+  if (bad) {
+    alert("순서를 저장하지 못했습니다: " + bad.error.message);
+    const { data } = await sb.from("activities").select("*").eq("lesson_id", lesson.id);
+    if (data) activities = sortActivities(data);
+    drawBuild();
+  } else flash("순서를 바꿨습니다.");
+}
+
 function drawBuild() {
-  const list = h("div", { class: "stack" }, activities.length ? activities.map((a) => h("button", {
-    type: "button", class: "act-item" + (editing && editing.id === a.id ? " on" : ""),
-    onclick() { editing = JSON.parse(JSON.stringify(a)); drawBuild(); },
-  }, h("span", { class: "muted small" }, activityName(a) + " · " + whereText(a)), h("span", {}, a.title))) : h("p", { class: "muted small" }, "아직 활동이 없습니다."));
+  const list = activityList();
   const kindList = lesson.kind === "survey" ? { survey: "정답 없는 설문", quiz: "정답·자동 채점" } : { slide: "쪽 아래에 붙는 질문", survey: "정답 없는 설문", quiz: "정답·자동 채점" };
   const kinds = h("div", { class: "kinds" }, Object.entries(kindList).map(([k, sub]) =>
     h("button", {

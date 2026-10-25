@@ -189,6 +189,14 @@ main.lesson .slide { cursor: zoom-in; }
 .kind:hover { border-color: var(--accent); }
 .act-item { display: grid; text-align: left; gap: .1rem; padding: .5rem .75rem; background: #fff; border: 1px solid var(--line); }
 .act-item.on { border: 2px solid var(--accent); background: var(--accent-soft); }
+.act-row { display: flex; align-items: stretch; gap: .2rem; border-radius: 10px; }
+.act-row > .act-item { flex: 1; min-width: 0; }
+.act-row.dragging { opacity: .4; }
+.act-row.drop-before { box-shadow: 0 -3px 0 var(--accent); }
+.act-row.drop-after { box-shadow: 0 3px 0 var(--accent); }
+.drag-handle { display: flex; align-items: center; padding: 0 .3rem; color: var(--muted); cursor: grab; user-select: none; letter-spacing: -.15em; }
+.drag-handle:active { cursor: grabbing; }
+.act-group-head { margin: .4rem 0 -.2rem; font-size: .82rem; font-weight: 700; color: var(--muted); }
 .q-edit { border: 1px solid var(--line); border-radius: 12px; padding: 1rem; }
 
 /* 슬라이드 미리보기 */
