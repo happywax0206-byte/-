@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>줄파동 반사와 투과</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<style>
+:root {
+  --bg: #f4f6fa; --card: #ffffff; --ink: #1d2433; --muted: #5d6678; --line: #e1e5ee;
+  --c1: #2f6fde; --c2: #e0782b; --accent: #2f6fde; --accent-ink: #fff; --grid: #eef1f6;
+  --inc: #7a52e0; --ref: #d43d5c; --tra: #1f9d6b;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151c; --card: #1b2029; --ink: #e8ebf2; --muted: #9aa3b5; --line: #2c3340;
+    --c1: #6ea1ff; --c2: #ffa25c; --accent: #6ea1ff; --accent-ink: #0d1220; --grid: #232935;
+    --inc: #b49bff; --ref: #ff6f8c; --tra: #4fd39c;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  line-height: 1.5;
+}
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; }
+.top { margin-bottom: 18px; }
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+.sub { color: var(--muted); margin: 0; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+.card h2 { font-size: 1.05rem; margin: 0 0 10px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+button {
+  font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  border-radius: 10px; padding: 8px 14px; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button:disabled { opacity: .5; cursor: default; }
+#run { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; font-size: 1.1rem; padding: 10px 22px; min-width: 150px; }
+.lbl { display: block; font-weight: 600; margin-bottom: 6px; }
+.ctl { margin-bottom: 16px; }
+.ctl .line { display: flex; gap: 10px; align-items: center; }
+input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
+input[type=number] { width: 80px; font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); }
+select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+label.chk { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+label.chk input { accent-color: var(--accent); width: 16px; height: 16px; }
+.hint { color: var(--muted); font-size: .88rem; }
+.setups { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.setups button { padding: 8px 10px; text-align: left; line-height: 1.3; }
+.setups button b { display: block; font-size: .98rem; }
+.setups button.sel { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.mini { display: flex; align-items: center; height: 18px; margin-top: 6px; }
+.mini i { display: block; width: 30px; border-radius: 2px; }
+.mini .t { height: 2px; background: var(--c1); }
+.mini .k { height: 7px; background: var(--c2); }
+.mini .w { width: 6px; height: 18px; background: var(--muted); }
+.mini .o { width: 10px; height: 10px; border: 2px solid var(--muted); border-radius: 50%; margin-left: -2px; }
+.mini .p { width: 2px; height: 18px; background: var(--muted); margin-left: -6px; }
+.setups button.sel .mini .t, .setups button.sel .mini .k, .setups button.sel .mini .w, .setups button.sel .mini .p { background: var(--accent-ink); }
+.setups button.sel .mini .o { border-color: var(--accent-ink); }
+canvas { display: block; width: 100%; }
+#scene { height: 360px; }
+.timeline { display: flex; gap: 12px; align-items: center; margin-top: 10px; }
+.timeline output { font-variant-numeric: tabular-nums; min-width: 6.5em; text-align: right; font-weight: 600; }
+.note { background: var(--grid); border-radius: 12px; padding: 10px 14px; margin-top: 12px; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: .9rem; margin-top: 8px; }
+.legend span::before { content: ""; display: inline-block; width: 18px; height: 0; border-top: 2px dashed currentColor; vertical-align: middle; margin-right: 5px; }
+.coef { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.coef th, .coef td { border-bottom: 1px solid var(--line); padding: 8px 6px; text-align: left; }
+.coef th { color: var(--muted); font-weight: 600; font-size: .88rem; }
+.coef tr.off td { opacity: .45; }
+.flip { color: var(--ref); font-weight: 700; }
+.same { color: var(--tra); font-weight: 700; }
+.fx { background: var(--grid); border-radius: 12px; padding: 10px 14px; margin: 10px 0; overflow-x: auto; }
+.fx .katex { font-size: 1.15em; }
+.tex-fallback { font-family: "Cambria Math", "Times New Roman", serif; font-size: 1.1rem; padding: 6px 0; }
+ul { margin: 6px 0; padding-left: 20px; }
+@media (max-width: 800px) {
+  .setups { grid-template-columns: 1fr 1fr; }
+  #scene { height: 300px; }
+  h1 { font-size: 1.35rem; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <h1>줄파동의 반사와 투과</h1>
+    <p class="sub">위로 볼록한 펄스가 굵기가 다른 줄의 경계를 만나면 어떻게 될까요? 줄을 고르고 플레이를 눌러 보세요. (마찰·감쇠 없음)</p>
+  </header>
+
+  <section class="card">
+    <div class="ctl">
+      <div class="lbl">1. 어떤 줄에서 어떤 줄로 보낼까요?</div>
+      <div class="setups" id="setups">
+        <button data-k="tk"><b>얇은 줄 → 두꺼운 줄</b><span class="mini"><i class="t"></i><i class="k"></i></span></button>
+        <button data-k="kt"><b>두꺼운 줄 → 얇은 줄</b><span class="mini"><i class="k"></i><i class="t"></i></span></button>
+        <button data-k="tkt"><b>얇은 → 두꺼운 → 얇은</b><span class="mini"><i class="t"></i><i class="k"></i><i class="t"></i></span></button>
+        <button data-k="ktk"><b>두꺼운 → 얇은 → 두꺼운</b><span class="mini"><i class="k"></i><i class="t"></i><i class="k"></i></span></button>
+        <button data-k="fixed"><b>고정단 (벽에 묶인 끝)</b><span class="mini"><i class="t"></i><i class="w"></i></span></button>
+        <button data-k="free"><b>자유단 (고리로 자유로운 끝)</b><span class="mini"><i class="t"></i><i class="o"></i><i class="p"></i></span></button>
+      </div>
+    </div>
+
+    <div class="ctl">
+      <label class="lbl" for="Rr">2. 두꺼운 줄은 얇은 줄보다 몇 배 무거울까요? (1 m당 질량 = 선밀도의 비)</label>
+      <div class="line">
+        <input type="range" id="Rr" min="1" max="25" step="0.5" value="4">
+        <input type="number" id="Rn" min="1" max="100" step="0.5" value="4"> 배
+      </div>
+      <div class="hint" id="Rhint">1배로 하면 두 줄이 똑같아서 반사가 없어요. 아주 크게 하면 고정단에 가까워져요.</div>
+    </div>
+
+    <div class="row">
+      <button id="run">▶ 플레이</button>
+      <button id="reset">↺ 처음으로</button>
+      <label>빠르기
+        <select id="speed">
+          <option value="0.25">0.25배</option>
+          <option value="0.5">0.5배</option>
+          <option value="1" selected>1배</option>
+          <option value="2">2배</option>
+        </select>
+      </label>
+      <label class="chk"><input type="checkbox" id="names" checked> 이름표</label>
+      <label class="chk"><input type="checkbox" id="parts"> 각 펄스 따로 보기 (점선)</label>
+    </div>
+  </section>
+
+  <section class="card">
+    <canvas id="scene"></canvas>
+    <div class="timeline">
+      <span>시간</span>
+      <input type="range" id="tr" min="0" max="10" step="0.01" value="0">
+      <output id="tOut">t = 0.00 s</output>
+    </div>
+    <div class="legend" id="legend" hidden>
+      <span style="color:var(--inc)">입사 펄스</span>
+      <span style="color:var(--ref)">반사 펄스</span>
+      <span style="color:var(--tra)">투과 펄스</span>
+      <span class="hint" style="color:var(--muted)">실선(실제 줄 모양) = 점선들을 모두 더한 것</span>
+    </div>
+    <div class="note" id="note"></div>
+  </section>
+
+  <section class="card">
+    <h2>반사와 투과의 크기</h2>
+    <div id="speeds" class="hint" style="margin-bottom:8px"></div>
+    <table class="coef">
+      <thead><tr><th>경계에서</th><th>반사 펄스 높이</th><th>투과 펄스 높이</th></tr></thead>
+      <tbody id="coefBody"></tbody>
+    </table>
+    <p class="hint" style="margin:8px 0 0">높이는 들어온 펄스 높이를 1로 볼 때의 값이에요. 음수(−)는 뒤집혔다는 뜻이에요.</p>
+  </section>
+
+  <section class="card">
+    <h2>원리</h2>
+    <ul>
+      <li>줄의 장력 <i>T</i>는 어디서나 같고, 1 m당 질량(선밀도) <i>μ</i>가 큰 두꺼운 줄일수록 파동이 <b>느리게</b> 갑니다.</li>
+    </ul>
+    <div class="fx" id="fxV"></div>
+    <ul>
+      <li><b>얇은 줄 → 두꺼운 줄</b>: 반사 펄스가 <span class="flip">뒤집혀요</span>. 두꺼운 줄이 아주 무거우면 벽처럼 움직이지 않으니 <b>고정단 반사</b>와 같아집니다.</li>
+      <li><b>두꺼운 줄 → 얇은 줄</b>: 반사 펄스가 <span class="same">그대로</span>예요. 얇은 줄이 아주 가벼우면 끝이 자유롭게 움직이는 <b>자유단 반사</b>와 같아집니다.</li>
+      <li><b>투과 펄스는 언제나 뒤집히지 않아요.</b> 두꺼운 줄로 들어가면 느려지면서 폭이 좁아지고, 얇은 줄로 나가면 빨라지면서 폭이 넓어집니다. 한 점이 위아래로 움직이는 데 걸리는 시간(진동수)은 그대로이기 때문이에요.</li>
+      <li>경계에서는 두 줄이 붙어 있으므로 높이가 같아야 해서 1 + (반사 높이) = (투과 높이)가 늘 성립해요.</li>
+    </ul>
+    <div class="fx" id="fxRT"></div>
+    <ul>
+      <li>감쇠가 없으므로 펄스의 에너지는 사라지지 않고 반사 펄스와 투과 펄스로 나뉩니다. 세 줄을 이으면 가운데 줄 안에서 펄스가 여러 번 오가며 조금씩 빠져나갑니다.</li>
+      <li>양 끝은 아주 길다고 생각해서, 화면 밖으로 나간 펄스는 돌아오지 않아요.</li>
+    </ul>
+  </section>
+</main>
+
+<script>
+(() => {
+  // PHYSICS-BEGIN
+  const WORLD = 10;   // 화면 가로 길이 (m)
+  const X0 = 1.5;     // 처음 펄스 꼭대기 위치 (m)
+  const VFAST = 2;    // 얇은 줄의 파동 속력 (m/s)
+  const HALF = 0.4;   // 펄스가 한 점을 지나가는 데 걸리는 시간의 절반 (s)
+  const SETUPS = {
+    tk:    { kinds: ['thin', 'thick'], bounds: [5] },
+    kt:    { kinds: ['thick', 'thin'], bounds: [5] },
+    tkt:   { kinds: ['thin', 'thick', 'thin'], bounds: [4, 7] },
+    ktk:   { kinds: ['thick', 'thin', 'thick'], bounds: [4, 7] },
+    fixed: { kinds: ['thin'], bounds: [], end: 8, endR: -1 },
+    free:  { kinds: ['thin'], bounds: [], end: 8, endR: 1 },
+  };
+
+  function shape(s) {
+    if (s <= -HALF || s >= HALF) return 0;
+    const c = Math.cos(Math.PI * s / (2 * HALF));
+    return c * c;
+  }
+
+  // 줄 위의 모든 펄스를 미리 계산한다(달랑베르 해). 펄스 하나는
+  //   y = a · shape(t − tr − dir·(x − xr)/v)   (자기 줄 구간 안에서만)
+  // 이고, 경계에 닿으면 반사 펄스(r배)와 투과 펄스(τ배)로 나뉜다.
+  function buildModel(key, R) {
+    const S = SETUPS[key];
+    const mu = S.kinds.map(k => k === 'thick' ? R : 1);
+    const v = mu.map(m => VFAST / Math.sqrt(m));
+    const Z = mu.map(m => Math.sqrt(m));
+    const n = mu.length;
+    const lo = i => i === 0 ? -Infinity : S.bounds[i - 1];
+    const hi = i => i === n - 1 ? (S.end ?? Infinity) : S.bounds[i];
+    const packets = [];
+    const queue = [{ seg: 0, dir: 1, a: 1, xr: X0, tr: 0, kind: 'inc', flip: false }];
+    while (queue.length && packets.length < 3000) {
+      const p = queue.shift();
+      packets.push(p);
+      const xb = p.dir > 0 ? hi(p.seg) : lo(p.seg);
+      if (!isFinite(xb)) continue;
+      const th = p.tr + Math.abs(xb - p.xr) / v[p.seg];
+      if (th > 300) continue;
+      const j = p.seg + p.dir;
+      let r, tau;
+      if (j < 0 || j >= n) { r = S.endR; tau = 0; }
+      else { r = (Z[p.seg] - Z[j]) / (Z[p.seg] + Z[j]); tau = 2 * Z[p.seg] / (Z[p.seg] + Z[j]); }
+      if (Math.abs(p.a * r) > 0.001) queue.push({ seg: p.seg, dir: -p.dir, a: p.a * r, xr: xb, tr: th, kind: 'ref', flip: r < 0 });
+      if (Math.abs(p.a * tau) > 0.001) queue.push({ seg: j, dir: p.dir, a: p.a * tau, xr: xb, tr: th, kind: 'tra', flip: false });
+    }
+    const bySeg = mu.map(() => []);
+    for (const p of packets) bySeg[p.seg].push(p);
+    // 눈에 보이는 펄스가 모두 화면 밖으로 나가는 시각
+    let tEnd = 0;
+    for (const p of packets) {
+      if (Math.abs(p.a) < 0.02) continue;
+      const vv = v[p.seg];
+      if (p.seg === 0 && p.dir < 0) tEnd = Math.max(tEnd, p.tr + p.xr / vv + HALF);
+      else if (p.seg === n - 1 && p.dir > 0 && !S.end) tEnd = Math.max(tEnd, p.tr + (WORLD - p.xr) / vv + HALF);
+    }
+    return { S, mu, v, Z, n, lo, hi, packets, bySeg, tEnd: tEnd + 0.3 };
+  }
+
+  function packetY(M, p, x, t) {
+    return p.a * shape(t - p.tr - p.dir * (x - p.xr) / M.v[p.seg]);
+  }
+  function segY(M, i, x, t) {
+    let y = 0;
+    for (const p of M.bySeg[i]) y += packetY(M, p, x, t);
+    return y;
+  }
+  // PHYSICS-END
+
+  const $ = id => document.getElementById(id);
+  const cv = $('scene'), ctx = cv.getContext('2d');
+  const state = { key: 'tk', R: 4, t: 0, playing: false, speed: 1, M: null };
+
+  function tex(el, src, plain) {
+    if (window.katex) katex.render(src, el, { displayMode: true, throwOnError: false });
+    else { el.textContent = plain; el.className = 'fx tex-fallback'; }
+  }
+
+  function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  function fmt(x) { return (x < 0 ? '−' : '') + Math.abs(x).toFixed(2); }
+  const NAME = { thin: '얇은 줄', thick: '두꺼운 줄' };
+
+  function rebuild(keepTime) {
+    state.M = buildModel(state.key, state.R);
+    const tr = $('tr');
+    tr.max = state.M.tEnd.toFixed(2);
+    if (!keepTime) state.t = 0;
+    state.t = Math.min(state.t, state.M.tEnd);
+    updateInfo();
+    syncUI();
+    draw();
+  }
+
+  function setKey(k) {
+    state.key = k;
+    state.playing = false;
+    document.querySelectorAll('#setups button').forEach(b => b.classList.toggle('sel', b.dataset.k === k));
+    const end = !!SETUPS[k].end;
+    $('Rr').disabled = $('Rn').disabled = end;
+    $('Rhint').textContent = end
+      ? '고정단·자유단은 줄이 하나뿐이라 이 값을 쓰지 않아요.'
+      : '1배로 하면 두 줄이 똑같아서 반사가 없어요. 아주 크게 하면 고정단에 가까워져요.';
+    rebuild(false);
+  }
+
+  function setR(R, from) {
+    R = Math.min(100, Math.max(1, +R || 1));
+    state.R = R;
+    if (from !== 'r') $('Rr').value = Math.min(25, R);
+    if (from !== 'n') $('Rn').value = R;
+    rebuild(true);
+  }
+
+  function syncUI() {
+    const M = state.M;
+    $('tr').value = state.t.toFixed(2);
+    $('tOut').textContent = 't = ' + state.t.toFixed(2) + ' s';
+    const ended = state.t >= M.tEnd - 1e-9;
+    $('run').textContent = state.playing ? '⏸ 멈춤' : (ended ? '▶ 다시 보기' : '▶ 플레이');
+  }
+
+  function updateInfo() {
+    const M = state.M, S = M.S, R = state.R;
+    const vThin = VFAST, vThick = VFAST / Math.sqrt(R);
+    if (S.end) {
+      $('speeds').textContent = `줄의 파동 속력 v = ${vThin.toFixed(2)} m/s`;
+    } else {
+      $('speeds').textContent = `얇은 줄 v = ${vThin.toFixed(2)} m/s, 두꺼운 줄 v = ${vThick.toFixed(2)} m/s  (두꺼운 줄이 ${R}배 무거우면 속력은 1/√${R} = ${(1 / Math.sqrt(R)).toFixed(2)}배)`;
+    }
+    const zt = 1, zk = Math.sqrt(R);
+    const rows = [
+      { name: '얇은 줄 → 두꺼운 줄', r: (zt - zk) / (zt + zk), tau: 2 * zt / (zt + zk), on: !S.end },
+      { name: '두꺼운 줄 → 얇은 줄', r: (zk - zt) / (zt + zk), tau: 2 * zk / (zt + zk), on: !S.end && (state.key !== 'tk') },
+      { name: '고정단 (벽)', r: -1, tau: null, on: state.key === 'fixed' },
+      { name: '자유단 (고리)', r: 1, tau: null, on: state.key === 'free' },
+    ];
+    // 2줄짜리는 그 방향만 진하게, 3줄짜리는 두 방향 모두 나온다
+    if (state.key === 'kt') rows[0].on = false;
+    const desc = r => Math.abs(r) < 1e-9 ? '반사 없음' : (r < 0 ? '<span class="flip">뒤집힘</span>' : '<span class="same">그대로</span>');
+    $('coefBody').innerHTML = rows.map(o => `<tr class="${o.on ? '' : 'off'}">
+      <td>${o.name}</td>
+      <td>${fmt(o.r)} (${desc(o.r)})</td>
+      <td>${o.tau == null ? '없음' : fmt(o.tau) + ' (<span class="same">그대로</span>)'}</td></tr>`).join('');
+
+    const NOTE = {
+      tk: '얇은 줄에서 두꺼운 줄로 갈 때: 반사 펄스는 <span class="flip">뒤집혀서</span> 돌아와요(고정단과 비슷). 투과 펄스는 위로 볼록한 그대로이고, 느려지면서 폭이 좁아져요.',
+      kt: '두꺼운 줄에서 얇은 줄로 갈 때: 반사 펄스는 <span class="same">뒤집히지 않고</span> 돌아와요(자유단과 비슷). 투과 펄스는 빨라지면서 폭이 넓어지고, 들어온 펄스보다 높아요.',
+      tkt: '얇은 → 두꺼운 경계에서는 반사가 <span class="flip">뒤집히고</span>, 두꺼운 → 얇은 경계에서는 <span class="same">그대로</span>예요. 가운데 두꺼운 줄 안에서 펄스가 여러 번 오가며 양쪽으로 조금씩 빠져나가요.',
+      ktk: '두꺼운 → 얇은 경계에서는 반사가 <span class="same">그대로</span>, 얇은 → 두꺼운 경계에서는 <span class="flip">뒤집혀요</span>. 가운데 얇은 줄 안에서 펄스가 여러 번 오가며 양쪽으로 조금씩 빠져나가요.',
+      fixed: '고정단: 끝이 벽에 묶여 움직이지 못해요. 반사 펄스는 <span class="flip">뒤집혀서</span> 같은 크기로 돌아와요. 벽에 닿는 순간 끝점의 높이는 늘 0이에요.',
+      free: '자유단: 끝의 고리가 막대를 따라 자유롭게 움직여요. 반사 펄스는 <span class="same">뒤집히지 않고</span> 같은 크기로 돌아와요. 닿는 순간 끝이 펄스 높이의 2배까지 올라가요.',
+    };
+    $('note').innerHTML = NOTE[state.key];
+  }
+
+  // ---------- 그리기 ----------
+  let W = 0, H = 0;
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    const r = cv.getBoundingClientRect();
+    W = r.width; H = r.height;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    draw();
+  }
+
+  function draw() {
+    if (!W || !state.M) return;
+    const M = state.M, S = M.S, t = state.t;
+    const col = { ink: css('--ink'), muted: css('--muted'), line: css('--line'), grid: css('--grid'),
+      thin: css('--c1'), thick: css('--c2'), inc: css('--inc'), ref: css('--ref'), tra: css('--tra'), card: css('--card') };
+    ctx.clearRect(0, 0, W, H);
+    const X = x => x / WORLD * W;
+    const y0 = H * 0.47, A = H * 0.2;
+    const Y = y => y0 - y * A;
+
+    // 기준선과 높이 눈금
+    ctx.strokeStyle = col.line; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(W, y0); ctx.stroke();
+    ctx.setLineDash([]);
+
+    const xEnd = S.end ?? WORLD;
+    // 줄 구간 배경 이름
+    ctx.font = '600 13px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    for (let i = 0; i < M.n; i++) {
+      const a = Math.max(M.lo(i), 0), b = Math.min(M.hi(i), WORLD);
+      const kind = S.kinds[i];
+      ctx.fillStyle = kind === 'thick' ? col.thick : col.thin;
+      const label = S.end ? `줄  v = ${M.v[i].toFixed(2)} m/s` : `${NAME[kind]}  v = ${M.v[i].toFixed(2)} m/s`;
+      ctx.fillText(label, X((a + b) / 2), H - 14);
+    }
+
+    // 고정단 벽 / 자유단 막대
+    if (S.end) {
+      const xe = X(S.end);
+      if (S.endR < 0) {
+        ctx.fillStyle = col.grid; ctx.fillRect(xe, H * 0.1, 16, H * 0.74);
+        ctx.strokeStyle = col.muted; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(xe, H * 0.1); ctx.lineTo(xe, H * 0.84); ctx.stroke();
+        ctx.lineWidth = 1;
+        for (let yy = H * 0.1; yy < H * 0.84; yy += 12) { ctx.beginPath(); ctx.moveTo(xe, yy + 12); ctx.lineTo(xe + 12, yy); ctx.stroke(); }
+      } else {
+        ctx.strokeStyle = col.muted; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(xe, H * 0.04); ctx.lineTo(xe, H * 0.86); ctx.stroke();
+      }
+    }
+
+    // 각 펄스 따로 (점선)
+    const showParts = $('parts').checked;
+    const step = WORLD / W * 1.5;
+    if (showParts) {
+      ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+      for (const p of M.packets) {
+        if (Math.abs(p.a) < 0.01) continue;
+        const v = M.v[p.seg];
+        const xp = p.xr + p.dir * v * (t - p.tr);
+        const a = Math.max(xp - v * HALF, M.lo(p.seg), 0), b = Math.min(xp + v * HALF, M.hi(p.seg), WORLD);
+        if (b <= a) continue;
+        ctx.strokeStyle = col[p.kind];
+        ctx.beginPath();
+        for (let x = a; ; x += step) {
+          const xx = Math.min(x, b);
+          const px = X(xx), py = Y(packetY(M, p, xx, t));
+          if (x === a) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+          if (xx >= b) break;
+        }
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+
+    // 실제 줄 (모든 펄스의 합)
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    for (let i = 0; i < M.n; i++) {
+      const a = Math.max(M.lo(i), 0), b = Math.min(M.hi(i), xEnd);
+      const kind = S.kinds[i];
+      ctx.strokeStyle = kind === 'thick' ? col.thick : col.thin;
+      ctx.lineWidth = Math.min(16, 2.5 * Math.sqrt(M.mu[i]));
+      ctx.beginPath();
+      for (let x = a; ; x += step) {
+        const xx = Math.min(x, b);
+        const px = X(xx), py = Y(segY(M, i, xx, t));
+        if (x === a) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        if (xx >= b) break;
+      }
+      ctx.stroke();
+    }
+    // 이음매
+    ctx.fillStyle = col.ink;
+    for (let i = 0; i < S.bounds.length; i++) {
+      const xb = S.bounds[i];
+      ctx.beginPath(); ctx.arc(X(xb), Y(segY(M, i + 1, xb, t)), 4, 0, Math.PI * 2); ctx.fill();
+    }
+    // 자유단 고리
+    if (S.end && S.endR > 0) {
+      ctx.strokeStyle = col.ink; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(X(S.end), Y(segY(M, 0, S.end, t)), 7, 0, Math.PI * 2); ctx.stroke();
+    }
+
+    // 이름표
+    if ($('names').checked) {
+      ctx.font = '700 13px system-ui, sans-serif'; ctx.textAlign = 'center';
+      for (const p of M.packets) {
+        if (Math.abs(p.a) < 0.05) continue;
+        const v = M.v[p.seg];
+        const xp = p.xr + p.dir * v * (t - p.tr);
+        if (xp - v * HALF < M.lo(p.seg) || xp + v * HALF > M.hi(p.seg)) continue;
+        if (xp < 0.3 || xp > WORLD - 0.3) continue;
+        const name = p.kind === 'inc' ? '입사 펄스' : p.kind === 'ref' ? (p.flip ? '반사 펄스 (뒤집힘)' : '반사 펄스') : '투과 펄스';
+        const arrow = p.dir > 0 ? '→' : '←';
+        const txt = p.dir > 0 ? `${name} ${arrow}` : `${arrow} ${name}`;
+        const py = Y(p.a);
+        ctx.fillStyle = col[p.kind];
+        ctx.textBaseline = p.a > 0 ? 'bottom' : 'top';
+        ctx.fillText(txt, X(xp), p.a > 0 ? py - 8 : py + 8);
+      }
+      ctx.textBaseline = 'alphabetic';
+    }
+  }
+
+  // ---------- 재생 ----------
+  let last = 0;
+  function frame(ts) {
+    if (!state.playing) return;
+    const dt = Math.min(0.05, (ts - last) / 1000);
+    last = ts;
+    state.t += dt * state.speed;
+    if (state.t >= state.M.tEnd) { state.t = state.M.tEnd; state.playing = false; }
+    syncUI(); draw();
+    if (state.playing) requestAnimationFrame(frame);
+  }
+  function play() {
+    if (state.t >= state.M.tEnd - 1e-9) state.t = 0;
+    state.playing = true;
+    last = performance.now();
+    syncUI();
+    requestAnimationFrame(frame);
+  }
+
+  $('run').onclick = () => { if (state.playing) { state.playing = false; syncUI(); } else play(); };
+  $('reset').onclick = () => { state.playing = false; state.t = 0; syncUI(); draw(); };
+  $('speed').onchange = e => { state.speed = +e.target.value; };
+  $('names').onchange = draw;
+  $('parts').onchange = () => { $('legend').hidden = !$('parts').checked; draw(); };
+  $('tr').oninput = e => { state.playing = false; state.t = +e.target.value; syncUI(); draw(); };
+  $('Rr').oninput = e => setR(e.target.value, 'r');
+  $('Rn').onchange = e => setR(e.target.value, 'n');
+  document.querySelectorAll('#setups button').forEach(b => b.onclick = () => setKey(b.dataset.k));
+  window.addEventListener('resize', resize);
+  if (window.matchMedia) matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', draw);
+
+  tex($('fxV'), String.raw`v = \sqrt{\dfrac{T}{\mu}}`, 'v = √(T/μ)');
+  tex($('fxRT'), String.raw`\text{반사 높이} = \frac{\sqrt{\mu_1}-\sqrt{\mu_2}}{\sqrt{\mu_1}+\sqrt{\mu_2}},\qquad \text{투과 높이} = \frac{2\sqrt{\mu_1}}{\sqrt{\mu_1}+\sqrt{\mu_2}}\qquad(\text{줄 }1\to\text{줄 }2)`,
+    '반사 높이 = (√μ₁ − √μ₂)/(√μ₁ + √μ₂),  투과 높이 = 2√μ₁/(√μ₁ + √μ₂)  (줄 1 → 줄 2)');
+
+  setKey('tk');
+  resize();
+})();
+</script>
+</body>
+</html>
