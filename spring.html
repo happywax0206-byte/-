@@ -49,6 +49,10 @@ input[type=number] { width: 90px; font: inherit; padding: 4px 6px; border: 1px s
 select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
 .hint { color: var(--muted); font-size: .88rem; }
 .warn { color: var(--hl); font-weight: 600; }
+.seg { display: inline-grid; grid-template-columns: 1fr 1fr; min-width: 240px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; padding: 6px 10px; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.sel { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
 .planets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 8px; }
 .planets button { padding: 6px 4px; font-size: .92rem; line-height: 1.25; }
 .planets button small { display: block; color: var(--muted); font-size: .76rem; }
@@ -181,6 +185,13 @@ ul { margin: 6px 0; padding-left: 20px; }
 
     <div>
       <section class="card">
+        <div class="row" style="margin-bottom:8px">
+          <div class="seg">
+            <button data-zoom="0" class="sel">📏 같은 눈금</button>
+            <button data-zoom="1">🔍 크게 보기</button>
+          </div>
+          <span class="hint" id="zoomHint"></span>
+        </div>
         <canvas id="scene"></canvas>
         <div class="fx" id="sceneFx" style="margin:12px 0 0"></div>
       </section>
@@ -296,6 +307,17 @@ ul { margin: 6px 0; padding-left: 20px; }
   $('speed').addEventListener('change', e => { state.speed = Number(e.target.value); });
   $('run').addEventListener('click', () => { state.running = !state.running; $('run').textContent = state.running ? '⏸ 멈춤' : '▶ 다시 움직이기'; });
   $('reset').addEventListener('click', () => { state.t = 0; });
+
+  const FIXED_SPAN = 2; // 같은 눈금일 때 자의 길이(m)
+  function setZoom(on) {
+    state.zoom = on;
+    document.querySelectorAll('[data-zoom]').forEach(b => b.classList.toggle('sel', (b.dataset.zoom === '1') === on));
+    $('zoomHint').textContent = on
+      ? '값에 맞춰 눈금을 자동으로 바꿔 크게 보여 줘요. 눈금 숫자를 꼭 확인하세요.'
+      : '그림의 자(0~2 m)와 그래프 눈금(±40 cm, 10초)이 항상 같아요.';
+  }
+  document.querySelectorAll('[data-zoom]').forEach(b => b.addEventListener('click', () => setZoom(b.dataset.zoom === '1')));
+  setZoom(false);
 
   // ---------- 수식 ----------
   function tex(el, src, display = true, plain = '') {
@@ -436,9 +458,10 @@ ul { margin: 6px 0; padding-left: 20px; }
   function drawScene() {
     const { g, w, h } = fit($('scene'));
     const top = 30, bottom = 16;
-    const blk = Math.max(...oscs.map(o => blockSize(o.m)));
+    // 같은 눈금: 항상 0~2 m 자. 크게 보기: 용수철 길이에 맞춰 축척을 고른다
+    const blk = state.zoom ? Math.max(...oscs.map(o => blockSize(o.m))) : blockSize(5);
     const maxLen = Math.max(...oscs.map(o => L0 + o.eq + A));
-    const span = niceCeil(maxLen);
+    const span = state.zoom ? niceCeil(maxLen) : FIXED_SPAN;
     const pxPerM = (h - top - bottom - blk) / span;
     const two = oscs.length > 1;
     const xs = two ? [w * 0.36, w * 0.7] : [w * 0.5];
@@ -485,6 +508,12 @@ ul { margin: 6px 0; padding-left: 20px; }
       g.beginPath(); g.moveTo(rx, yy); g.lineTo(rx + (major ? 10 : 5), yy); g.stroke();
       if (major) g.fillText(fmtLen(k * span / 10).replace(/\.0 /, ' '), rx + 14, yy + 4);
     }
+
+    if (!state.zoom && maxLen > span) {
+      g.fillStyle = colors.hl; g.font = '600 14px system-ui, sans-serif'; g.textAlign = 'center';
+      g.fillText('추가 화면 아래로 벗어났어요. 「🔍 크게 보기」를 눌러 보세요.', w / 2 + 20, h - 10);
+      g.textAlign = 'left';
+    }
   }
 
   function drawGraph() {
@@ -492,11 +521,12 @@ ul { margin: 6px 0; padding-left: 20px; }
     const left = 56, right = w - 10, top = 18, bottom = h - 24;
     const mid = (top + bottom) / 2;
     const ycm = A * 100;
-    const ystep = [1, 2, 5, 10, 20].find(s => ycm / s <= 3);
-    const ymax = Math.max(ycm * 1.15, ystep);
+    // 같은 눈금: 변위 ±40 cm, 시간 10초로 고정
+    const ystep = state.zoom ? [1, 2, 5, 10, 20].find(s => ycm / s <= 3) : 10;
+    const ymax = state.zoom ? Math.max(ycm * 1.15, ystep) : 44;
     const scale = (bottom - top) / 2 / ymax;
     const Tmax = Math.max(...oscs.map(o => o.T));
-    const win = clamp(3 * Tmax, 2, 40);
+    const win = state.zoom ? clamp(3 * Tmax, 2, 40) : 10;
     const t1 = Math.max(win, state.t), t0 = t1 - win;
     const X = t => left + (t - t0) / win * (right - left);
 

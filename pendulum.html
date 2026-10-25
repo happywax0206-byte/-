@@ -177,6 +177,13 @@ ul { margin: 6px 0; padding-left: 20px; }
 
     <div>
       <section class="card">
+        <div class="row" style="margin-bottom:8px">
+          <div class="seg" style="display:inline-grid;min-width:240px">
+            <button data-zoom="0" class="sel">📏 같은 눈금</button>
+            <button data-zoom="1">🔍 크게 보기</button>
+          </div>
+          <span class="hint" id="zoomHint"></span>
+        </div>
         <canvas id="scene"></canvas>
         <div class="fx" id="sceneFx" style="margin:12px 0 0"></div>
       </section>
@@ -328,6 +335,16 @@ ul { margin: 6px 0; padding-left: 20px; }
   $('speed').addEventListener('change', e => { state.speed = Number(e.target.value); });
   $('run').addEventListener('click', () => { state.running = !state.running; $('run').textContent = state.running ? '⏸ 멈춤' : '▶ 다시 움직이기'; });
   $('reset').addEventListener('click', () => { state.t = 0; });
+
+  function setZoom(on) {
+    state.zoom = on;
+    document.querySelectorAll('[data-zoom]').forEach(b => b.classList.toggle('sel', (b.dataset.zoom === '1') === on));
+    $('zoomHint').textContent = on
+      ? '값에 맞춰 눈금을 자동으로 바꿔 크게 보여 줘요. 눈금 숫자를 꼭 확인하세요.'
+      : '그림의 자(0~10 m)와 그래프 눈금(±180°, 10초)이 항상 같아요.';
+  }
+  document.querySelectorAll('[data-zoom]').forEach(b => b.addEventListener('click', () => setZoom(b.dataset.zoom === '1')));
+  setZoom(false);
 
   // 값을 바꾸면 진자를 처음 위치(θ₀)에서 다시 놓는다
   function changed() {
@@ -527,12 +544,16 @@ ul { margin: 6px 0; padding-left: 20px; }
     const up = Math.max(0, -Math.cos(a0));              // 90°보다 크게 당기면 추가 매단 점보다 위로 올라감
     const side = Math.sin(Math.min(a0, Math.PI / 2));   // 옆으로 벌어지는 정도
     const maxL = Math.max(...pends.map(p => p.L));
-    const span = [0.5, 1, 2, 5, 10].find(s => s >= maxL);
     const two = pends.length > 1;
     const xs = two ? [w * 0.38, w * 0.74] : [w * 0.56];
     const half = two ? w * 0.17 : w * 0.38;
-    let pxPerM = avH / (span + maxL * up);
-    pxPerM = Math.min(pxPerM, (half - 16) / (maxL * side));
+    // 같은 눈금: 항상 0~10 m 자. 크게 보기: 길이·진폭에 맞춰 축척을 고른다
+    const span = state.zoom ? [0.5, 1, 2, 5, 10].find(s => s >= maxL) : 10;
+    let pxPerM = avH / span;
+    if (state.zoom) {
+      pxPerM = avH / (span + maxL * up);
+      pxPerM = Math.min(pxPerM, (half - 16) / (maxL * side));
+    }
     const py = top + maxL * up * pxPerM;
 
     pends.forEach((p, i) => drawPendulum(g, xs[i], py, p.L * pxPerM, p.theta(state.t), colors[p.color], p.label));
@@ -556,11 +577,12 @@ ul { margin: 6px 0; padding-left: 20px; }
     const { g, w, h } = fit($('graph'));
     const left = 48, right = w - 10, top = 18, bottom = h - 24;
     const mid = (top + bottom) / 2;
-    const ystep = [5, 10, 15, 30, 45, 60, 90].find(s => state.amp / s <= 3);
-    const ymax = Math.max(state.amp * 1.15, ystep);
+    // 같은 눈금: 각도 ±180°, 시간 10초로 고정
+    const ystep = state.zoom ? [5, 10, 15, 30, 45, 60, 90].find(s => state.amp / s <= 3) : 45;
+    const ymax = state.zoom ? Math.max(state.amp * 1.15, ystep) : 190;
     const scale = (bottom - top) / 2 / ymax;
     const Tmax = Math.max(...pends.map(p => p.T));
-    const win = clamp(3 * Tmax, 2, 40);
+    const win = state.zoom ? clamp(3 * Tmax, 2, 40) : 10;
     const t1 = Math.max(win, state.t), t0 = t1 - win;
     const X = t => left + (t - t0) / win * (right - left);
 
