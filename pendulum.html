@@ -65,6 +65,9 @@ select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid 
 .fxk { font-weight: 700; margin-bottom: 2px; }
 .fx .katex-display { margin: .5em 0; }
 .fx .katex { font-size: 1.15em; }
+.fxrow { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+.fxrow .dot { flex: none; margin: 0; }
+.fxrow .fxname { flex: none; font-weight: 700; min-width: 4.5em; }
 .tex-fallback { font-family: "Cambria Math", "Times New Roman", serif; font-size: 1.1rem; padding: 6px 0; }
 canvas { display: block; width: 100%; }
 #scene { height: 440px; }
@@ -159,6 +162,7 @@ ul { margin: 6px 0; padding-left: 20px; }
     <div>
       <section class="card">
         <canvas id="scene"></canvas>
+        <div class="fx" id="sceneFx" style="margin:12px 0 0"></div>
       </section>
       <section class="card">
         <div class="stats">
@@ -391,7 +395,52 @@ ul { margin: 6px 0; padding-left: 20px; }
     'T = 2\\pi\\sqrt{\\dfrac{L}{g}}\\left(1+\\frac{1}{16}\\theta_0^2+\\frac{11}{3072}\\theta_0^4+\\cdots\\right)',
     true, 'T = 2π√(L/g) (1 + θ₀²/16 + 11θ₀⁴/3072 + …)');
 
+  // 진자 하나의 주기 공식: sym은 기호(T, L, g의 아래 첨자 등)
+  function periodTex(L, g, exact, sym, ratio) {
+    const T0 = approxPeriod(L, g);
+    const head = sym.T + ' = 2\\pi\\sqrt{\\dfrac{' + sym.L + '}{' + sym.g + '}}';
+    const headPlain = sym.pT + ' = 2π√(' + sym.pL + '/' + sym.pg + ')';
+    if (!exact) {
+      return [head + ' = 2\\pi\\sqrt{\\dfrac{' + unitL(L) + '}{' + unitG(g) + '}} = ' + unitT(T0),
+        headPlain + ' = 2π√(' + fmt(L, 2) + ' / ' + g + ') = ' + fmt(T0, 3) + ' s'];
+    }
+    return [head + '\\left(1+\\dfrac{\\theta_0^2}{16}+\\cdots\\right) = ' + unitT(T0) + '\\times ' + fmt(ratio, 4) + ' = ' + unitT(T0 * ratio),
+      headPlain + '(1 + θ₀²/16 + …) = ' + fmt(T0, 3) + ' s × ' + fmt(ratio, 4) + ' = ' + fmt(T0 * ratio, 3) + ' s'];
+  }
+
+  // 진자 그림 바로 아래: 지금 화면에 있는 진자들의 공식
+  function renderSceneFormulas(ratio) {
+    const S = (T, L, g, pT, pL, pg) => ({ T, L, g, pT, pL, pg });
+    const base = S('T', 'L', 'g', 'T', 'L', 'g');
+    let rows;
+    if (state.cmp === 'length') rows = [
+      ['L₁ 진자', 'c1', state.L, state.g, state.exact, S('T_1', 'L_1', 'g', 'T₁', 'L₁', 'g')],
+      ['L₂ 진자', 'c2', state.L2, state.g, state.exact, S('T_2', 'L_2', 'g', 'T₂', 'L₂', 'g')],
+    ];
+    else if (state.cmp === 'earth') rows = [
+      [state.place || '이 중력', 'c1', state.L, state.g, state.exact, base],
+      ['지구', 'c2', state.L, G_EARTH, state.exact, S('T_{\\text{지구}}', 'L', 'g_{\\text{지구}}', 'T지구', 'L', 'g지구')],
+    ];
+    else if (state.cmp === 'model') rows = [
+      ['실제', 'c1', state.L, state.g, true, base],
+      ['근사', 'c2', state.L, state.g, false, base],
+    ];
+    else rows = [[state.exact ? '실제 진자' : '근사', 'c1', state.L, state.g, state.exact, base]];
+
+    const box = $('sceneFx');
+    box.innerHTML = '';
+    rows.forEach(([name, color, L, g, exact, sym]) => {
+      const row = document.createElement('div');
+      row.className = 'fxrow';
+      row.innerHTML = '<span class="dot" style="background:var(--' + color + ')"></span><span class="fxname">' + name + '</span><span></span>';
+      const [t, p] = periodTex(L, g, exact, sym, ratio);
+      tex(row.lastChild, t, false, p);
+      box.appendChild(row);
+    });
+  }
+
   function renderFormulas(ratio) {
+    renderSceneFormulas(ratio);
     const T0 = approxPeriod(state.L, state.g);
     tex($('fxApprox'),
       'T = 2\\pi\\sqrt{\\dfrac{L}{g}} = 2\\pi\\sqrt{\\dfrac{' + unitL(state.L) + '}{' + unitG(state.g) + '}} = ' + unitT(T0),
