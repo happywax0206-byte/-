@@ -1,4 +1,4 @@
-﻿# 작업 메모 (Claude Code용)
+# 작업 메모 (Claude Code용)
 
 수업 응답 웹앱. 화면은 GitHub Pages(이 저장소 `main` 브랜치 루트), 데이터·파일은 Supabase. 빌드 도구 없음: 파일을 고쳐 push하면 1~2분 뒤 사이트에 반영된다. 사용법·설치는 README.md.
 
