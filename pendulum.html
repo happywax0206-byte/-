@@ -158,6 +158,7 @@ ul { margin: 6px 0; padding-left: 20px; }
           <option value="length">실의 길이가 다른 진자와 비교</option>
           <option value="earth">같은 진자를 지구에 둔 경우와 비교</option>
           <option value="model">근사 vs 실제 진자 비교</option>
+          <option value="amp">진폭이 다른 진자와 비교</option>
         </select>
         <div id="L2box" hidden style="margin-top:10px">
           <label style="font-weight:600"><span class="dot" style="background:var(--c2)"></span>두 번째 진자의 실의 길이 L₂</label>
@@ -169,6 +170,13 @@ ul { margin: 6px 0; padding-left: 20px; }
             <span class="hint">L₁의</span>
             <button data-ratio="0.25">¼배</button><button data-ratio="0.5">½배</button>
             <button data-ratio="2">2배</button><button data-ratio="4">4배</button><button data-ratio="9">9배</button>
+          </div>
+        </div>
+        <div id="A2box" hidden style="margin-top:10px">
+          <label style="font-weight:600"><span class="dot" style="background:var(--c2)"></span>두 번째 진자의 진폭 θ₂</label>
+          <div class="line">
+            <input type="range" id="A2r" min="1" max="170" step="1" value="60">
+            <input type="number" id="A2n" min="1" max="170" step="0.1" value="60"> °
           </div>
         </div>
       </div>
@@ -255,7 +263,7 @@ ul { margin: 6px 0; padding-left: 20px; }
     ['천왕성', 8.69], ['해왕성', 11.15], ['명왕성', 0.62], ['달', 1.62], ['태양', 274],
   ];
 
-  const state = { L: 1, L2: 4, m: 1, g: 9.8, place: '지구', amp: 10, exact: false, cmp: 'none', speed: 1, running: true, t: 0 };
+  const state = { L: 1, L2: 4, m: 1, g: 9.8, place: '지구', amp: 10, amp2: 60, exact: false, cmp: 'none', speed: 1, running: true, t: 0 };
   let pends = []; // 지금 화면에 있는 진자들 (1개 또는 2개)
 
   function fmt(x, d) { return Number(x).toFixed(d); }
@@ -268,11 +276,11 @@ ul { margin: 6px 0; padding-left: 20px; }
   // 실제 진자의 정확한 주기: T = 2π√(L/g) / AGM(1, cos(θ₀/2))
   const exactPeriod = (L, g, a0) => approxPeriod(L, g) / agm(1, Math.cos(a0 / 2));
 
-  function makeMotion(L, g, exact) {
-    const a0 = state.amp * Math.PI / 180;
+  function makeMotion(L, g, exact, amp = state.amp) {
+    const a0 = amp * Math.PI / 180;
     if (!exact) {
       const T = approxPeriod(L, g);
-      return { L, T, theta: t => state.amp * Math.cos(TAU * t / T) };
+      return { L, T, amp, theta: t => amp * Math.cos(TAU * t / T) };
     }
     // θ'' = −(g/L) sin θ 를 한 주기 동안 RK4로 풀어 표로 저장하고, 그 뒤는 반복한다
     const T = exactPeriod(L, g, a0), N = 4000, h = T / N, w2 = g / L;
@@ -290,7 +298,7 @@ ul { margin: 6px 0; padding-left: 20px; }
       tab[i] = th;
     }
     return {
-      L, T,
+      L, T, amp,
       theta: t => {
         const u = ((t % T) + T) % T / T * N, i = Math.min(N - 1, Math.floor(u)), f = u - i;
         return (tab[i] + (tab[i + 1] - tab[i]) * f) * 180 / Math.PI;
@@ -348,15 +356,19 @@ ul { margin: 6px 0; padding-left: 20px; }
   $('mr').addEventListener('input', e => setMass(e.target.value));
   $('mn').addEventListener('change', e => setMass(e.target.value));
 
-  const setAmp = v => {
-    v = Number(v);
-    if (!isFinite(v)) { $('An').value = state.amp; return; }
-    state.amp = Math.round(clamp(v, 1, 170) * 10) / 10;
-    $('Ar').value = state.amp; $('An').value = state.amp;
-    changed();
-  };
-  $('Ar').addEventListener('input', e => setAmp(e.target.value));
-  $('An').addEventListener('change', e => setAmp(e.target.value));
+  function bindAmp(rId, nId, key) {
+    const set = v => {
+      v = Number(v);
+      if (!isFinite(v)) { $(nId).value = state[key]; return; }
+      state[key] = Math.round(clamp(v, 1, 170) * 10) / 10;
+      $(rId).value = state[key]; $(nId).value = state[key];
+      changed();
+    };
+    $(rId).addEventListener('input', e => set(e.target.value));
+    $(nId).addEventListener('change', e => set(e.target.value));
+  }
+  bindAmp('Ar', 'An', 'amp');
+  bindAmp('A2r', 'A2n', 'amp2');
   $('cmp').addEventListener('change', e => { state.cmp = e.target.value; changed(); });
   $('speed').addEventListener('change', e => { state.speed = Number(e.target.value); });
   $('run').addEventListener('click', () => { state.running = !state.running; $('run').textContent = state.running ? '⏸ 멈춤' : '▶ 다시 움직이기'; });
@@ -388,6 +400,9 @@ ul { margin: 6px 0; padding-left: 20px; }
       p1.label = '실제 진자';
       Object.assign(p1, makeMotion(state.L, state.g, true));
       pends.push({ ...makeMotion(state.L, state.g, false), color: 'c2', label: '근사 공식' });
+    } else if (state.cmp === 'amp') {
+      p1.label = 'θ₁ = ' + state.amp + '°';
+      pends.push({ ...makeMotion(state.L, state.g, state.exact, state.amp2), color: 'c2', label: 'θ₂ = ' + state.amp2 + '°' });
     }
 
     // 버튼·안내
@@ -400,6 +415,7 @@ ul { margin: 6px 0; padding-left: 20px; }
       : state.exact ? '진폭을 크게 하면 주기가 근사값보다 길어지는 것을 볼 수 있어요.'
       : '진폭이 작다고 보고 T = 2π√(L/g) 로 움직여요.';
     $('L2box').hidden = state.cmp !== 'length';
+    $('A2box').hidden = state.cmp !== 'amp';
     $('T2stat').hidden = pends.length < 2;
 
     const a0 = state.amp * Math.PI / 180;
@@ -428,6 +444,12 @@ ul { margin: 6px 0; padding-left: 20px; }
         : w + '의 주기는 지구의 ' + fmt(r, 2) + '배예요 → 지구보다 ' + (r > 1 ? '느리게' : '빠르게') + ' 흔들려요.';
     } else if (state.cmp === 'model') {
       txt = '진폭 ' + state.amp + '°에서 ' + longer + ' 시간이 지날수록 두 진자가 점점 어긋나요.';
+    } else if (state.cmp === 'amp') {
+      const r = pends[1].T / p1.T;
+      txt = !state.exact
+        ? '근사 공식 T = 2π√(L/g)에는 진폭이 없어서 두 진자의 주기가 똑같아요. 「실제 진자」를 누르면 진폭이 큰 진자가 조금씩 늦어지는 것을 볼 수 있어요.'
+        : Math.abs(r - 1) < 0.005 ? '두 진폭이 모두 작아서 주기가 거의 같아요(차이 ' + fmt(Math.abs(r - 1) * 100, 2) + '%). 진폭을 크게 벌려 보세요.'
+        : 'θ₂ 진자의 주기는 θ₁ 진자의 ' + fmt(r, 3) + '배예요 → 실제 진자는 진폭이 클수록 주기가 길어서 시간이 지날수록 두 진자가 어긋나요.';
     }
     $('cmpText').textContent = txt;
   }
@@ -484,19 +506,25 @@ ul { margin: 6px 0; padding-left: 20px; }
       ['실제', 'c1', state.L, state.g, true, base],
       ['근사', 'c2', state.L, state.g, false, base],
     ];
+    else if (state.cmp === 'amp') rows = [
+      ['θ₁ 진자', 'c1', state.L, state.g, state.exact, S('T_1', 'L', 'g', 'T₁', 'L', 'g'), ampRatio(state.amp)],
+      ['θ₂ 진자', 'c2', state.L, state.g, state.exact, S('T_2', 'L', 'g', 'T₂', 'L', 'g'), ampRatio(state.amp2)],
+    ];
     else rows = [[state.exact ? '실제 진자' : '근사', 'c1', state.L, state.g, state.exact, base]];
 
     const box = $('sceneFx');
     box.innerHTML = '';
-    rows.forEach(([name, color, L, g, exact, sym]) => {
+    rows.forEach(([name, color, L, g, exact, sym, r = ratio]) => {
       const row = document.createElement('div');
       row.className = 'fxrow';
       row.innerHTML = '<span class="dot" style="background:var(--' + color + ')"></span><span class="fxname">' + name + '</span><span></span>';
-      const [t, p] = periodTex(L, g, exact, sym, ratio);
+      const [t, p] = periodTex(L, g, exact, sym, r);
       tex(row.lastChild, t, false, p);
       box.appendChild(row);
     });
   }
+
+  const ampRatio = deg => exactPeriod(1, 1, deg * Math.PI / 180) / approxPeriod(1, 1);
 
   function renderFormulas(ratio) {
     renderSceneFormulas(ratio);
@@ -509,7 +537,7 @@ ul { margin: 6px 0; padding-left: 20px; }
       true, 'θ₀ = ' + state.amp + '° 일 때  T = ' + fmt(T0, 3) + ' s × ' + fmt(ratio, 4) + ' = ' + fmt(T0 * ratio, 3) + ' s');
 
     const box = $('fxCmpBox');
-    box.hidden = state.cmp !== 'length' && state.cmp !== 'earth';
+    box.hidden = state.cmp !== 'length' && state.cmp !== 'earth' && state.cmp !== 'amp';
     if (state.cmp === 'length') {
       $('fxCmpTitle').textContent = '두 진자의 주기 비 — 실의 길이만 다를 때';
       tex($('fxCmp'),
@@ -520,6 +548,15 @@ ul { margin: 6px 0; padding-left: 20px; }
       tex($('fxCmp'),
         '\\frac{T}{T_{\\text{지구}}} = \\sqrt{\\frac{g_{\\text{지구}}}{g}} = \\sqrt{\\frac{' + unitG(G_EARTH) + '}{' + unitG(state.g) + '}} = ' + fmt(Math.sqrt(G_EARTH / state.g), 3),
         true, 'T/T(지구) = √(g(지구)/g) = √(' + G_EARTH + ' / ' + state.g + ') = ' + fmt(Math.sqrt(G_EARTH / state.g), 3));
+    } else if (state.cmp === 'amp' && !state.exact) {
+      $('fxCmpTitle').textContent = '두 진자의 주기 비 — 진폭만 다를 때 (근사 공식에는 진폭이 없어요)';
+      tex($('fxCmp'), '\\frac{T_2}{T_1} = \\frac{2\\pi\\sqrt{L/g}}{2\\pi\\sqrt{L/g}} = 1', true, 'T₂/T₁ = 1');
+    } else if (state.cmp === 'amp') {
+      const r1 = ampRatio(state.amp), r2 = ampRatio(state.amp2);
+      $('fxCmpTitle').textContent = '두 진자의 주기 비 — 진폭만 다를 때 (실제 진자)';
+      tex($('fxCmp'),
+        '\\frac{T_2}{T_1} = \\frac{' + fmt(r2, 4) + '}{' + fmt(r1, 4) + '} = ' + fmt(r2 / r1, 3) + '\\qquad(\\theta_1 = ' + state.amp + '^\\circ,\\ \\theta_2 = ' + state.amp2 + '^\\circ)',
+        true, 'T₂/T₁ = ' + fmt(r2, 4) + ' / ' + fmt(r1, 4) + ' = ' + fmt(r2 / r1, 3));
     }
   }
 
@@ -544,8 +581,8 @@ ul { margin: 6px 0; padding-left: 20px; }
     return { g, w, h };
   }
 
-  function drawPendulum(g, px, py, lenPx, deg, color, label) {
-    const th = deg * Math.PI / 180, a0 = state.amp * Math.PI / 180;
+  function drawPendulum(g, px, py, lenPx, deg, color, label, amp) {
+    const th = deg * Math.PI / 180, a0 = amp * Math.PI / 180;
     g.fillStyle = colors.line; g.fillRect(px - 34, py - 6, 68, 6);
     g.strokeStyle = colors.line; g.lineWidth = 1; g.setLineDash([4, 4]);
     g.beginPath(); g.moveTo(px, py); g.lineTo(px, py + lenPx + 20); g.stroke();
@@ -566,7 +603,7 @@ ul { margin: 6px 0; padding-left: 20px; }
   function drawScene() {
     const { g, w, h } = fit($('scene'));
     const top = 34, bottom = 24, avH = h - top - bottom - 14;
-    const a0 = state.amp * Math.PI / 180;
+    const a0 = Math.max(...pends.map(p => p.amp)) * Math.PI / 180;
     const up = Math.max(0, -Math.cos(a0));              // 90°보다 크게 당기면 추가 매단 점보다 위로 올라감
     const side = Math.sin(Math.min(a0, Math.PI / 2));   // 옆으로 벌어지는 정도
     const maxL = Math.max(...pends.map(p => p.L));
@@ -582,7 +619,7 @@ ul { margin: 6px 0; padding-left: 20px; }
     }
     const py = top + maxL * up * pxPerM;
 
-    pends.forEach((p, i) => drawPendulum(g, xs[i], py, p.L * pxPerM, p.theta(state.t), colors[p.color], p.label));
+    pends.forEach((p, i) => drawPendulum(g, xs[i], py, p.L * pxPerM, p.theta(state.t), colors[p.color], p.label, p.amp));
 
     // 자 (매단 점 높이에서 아래로)
     const rx = 24;
@@ -604,8 +641,9 @@ ul { margin: 6px 0; padding-left: 20px; }
     const left = 48, right = w - 10, top = 18, bottom = h - 24;
     const mid = (top + bottom) / 2;
     // 같은 눈금: 각도 ±180°, 시간 10초로 고정
-    const ystep = state.zoom ? [5, 10, 15, 30, 45, 60, 90].find(s => state.amp / s <= 3) : 45;
-    const ymax = state.zoom ? Math.max(state.amp * 1.15, ystep) : 190;
+    const ampMax = Math.max(...pends.map(p => p.amp));
+    const ystep = state.zoom ? [5, 10, 15, 30, 45, 60, 90].find(s => ampMax / s <= 3) : 45;
+    const ymax = state.zoom ? Math.max(ampMax * 1.15, ystep) : 190;
     const scale = (bottom - top) / 2 / ymax;
     const Tmax = Math.max(...pends.map(p => p.T));
     const win = state.zoom ? clamp(3 * Tmax, 2, 40) : 10;
