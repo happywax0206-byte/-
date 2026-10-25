@@ -466,3 +466,6 @@ create policy submissions_teacher_delete on storage.objects for delete to authen
 -- 교사 이메일: happywax0206@gmail.com 을 자기 이메일(소문자)로 바꾸세요. 여러 명이면 줄을 더하면 됩니다.
 -- ------------------------------------------------------------
 insert into teachers (email) values ('happywax0206@gmail.com') on conflict do nothing;
+
+-- 바뀐 표·함수를 웹앱이 바로 알아보도록 목록을 새로 읽게 한다
+notify pgrst, 'reload schema';
