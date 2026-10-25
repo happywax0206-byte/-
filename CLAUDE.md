@@ -15,3 +15,4 @@
   - 비공개 저장소 `submissions`. 학생은 `student_upload_ticket`으로 받은 자리(`수업id/활동id_학생id_무작위.확장자`)에만 15분 안에 올린다. `student_save`가 그 파일이 실제로 있는지 확인한다. 교사는 signed URL로 연다.
   - **남은 일 (파일 올리기):** 사용자가 setup.sql을 Supabase에서 다시 Run 했는지 확인하지 못했다. 실제 사이트에서 휴대폰으로 올리고 교사 화면에서 여는 시험도 아직 안 했다.
 - 2026-10-23: 맥놀이 시뮬레이션 `beats.html` 추가(수업 앱과 별개인 단독 페이지, Web Audio로 두 사인파를 들려주고 파형·포락선을 소리와 맞춰 그림). 주소: https://happywax0206-byte.github.io/-/beats.html
+- 2026-10-25: 진자 주기 시뮬레이션 `pendulum.html` 추가(작은 진폭 근사 T=2π√(L/g), 길이·g(행성 11곳 + 직접 입력)·진폭 조절, 지구 진자 비교). 주소: https://happywax0206-byte.github.io/-/pendulum.html

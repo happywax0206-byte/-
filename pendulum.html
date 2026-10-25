@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>진자 실험실</title>
+<style>
+:root {
+  --bg: #f4f6fa; --card: #ffffff; --ink: #1d2433; --muted: #5d6678; --line: #e1e5ee;
+  --c1: #2f6fde; --c2: #9aa3b5; --accent: #2f6fde; --accent-ink: #fff; --grid: #eef1f6; --hl: #d43d5c;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151c; --card: #1b2029; --ink: #e8ebf2; --muted: #9aa3b5; --line: #2c3340;
+    --c1: #6ea1ff; --c2: #6b7487; --accent: #6ea1ff; --accent-ink: #0d1220; --grid: #232935; --hl: #ff6f8c;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  line-height: 1.5;
+}
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; }
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+.sub { color: var(--muted); margin: 0 0 18px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+.card h2 { font-size: 1.05rem; margin: 0 0 10px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+button {
+  font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  border-radius: 10px; padding: 8px 14px; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+#run { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; font-size: 1.1rem; padding: 10px 22px; }
+.layout { display: grid; grid-template-columns: 340px 1fr; gap: 16px; align-items: start; }
+.ctl { margin-bottom: 16px; }
+.ctl > label, .ctl > .lbl { display: block; font-weight: 600; margin-bottom: 4px; }
+.ctl .line { display: flex; gap: 10px; align-items: center; }
+.ctl input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
+input[type=number] { width: 90px; font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); }
+select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+.hint { color: var(--muted); font-size: .88rem; }
+.planets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 8px; }
+.planets button { padding: 6px 4px; font-size: .92rem; line-height: 1.25; }
+.planets button small { display: block; color: var(--muted); font-size: .76rem; }
+.planets button.sel { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.planets button.sel small { color: var(--accent-ink); opacity: .85; }
+.check { display: flex; align-items: center; gap: 6px; font-weight: 600; cursor: pointer; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.stat { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.stat .k { color: var(--muted); font-size: .85rem; }
+.stat .v { font-size: 1.45rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.formula { font-size: 1.1rem; background: var(--grid); border-radius: 10px; padding: 10px 12px; overflow-x: auto; white-space: nowrap; margin-top: 10px; }
+canvas { display: block; width: 100%; }
+#scene { height: 440px; }
+#graph { height: 210px; }
+ul { margin: 6px 0; padding-left: 20px; }
+@media (max-width: 800px) {
+  .layout { grid-template-columns: 1fr; }
+  #scene { height: 360px; }
+  h1 { font-size: 1.35rem; }
+}
+</style>
+</head>
+<body>
+<main>
+  <h1>진자 실험실</h1>
+  <p class="sub">실의 길이와 중력가속도를 바꾸며 진자의 주기가 어떻게 달라지는지 알아봅니다. (작은 진폭 근사: T = 2π√(L/g))</p>
+
+  <div class="layout">
+    <section class="card">
+      <div class="row" style="margin-bottom:16px">
+        <button id="run">⏸ 멈춤</button>
+        <button id="reset">↺ 처음부터</button>
+      </div>
+
+      <div class="ctl">
+        <label>실의 길이 L</label>
+        <div class="line">
+          <input type="range" id="Lr" min="0.1" max="10" step="0.05" value="1">
+          <input type="number" id="Ln" min="0.1" max="10" step="0.05" value="1"> m
+        </div>
+      </div>
+
+      <div class="ctl">
+        <div class="lbl">중력가속도 g — 어디에서 실험할까요?</div>
+        <div class="planets" id="planets"></div>
+        <div class="line">
+          <span>직접 입력</span>
+          <input type="number" id="gn" min="0.01" max="1000" step="0.01" value="9.8"> m/s²
+        </div>
+      </div>
+
+      <div class="ctl">
+        <label>진폭 (처음 당기는 각도) θ₀</label>
+        <div class="line">
+          <input type="range" id="Ar" min="1" max="15" step="1" value="10">
+          <span id="Av" style="width:40px;text-align:right">10°</span>
+        </div>
+        <div class="hint">작은 각도에서만 공식이 잘 맞아요. 진폭을 바꿔도 주기는 (거의) 같아요.</div>
+      </div>
+
+      <div class="ctl">
+        <label class="check"><input type="checkbox" id="cmp"> 지구의 진자와 나란히 비교</label>
+        <div class="hint">같은 길이의 진자를 지구(g = 9.8)에 둔 경우를 회색으로 함께 보여 줘요.</div>
+      </div>
+
+      <div class="ctl" style="margin-bottom:0">
+        <label>화면 속도</label>
+        <select id="speed">
+          <option value="1" selected>실제 속도</option>
+          <option value="0.5">2배 느리게</option>
+          <option value="0.25">4배 느리게</option>
+        </select>
+      </div>
+    </section>
+
+    <div>
+      <section class="card">
+        <canvas id="scene"></canvas>
+      </section>
+      <section class="card">
+        <div class="stats">
+          <div class="stat"><div class="k">주기 T (한 번 왕복하는 시간)</div><div class="v" id="Tv">2.01 초</div></div>
+          <div class="stat"><div class="k">진동수 f = 1/T</div><div class="v" id="fv">0.50 Hz</div></div>
+          <div class="stat"><div class="k">흐른 시간</div><div class="v" id="tv">0.0 초</div></div>
+          <div class="stat"><div class="k">왕복한 횟수</div><div class="v" id="nv">0 번</div></div>
+        </div>
+        <div class="formula" id="formula"></div>
+        <div class="hint" id="earthCmp" style="margin-top:8px"></div>
+      </section>
+    </div>
+  </div>
+
+  <section class="card">
+    <h2>시간에 따른 각도 θ (세로 점선: 한 주기가 끝나는 순간)</h2>
+    <canvas id="graph"></canvas>
+  </section>
+
+  <section class="card">
+    <h2>원리</h2>
+    <ul>
+      <li>진폭이 작을 때 단진자는 단진동을 하고, 주기는 <b>T = 2π√(L/g)</b> 입니다.</li>
+      <li>실이 <b>길수록</b> 주기가 길어집니다. 길이를 4배로 하면 주기는 2배가 됩니다.</li>
+      <li>중력가속도가 <b>클수록</b> 주기가 짧아집니다. 달(g ≈ 1.62)에서는 지구보다 약 2.5배 느리게 흔들립니다.</li>
+      <li>주기는 <b>추의 질량과 진폭에는 관계가 없습니다</b> (진폭이 작을 때).</li>
+    </ul>
+    <p class="hint">행성의 g는 표면(가스 행성은 구름 꼭대기) 기준의 대략적인 값입니다.</p>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const TAU = Math.PI * 2;
+  const G_EARTH = 9.8;
+  const PLACES = [
+    ['수성', 3.7], ['금성', 8.87], ['지구', 9.8], ['화성', 3.71], ['목성', 24.79], ['토성', 10.44],
+    ['천왕성', 8.69], ['해왕성', 11.15], ['명왕성', 0.62], ['달', 1.62], ['태양', 274],
+  ];
+
+  const state = { L: 1, g: 9.8, place: '지구', amp: 10, cmp: false, speed: 1, running: true, t: 0 };
+  const period = (L, g) => TAU * Math.sqrt(L / g);
+  const angle = (L, g, t) => state.amp * Math.cos(Math.sqrt(g / L) * t); // 도(°)
+
+  // ---------- 조작 ----------
+  const box = $('planets');
+  PLACES.forEach(([name, g]) => {
+    const b = document.createElement('button');
+    b.dataset.place = name;
+    b.innerHTML = name + '<small>' + g + '</small>';
+    b.addEventListener('click', () => { state.place = name; state.g = g; $('gn').value = g; changed(); });
+    box.appendChild(b);
+  });
+
+  function fmt(x, d) { return Number(x).toFixed(d); }
+  function clamp(v, a, b) { return Math.min(b, Math.max(a, v)); }
+
+  function setL(v) {
+    v = Number(v);
+    if (!isFinite(v)) return;
+    state.L = clamp(Math.round(v * 100) / 100, 0.1, 10);
+    $('Lr').value = state.L; $('Ln').value = state.L;
+    changed();
+  }
+  $('Lr').addEventListener('input', e => setL(e.target.value));
+  $('Ln').addEventListener('change', e => setL(e.target.value));
+
+  $('gn').addEventListener('change', e => {
+    const v = Number(e.target.value);
+    if (!isFinite(v) || v <= 0) { e.target.value = state.g; return; }
+    state.g = clamp(v, 0.01, 1000);
+    e.target.value = state.g;
+    const hit = PLACES.find(p => p[1] === state.g);
+    state.place = hit ? hit[0] : null;
+    changed();
+  });
+
+  $('Ar').addEventListener('input', e => { state.amp = Number(e.target.value); $('Av').textContent = state.amp + '°'; changed(); });
+  $('cmp').addEventListener('change', e => { state.cmp = e.target.checked; changed(); });
+  $('speed').addEventListener('change', e => { state.speed = Number(e.target.value); });
+  $('run').addEventListener('click', () => { state.running = !state.running; updateRun(); });
+  $('reset').addEventListener('click', () => { state.t = 0; });
+
+  function updateRun() { $('run').textContent = state.running ? '⏸ 멈춤' : '▶ 다시 움직이기'; }
+
+  // 값을 바꾸면 진자를 처음 위치(θ₀)에서 다시 놓는다
+  function changed() {
+    state.t = 0;
+    document.querySelectorAll('[data-place]').forEach(b => b.classList.toggle('sel', b.dataset.place === state.place));
+    const T = period(state.L, state.g);
+    $('Tv').textContent = fmt(T, T < 10 ? 2 : 1) + ' 초';
+    $('fv').textContent = fmt(1 / T, 1 / T < 0.1 ? 3 : 2) + ' Hz';
+    $('formula').innerHTML = 'T = 2π√(L/g) = 2π√(' + fmt(state.L, 2) + ' / ' + state.g + ') = <b>' + fmt(T, 2) + ' 초</b>';
+    const where = state.place ? state.place + '에서' : '이 중력에서';
+    const r = T / period(state.L, G_EARTH);
+    $('earthCmp').textContent = state.g === G_EARTH ? '지구의 주기입니다.'
+      : Math.abs(r - 1) < 0.005 ? where + '의 주기는 지구와 거의 같아요.'
+      : where + '의 주기는 지구의 ' + fmt(r, 2) + '배예요 → 지구보다 ' + (r > 1 ? '느리게' : '빠르게') + ' 흔들려요.';
+  }
+
+  // ---------- 그리기 ----------
+  let colors = {};
+  function readColors() {
+    const s = getComputedStyle(document.documentElement);
+    ['c1', 'c2', 'ink', 'muted', 'line', 'grid', 'hl', 'card'].forEach(k => colors[k] = s.getPropertyValue('--' + k).trim());
+  }
+  readColors();
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readColors);
+
+  function fit(cv) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+      cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    }
+    const g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    return { g, w, h };
+  }
+
+  function drawPendulum(g, px, py, lenPx, deg, color, label, alpha) {
+    const th = deg * Math.PI / 180, a0 = state.amp * Math.PI / 180;
+    g.globalAlpha = alpha;
+    // 기준선과 진폭 범위
+    g.strokeStyle = colors.line; g.lineWidth = 1; g.setLineDash([4, 4]);
+    g.beginPath(); g.moveTo(px, py); g.lineTo(px, py + lenPx + 20); g.stroke();
+    g.setLineDash([]);
+    g.strokeStyle = colors.grid; g.lineWidth = 6;
+    g.beginPath(); g.arc(px, py, lenPx, Math.PI / 2 - a0, Math.PI / 2 + a0); g.stroke();
+    // 실과 추
+    const bx = px + lenPx * Math.sin(th), by = py + lenPx * Math.cos(th);
+    g.strokeStyle = colors.ink; g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(px, py); g.lineTo(bx, by); g.stroke();
+    g.fillStyle = color;
+    g.beginPath(); g.arc(bx, by, 14, 0, TAU); g.fill();
+    g.fillStyle = colors.ink; g.beginPath(); g.arc(px, py, 4, 0, TAU); g.fill();
+    g.font = '600 14px system-ui, sans-serif'; g.textAlign = 'center';
+    g.fillText(label, px, py - 10);
+    g.textAlign = 'left';
+    g.globalAlpha = 1;
+  }
+
+  function drawScene() {
+    const { g, w, h } = fit($('scene'));
+    const top = 34, bottom = 30;
+    // 길이에 맞춰 축척을 고른다 (자 눈금으로 실제 길이를 보여 줌)
+    const span = [0.5, 1, 2, 5, 10].find(s => s >= state.L);
+    const pxPerM = (h - top - bottom - 14) / span;
+    const lenPx = state.L * pxPerM;
+
+    g.fillStyle = colors.line; g.fillRect(0, top - 6, w, 6);
+
+    const name = state.place || ('g = ' + state.g);
+    const pts = state.cmp ? [w * 0.37, w * 0.7] : [w * 0.55];
+    drawPendulum(g, pts[0], top, lenPx, angle(state.L, state.g, state.t), colors.c1, name, 1);
+    if (state.cmp) drawPendulum(g, pts[1], top, lenPx, angle(state.L, G_EARTH, state.t), colors.c2, '지구', 1);
+
+    // 자
+    const rx = 30, ry0 = top, ry1 = top + span * pxPerM;
+    g.strokeStyle = colors.muted; g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(rx, ry0); g.lineTo(rx, ry1); g.stroke();
+    const step = span <= 1 ? 0.1 : span <= 2 ? 0.5 : 1;
+    const labelEvery = span === 1 ? 5 : span === 10 ? 2 : 1;
+    g.fillStyle = colors.muted; g.font = '12px system-ui, sans-serif';
+    for (let k = 0; k <= Math.round(span / step); k++) {
+      const yy = ry0 + k * step * pxPerM;
+      const major = k % labelEvery === 0;
+      g.beginPath(); g.moveTo(rx, yy); g.lineTo(rx + (major ? 10 : 5), yy); g.stroke();
+      if (major) g.fillText(fmt(k * step, step < 1 ? 1 : 0) + ' m', rx + 14, yy + 4);
+    }
+  }
+
+  function drawGraph() {
+    const { g, w, h } = fit($('graph'));
+    const left = 44, right = w - 10, top = 12, bottom = h - 24;
+    const mid = (top + bottom) / 2, scale = (bottom - top) / 2 / 16; // ±16°
+    const T = period(state.L, state.g);
+    const Tmax = state.cmp ? Math.max(T, period(state.L, G_EARTH)) : T;
+    const win = clamp(3 * Tmax, 2, 40);
+    const t1 = Math.max(win, state.t), t0 = t1 - win;
+    const X = t => left + (t - t0) / win * (right - left);
+
+    g.strokeStyle = colors.grid; g.lineWidth = 1;
+    g.fillStyle = colors.muted; g.font = '12px system-ui, sans-serif'; g.textAlign = 'right';
+    [-15, -10, -5, 0, 5, 10, 15].forEach(d => {
+      const yy = mid - d * scale;
+      g.beginPath(); g.moveTo(left, yy); g.lineTo(right, yy); g.stroke();
+      if (d % 5 === 0) g.fillText(d + '°', left - 6, yy + 4);
+    });
+
+    // 한 주기마다 세로 점선
+    g.textAlign = 'center';
+    g.strokeStyle = colors.hl; g.fillStyle = colors.hl; g.setLineDash([4, 4]);
+    for (let k = Math.max(1, Math.ceil(t0 / T)); k * T <= t1; k++) {
+      const x = X(k * T);
+      g.beginPath(); g.moveTo(x, top); g.lineTo(x, bottom); g.stroke();
+      g.fillText(k + 'T', x, h - 6);
+    }
+    g.setLineDash([]);
+
+    const curve = (gg, color, width) => {
+      g.strokeStyle = color; g.lineWidth = width; g.beginPath();
+      const end = Math.min(state.t, t1), n = Math.ceil(right - left);
+      let first = true;
+      for (let k = 0; k <= n; k++) {
+        const t = t0 + win * k / n;
+        if (t > end) break;
+        const yy = mid - angle(state.L, gg, t) * scale;
+        first ? g.moveTo(X(t), yy) : g.lineTo(X(t), yy);
+        first = false;
+      }
+      g.stroke();
+    };
+    if (state.cmp) curve(G_EARTH, colors.c2, 2);
+    curve(state.g, colors.c1, 2.5);
+
+    g.fillStyle = colors.muted; g.textAlign = 'left';
+    g.fillText(fmt(t0, 1) + '초', left, h - 6);
+    g.textAlign = 'right';
+    g.fillText(fmt(t1, 1) + '초', right, h - 6);
+    g.textAlign = 'left';
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    if (state.running) state.t += dt * state.speed;
+    const T = period(state.L, state.g);
+    $('tv').textContent = fmt(state.t, 1) + ' 초';
+    $('nv').textContent = Math.floor(state.t / T + 1e-9) + ' 번';
+    drawScene();
+    drawGraph();
+    requestAnimationFrame(frame);
+  }
+
+  changed();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
