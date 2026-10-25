@@ -125,6 +125,15 @@ ul { margin: 6px 0; padding-left: 20px; }
       </div>
 
       <div class="ctl">
+        <label>추의 질량 m</label>
+        <div class="line">
+          <input type="range" id="mr" min="0.1" max="10" step="0.1" value="1">
+          <input type="number" id="mn" min="0.1" max="10" step="0.1" value="1"> kg
+        </div>
+        <div class="hint">질량을 바꿔도 진자는 멈추지 않고 그대로 흔들려요. 주기가 달라지는지 지켜보세요!</div>
+      </div>
+
+      <div class="ctl">
         <div class="lbl">중력가속도 g — 어디에서 실험할까요?</div>
         <div class="planets" id="planets"></div>
         <div class="line">
@@ -246,7 +255,7 @@ ul { margin: 6px 0; padding-left: 20px; }
     ['천왕성', 8.69], ['해왕성', 11.15], ['명왕성', 0.62], ['달', 1.62], ['태양', 274],
   ];
 
-  const state = { L: 1, L2: 4, g: 9.8, place: '지구', amp: 10, exact: false, cmp: 'none', speed: 1, running: true, t: 0 };
+  const state = { L: 1, L2: 4, m: 1, g: 9.8, place: '지구', amp: 10, exact: false, cmp: 'none', speed: 1, running: true, t: 0 };
   let pends = []; // 지금 화면에 있는 진자들 (1개 또는 2개)
 
   function fmt(x, d) { return Number(x).toFixed(d); }
@@ -329,6 +338,16 @@ ul { margin: 6px 0; padding-left: 20px; }
     state.exact = b.dataset.mode === 'exact';
     changed();
   }));
+  // 질량은 주기에 영향을 주지 않으므로 진자를 처음 위치로 되돌리지 않는다
+  const setMass = v => {
+    v = Number(v);
+    if (!isFinite(v)) { $('mn').value = state.m; return; }
+    state.m = Math.round(clamp(v, 0.1, 10) * 10) / 10;
+    $('mr').value = state.m; $('mn').value = state.m;
+  };
+  $('mr').addEventListener('input', e => setMass(e.target.value));
+  $('mn').addEventListener('change', e => setMass(e.target.value));
+
   const setAmp = v => {
     v = Number(v);
     if (!isFinite(v)) { $('An').value = state.amp; return; }
@@ -537,7 +556,7 @@ ul { margin: 6px 0; padding-left: 20px; }
     g.strokeStyle = colors.ink; g.lineWidth = 1.5;
     g.beginPath(); g.moveTo(px, py); g.lineTo(bx, by); g.stroke();
     g.fillStyle = color;
-    g.beginPath(); g.arc(bx, by, 14, 0, TAU); g.fill();
+    g.beginPath(); g.arc(bx, by, 7 + 7 * Math.cbrt(state.m), 0, TAU); g.fill(); // 질량에 따라 추의 크기만 바뀐다
     g.fillStyle = colors.ink; g.beginPath(); g.arc(px, py, 4, 0, TAU); g.fill();
     g.font = '600 14px system-ui, sans-serif'; g.textAlign = 'center';
     g.fillText(label, px, py - 12);
