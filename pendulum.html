@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>진자 실험실</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
 <style>
 :root {
   --bg: #f4f6fa; --card: #ffffff; --ink: #1d2433; --muted: #5d6678; --line: #e1e5ee;
@@ -58,8 +60,12 @@ select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid 
 .stat { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
 .stat .k { color: var(--muted); font-size: .85rem; }
 .stat .v { font-size: 1.45rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-.formula { font-size: 1.05rem; background: var(--grid); border-radius: 10px; padding: 10px 12px; overflow-x: auto; margin-top: 10px; }
-.formula div + div { margin-top: 4px; }
+.fx { background: var(--grid); border-radius: 12px; padding: 10px 14px; margin-bottom: 12px; overflow-x: auto; }
+.fx:last-child { margin-bottom: 0; }
+.fxk { font-weight: 700; margin-bottom: 2px; }
+.fx .katex-display { margin: .5em 0; }
+.fx .katex { font-size: 1.15em; }
+.tex-fallback { font-family: "Cambria Math", "Times New Roman", serif; font-size: 1.1rem; padding: 6px 0; }
 canvas { display: block; width: 100%; }
 #scene { height: 440px; }
 #graph { height: 220px; }
@@ -161,7 +167,6 @@ ul { margin: 6px 0; padding-left: 20px; }
           <div class="stat"><div class="k">흐른 시간</div><div class="v" id="tv">0.0 초</div></div>
           <div class="stat"><div class="k">왕복한 횟수</div><div class="v" id="nv">0 번</div></div>
         </div>
-        <div class="formula" id="formula"></div>
         <div class="hint" id="cmpText" style="margin-top:8px"></div>
       </section>
     </div>
@@ -173,9 +178,28 @@ ul { margin: 6px 0; padding-left: 20px; }
   </section>
 
   <section class="card">
+    <h2>주기 공식 (지금 정한 값을 넣어 계산)</h2>
+    <div class="fx">
+      <div class="fxk">근사 공식 — 진폭이 작을 때</div>
+      <div id="fxApprox"></div>
+    </div>
+    <div class="fx">
+      <div class="fxk">실제 진자 — 진폭 θ₀까지 생각한 정확한 주기</div>
+      <div id="fxExactGen"></div>
+      <div class="hint">진폭이 작으면 아래처럼 풀어 쓸 수 있고, 첫째 항만 남기면 근사 공식이 됩니다. (θ₀는 라디안)</div>
+      <div id="fxSeries"></div>
+      <div id="fxExact"></div>
+    </div>
+    <div class="fx" id="fxCmpBox" hidden>
+      <div class="fxk" id="fxCmpTitle"></div>
+      <div id="fxCmp"></div>
+    </div>
+  </section>
+
+  <section class="card">
     <h2>원리</h2>
     <ul>
-      <li>진폭이 작을 때 단진자는 단진동을 하고, 주기는 <b>T = 2π√(L/g)</b> 입니다.</li>
+      <li>진폭이 작을 때 단진자는 단진동을 하고, 주기는 <span data-tex="T = 2\pi\sqrt{\dfrac{L}{g}}">T = 2π√(L/g)</span> 입니다.</li>
       <li>실이 <b>길수록</b> 주기가 길어집니다. 길이를 4배로 하면 주기는 2배, 9배로 하면 3배가 됩니다.</li>
       <li>중력가속도가 <b>클수록</b> 주기가 짧아집니다. 달(g ≈ 1.62)에서는 지구보다 약 2.5배 느리게 흔들립니다.</li>
       <li>주기는 <b>추의 질량과 관계가 없고</b>, 진폭이 작을 때는 <b>진폭과도 거의 관계가 없습니다</b>.</li>
@@ -326,10 +350,7 @@ ul { margin: 6px 0; padding-left: 20px; }
     // 숫자 표시
     $('Tv').textContent = fmtT(p1.T);
     if (pends.length > 1) $('T2v').textContent = fmtT(pends[1].T);
-    const T0 = approxPeriod(state.L, state.g);
-    const lines = ['근사: T = 2π√(L/g) = 2π√(' + fmt(state.L, 2) + ' / ' + state.g + ') = <b>' + fmt(T0, 3) + ' 초</b>'];
-    if (state.exact || state.cmp === 'model') lines.push('실제 (θ₀ = ' + state.amp + '°): T = <b>' + fmt(T0 * ratio, 3) + ' 초</b> (근사값의 ' + fmt(ratio, 4) + '배)');
-    $('formula').innerHTML = lines.map(s => '<div>' + s + '</div>').join('');
+    renderFormulas(ratio);
 
     let txt = '';
     if (state.cmp === 'length') {
@@ -346,6 +367,52 @@ ul { margin: 6px 0; padding-left: 20px; }
       txt = '진폭 ' + state.amp + '°에서 ' + longer + ' 시간이 지날수록 두 진자가 점점 어긋나요.';
     }
     $('cmpText').textContent = txt;
+  }
+
+  // ---------- 수식 (KaTeX가 안 불러와지면 글자로 대신 보여 준다) ----------
+  function tex(el, src, display = true, plain = '') {
+    if (window.katex) {
+      katex.render(src, el, { displayMode: display, throwOnError: false });
+    } else {
+      el.textContent = plain || src;
+      if (display) el.className = 'tex-fallback';
+    }
+  }
+  document.querySelectorAll('[data-tex]').forEach(el => tex(el, el.dataset.tex, false, el.textContent));
+
+  const unitL = v => fmt(v, 2) + '\\,\\text{m}';
+  const unitG = v => v + '\\,\\text{m/s}^2';
+  const unitT = v => fmt(v, 3) + '\\,\\text{s}';
+
+  tex($('fxExactGen'),
+    'T = 4\\sqrt{\\dfrac{L}{g}}\\int_0^{\\pi/2}\\frac{d\\phi}{\\sqrt{1-k^2\\sin^2\\phi}},\\qquad k=\\sin\\frac{\\theta_0}{2}',
+    true, 'T = 4√(L/g) ∫₀^(π/2) dφ / √(1 − k² sin²φ),  k = sin(θ₀/2)');
+  tex($('fxSeries'),
+    'T = 2\\pi\\sqrt{\\dfrac{L}{g}}\\left(1+\\frac{1}{16}\\theta_0^2+\\frac{11}{3072}\\theta_0^4+\\cdots\\right)',
+    true, 'T = 2π√(L/g) (1 + θ₀²/16 + 11θ₀⁴/3072 + …)');
+
+  function renderFormulas(ratio) {
+    const T0 = approxPeriod(state.L, state.g);
+    tex($('fxApprox'),
+      'T = 2\\pi\\sqrt{\\dfrac{L}{g}} = 2\\pi\\sqrt{\\dfrac{' + unitL(state.L) + '}{' + unitG(state.g) + '}} = ' + unitT(T0),
+      true, 'T = 2π√(L/g) = 2π√(' + fmt(state.L, 2) + ' / ' + state.g + ') = ' + fmt(T0, 3) + ' s');
+    tex($('fxExact'),
+      '\\theta_0 = ' + state.amp + '^\\circ\\text{ 일 때}\\quad T = ' + unitT(T0) + '\\times ' + fmt(ratio, 4) + ' = ' + unitT(T0 * ratio),
+      true, 'θ₀ = ' + state.amp + '° 일 때  T = ' + fmt(T0, 3) + ' s × ' + fmt(ratio, 4) + ' = ' + fmt(T0 * ratio, 3) + ' s');
+
+    const box = $('fxCmpBox');
+    box.hidden = state.cmp !== 'length' && state.cmp !== 'earth';
+    if (state.cmp === 'length') {
+      $('fxCmpTitle').textContent = '두 진자의 주기 비 — 실의 길이만 다를 때';
+      tex($('fxCmp'),
+        '\\frac{T_2}{T_1} = \\sqrt{\\frac{L_2}{L_1}} = \\sqrt{\\frac{' + unitL(state.L2) + '}{' + unitL(state.L) + '}} = ' + fmt(Math.sqrt(state.L2 / state.L), 3),
+        true, 'T₂/T₁ = √(L₂/L₁) = √(' + fmt(state.L2, 2) + ' / ' + fmt(state.L, 2) + ') = ' + fmt(Math.sqrt(state.L2 / state.L), 3));
+    } else if (state.cmp === 'earth') {
+      $('fxCmpTitle').textContent = '지구와의 주기 비 — 중력가속도만 다를 때';
+      tex($('fxCmp'),
+        '\\frac{T}{T_{\\text{지구}}} = \\sqrt{\\frac{g_{\\text{지구}}}{g}} = \\sqrt{\\frac{' + unitG(G_EARTH) + '}{' + unitG(state.g) + '}} = ' + fmt(Math.sqrt(G_EARTH / state.g), 3),
+        true, 'T/T(지구) = √(g(지구)/g) = √(' + G_EARTH + ' / ' + state.g + ') = ' + fmt(Math.sqrt(G_EARTH / state.g), 3));
+    }
   }
 
   // ---------- 그리기 ----------
