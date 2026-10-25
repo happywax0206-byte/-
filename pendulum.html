@@ -74,16 +74,6 @@ select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid 
 .kinds a { padding: 8px 14px; color: var(--ink); text-decoration: none; font-weight: 600; }
 .kinds a + a { border-left: 1px solid var(--line); }
 .kinds a.sel { background: var(--accent); color: var(--accent-ink); }
-.lag { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; align-items: start; }
-.step { background: var(--grid); border-radius: 12px; padding: 8px 14px; margin-bottom: 10px; overflow-x: auto; }
-.step .katex-display { margin: .4em 0; }
-.card h3 { font-size: .98rem; margin: 0 0 4px; }
-table.vals { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-table.vals th { text-align: left; font-size: .85rem; color: var(--muted); padding: 10px 6px 4px; border-bottom: 1px solid var(--line); }
-table.vals td { padding: 3px 6px; border-bottom: 1px solid var(--grid); }
-table.vals td.v { text-align: right; font-weight: 600; font-family: ui-monospace, "Consolas", monospace; white-space: nowrap; }
-table.vals td.u { color: var(--muted); font-size: .85rem; white-space: nowrap; }
-@media (max-width: 860px) { .lag { grid-template-columns: 1fr; } }
 .tex-fallback { font-family: "Cambria Math", "Times New Roman", serif; font-size: 1.1rem; padding: 6px 0; }
 canvas { display: block; width: 100%; }
 #scene { height: 440px; }
@@ -207,18 +197,6 @@ ul { margin: 6px 0; padding-left: 20px; }
   </section>
 
   <section class="card">
-    <h2>라그랑주 역학으로 운동방정식 구하기</h2>
-    <div class="lag">
-      <div id="lagSteps"></div>
-      <div>
-        <h3>지금 이 순간의 값 <span class="hint">(파란 진자)</span></h3>
-        <div class="hint">원점 = 매단 점, x는 오른쪽이 +, y는 위쪽이 + 입니다.</div>
-        <table class="vals" id="vals"></table>
-      </div>
-    </div>
-  </section>
-
-  <section class="card">
     <h2>주기 공식 (지금 정한 값을 넣어 계산)</h2>
     <div class="fx">
       <div class="fxk">근사 공식 — 진폭이 작을 때</div>
@@ -277,13 +255,8 @@ ul { margin: 6px 0; padding-left: 20px; }
   function makeMotion(L, g, exact) {
     const a0 = state.amp * Math.PI / 180;
     if (!exact) {
-      const T = approxPeriod(L, g), W = TAU / T;
-      return {
-        L, T, g,
-        theta: t => state.amp * Math.cos(W * t),
-        omega: t => -a0 * W * Math.sin(W * t),          // rad/s
-        alpha: t => -W * W * a0 * Math.cos(W * t),      // rad/s², θ̈ = −(g/L)θ
-      };
+      const T = approxPeriod(L, g);
+      return { L, T, theta: t => state.amp * Math.cos(TAU * t / T) };
     }
     // θ'' = −(g/L) sin θ 를 한 주기 동안 RK4로 풀어 표로 저장하고, 그 뒤는 반복한다
     const T = exactPeriod(L, g, a0), N = 4000, h = T / N, w2 = g / L;
@@ -300,14 +273,12 @@ ul { margin: 6px 0; padding-left: 20px; }
       om += h / 6 * (k1o + 2 * k2o + 2 * k3o + k4o);
       tab[i] = th;
     }
-    const theta = t => {
-      const u = ((t % T) + T) % T / T * N, i = Math.min(N - 1, Math.floor(u)), f = u - i;
-      return (tab[i] + (tab[i + 1] - tab[i]) * f) * 180 / Math.PI;
-    };
     return {
-      L, T, g, theta,
-      omega: t => (theta(t + h) - theta(t - h)) / (2 * h) * Math.PI / 180,
-      alpha: t => -w2 * Math.sin(theta(t) * Math.PI / 180),   // θ̈ = −(g/L) sin θ
+      L, T,
+      theta: t => {
+        const u = ((t % T) + T) % T / T * N, i = Math.min(N - 1, Math.floor(u)), f = u - i;
+        return (tab[i] + (tab[i + 1] - tab[i]) * f) * 180 / Math.PI;
+      },
     };
   }
 
@@ -399,8 +370,6 @@ ul { margin: 6px 0; padding-left: 20px; }
     $('Tv').textContent = fmtT(p1.T);
     if (pends.length > 1) $('T2v').textContent = fmtT(pends[1].T);
     renderFormulas(ratio);
-    updateLagNote();
-    lastVals = 0;
 
     let txt = '';
     if (state.cmp === 'length') {
@@ -508,67 +477,6 @@ ul { margin: 6px 0; padding-left: 20px; }
         '\\frac{T}{T_{\\text{지구}}} = \\sqrt{\\frac{g_{\\text{지구}}}{g}} = \\sqrt{\\frac{' + unitG(G_EARTH) + '}{' + unitG(state.g) + '}} = ' + fmt(Math.sqrt(G_EARTH / state.g), 3),
         true, 'T/T(지구) = √(g(지구)/g) = √(' + G_EARTH + ' / ' + state.g + ') = ' + fmt(Math.sqrt(G_EARTH / state.g), 3));
     }
-  }
-
-  // ---------- 라그랑주 역학 설명과 지금 이 순간의 값 ----------
-  const LAG = [
-    ['① 좌표 정하기: q = θ', 'x = L\\sin\\theta, \\qquad y = -L\\cos\\theta'],
-    ['② 운동 에너지 T, 퍼텐셜 에너지 V', 'T = \\tfrac12 mL^2\\dot\\theta^2, \\qquad V = -mgL\\cos\\theta'],
-    ['③ 라그랑지안 = 운동 에너지 − 퍼텐셜 에너지', '\\mathcal{L} = T - V = \\tfrac12 mL^2\\dot\\theta^2 + mgL\\cos\\theta'],
-    ['④ 오일러–라그랑주 방정식', '\\frac{d}{dt}\\left(\\frac{\\partial \\mathcal{L}}{\\partial \\dot\\theta}\\right) - \\frac{\\partial \\mathcal{L}}{\\partial \\theta} = 0'],
-    ['⑤ 계산하기', '\\frac{\\partial \\mathcal{L}}{\\partial \\dot\\theta} = mL^2\\dot\\theta, \\qquad \\frac{\\partial \\mathcal{L}}{\\partial \\theta} = -mgL\\sin\\theta'],
-    ['⑥ 운동방정식 (실제 진자)', 'mL^2\\ddot\\theta + mgL\\sin\\theta = 0 \\quad\\Longrightarrow\\quad \\ddot\\theta = -\\frac{g}{L}\\sin\\theta'],
-    ['⑦ 작은 진폭 근사 (sin θ ≈ θ)', '\\ddot\\theta = -\\frac{g}{L}\\theta \\quad\\Longrightarrow\\quad \\theta = \\theta_0\\cos\\!\\left(\\sqrt{\\tfrac{g}{L}}\\,t\\right), \\quad T = 2\\pi\\sqrt{\\frac{L}{g}}'],
-  ];
-  const lagBox = $('lagSteps');
-  LAG.forEach(([title, src]) => {
-    const d = document.createElement('div');
-    d.className = 'step';
-    d.innerHTML = '<div style="font-weight:700"></div><div></div>';
-    d.firstChild.textContent = title;
-    tex(d.lastChild, src);
-    lagBox.appendChild(d);
-  });
-  const lagNote = document.createElement('div');
-  lagNote.className = 'hint';
-  lagBox.appendChild(lagNote);
-  function updateLagNote() {
-    const exact = state.cmp === 'model' || state.exact;
-    lagNote.textContent = exact
-      ? '지금 파란 진자는 ⑥의 식 θ̈ = −(g/L) sin θ 를 룽게–쿠타(RK4) 방법으로 풀어서 움직여요.'
-      : '지금 파란 진자는 ⑦의 근사식 θ̈ = −(g/L) θ 의 해로 움직여요. 「실제 진자」를 누르면 ⑥의 식으로 움직입니다.';
-  }
-
-  const VROWS = [
-    ['각도 (일반화 좌표)'],
-    ['th', '각도 θ', 'rad'], ['w', '각속도 θ̇', 'rad/s'], ['al', '각가속도 θ̈', 'rad/s²'],
-    ['추'],
-    ['p', '위치 (x, y)', 'm'], ['v', '속도 (vₓ, v_y)', 'm/s'], ['vm', '속력 |v|', 'm/s'],
-    ['a', '가속도 (aₓ, a_y)', 'm/s²'], ['am', '가속도 크기 |a|', 'm/s²'],
-  ];
-  VROWS.forEach(r => {
-    const tr = $('vals').insertRow();
-    if (r.length === 1) { const th = document.createElement('th'); th.colSpan = 3; th.textContent = r[0]; tr.appendChild(th); return; }
-    tr.insertCell().textContent = r[1];
-    const v = tr.insertCell(); v.className = 'v'; v.id = 'val_' + r[0];
-    const u = tr.insertCell(); u.className = 'u'; u.textContent = r[2];
-  });
-  const sg = (v, d = 3) => (v < 0 ? '−' : '+') + Math.abs(v).toFixed(d);
-  const pair = (x, y) => '(' + sg(x) + ', ' + sg(y) + ')';
-  let lastVals = 0;
-  function showValues(now) {
-    if (now - lastVals < 100) return;
-    lastVals = now;
-    const p = pends[0], t = state.t, L = p.L;
-    const th = p.theta(t) * Math.PI / 180, w = p.omega(t), al = p.alpha(t);
-    const vx = L * w * Math.cos(th), vy = L * w * Math.sin(th);
-    const ax = L * (al * Math.cos(th) - w * w * Math.sin(th)), ay = L * (al * Math.sin(th) + w * w * Math.cos(th));
-    const v = {
-      th: sg(th) + ' (' + sg(th * 180 / Math.PI, 1) + '°)', w: sg(w), al: sg(al),
-      p: pair(L * Math.sin(th), -L * Math.cos(th)), v: pair(vx, vy), vm: Math.hypot(vx, vy).toFixed(3),
-      a: pair(ax, ay), am: Math.hypot(ax, ay).toFixed(3),
-    };
-    for (const k in v) $('val_' + k).textContent = v[k];
   }
 
   // ---------- 그리기 ----------
@@ -703,7 +611,6 @@ ul { margin: 6px 0; padding-left: 20px; }
     $('nv').textContent = Math.floor(state.t / pends[0].T + 1e-9) + ' 번';
     drawScene();
     drawGraph();
-    showValues(now);
     requestAnimationFrame(frame);
   }
 
