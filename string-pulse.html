@@ -66,8 +66,6 @@ canvas { display: block; width: 100%; }
 .timeline { display: flex; gap: 12px; align-items: center; margin-top: 10px; }
 .timeline output { font-variant-numeric: tabular-nums; min-width: 6.5em; text-align: right; font-weight: 600; }
 .note { background: var(--grid); border-radius: 12px; padding: 10px 14px; margin-top: 12px; }
-.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: .9rem; margin-top: 8px; }
-.legend span::before { content: ""; display: inline-block; width: 18px; height: 0; border-top: 2px dashed currentColor; vertical-align: middle; margin-right: 5px; }
 .coef { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .coef th, .coef td { border-bottom: 1px solid var(--line); padding: 8px 6px; text-align: left; }
 .coef th { color: var(--muted); font-weight: 600; font-size: .88rem; }
@@ -126,7 +124,6 @@ ul { margin: 6px 0; padding-left: 20px; }
         </select>
       </label>
       <label class="chk"><input type="checkbox" id="names" checked> 이름표</label>
-      <label class="chk"><input type="checkbox" id="parts"> 각 펄스 따로 보기 (점선)</label>
     </div>
   </section>
 
@@ -136,12 +133,6 @@ ul { margin: 6px 0; padding-left: 20px; }
       <span>시간</span>
       <input type="range" id="tr" min="0" max="10" step="0.01" value="0">
       <output id="tOut">t = 0.00 s</output>
-    </div>
-    <div class="legend" id="legend" hidden>
-      <span style="color:var(--inc)">입사 펄스</span>
-      <span style="color:var(--ref)">반사 펄스</span>
-      <span style="color:var(--tra)">투과 펄스</span>
-      <span class="hint" style="color:var(--muted)">실선(실제 줄 모양) = 점선들을 모두 더한 것</span>
     </div>
     <div class="note" id="note"></div>
   </section>
@@ -386,30 +377,7 @@ ul { margin: 6px 0; padding-left: 20px; }
       }
     }
 
-    // 각 펄스 따로 (점선)
-    const showParts = $('parts').checked;
     const step = WORLD / W * 1.5;
-    if (showParts) {
-      ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
-      for (const p of M.packets) {
-        if (Math.abs(p.a) < 0.01) continue;
-        const v = M.v[p.seg];
-        const xp = p.xr + p.dir * v * (t - p.tr);
-        const a = Math.max(xp - v * HALF, M.lo(p.seg), 0), b = Math.min(xp + v * HALF, M.hi(p.seg), WORLD);
-        if (b <= a) continue;
-        ctx.strokeStyle = col[p.kind];
-        ctx.beginPath();
-        for (let x = a; ; x += step) {
-          const xx = Math.min(x, b);
-          const px = X(xx), py = Y(packetY(M, p, xx, t));
-          if (x === a) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-          if (xx >= b) break;
-        }
-        ctx.stroke();
-      }
-      ctx.setLineDash([]);
-    }
-
     // 실제 줄 (모든 펄스의 합)
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     for (let i = 0; i < M.n; i++) {
@@ -482,7 +450,6 @@ ul { margin: 6px 0; padding-left: 20px; }
   $('reset').onclick = () => { state.playing = false; state.t = 0; syncUI(); draw(); };
   $('speed').onchange = e => { state.speed = +e.target.value; };
   $('names').onchange = draw;
-  $('parts').onchange = () => { $('legend').hidden = !$('parts').checked; draw(); };
   $('tr').oninput = e => { state.playing = false; state.t = +e.target.value; syncUI(); draw(); };
   $('Rr').oninput = e => setR(e.target.value, 'r');
   $('Rn').onchange = e => setR(e.target.value, 'n');
