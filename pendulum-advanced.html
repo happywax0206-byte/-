@@ -24,7 +24,8 @@ body {
   line-height: 1.5;
 }
 main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; }
-.top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.top { display: flex; flex-direction: column; align-items: flex-start; margin-bottom: 18px; }
+.top .kinds { align-self: flex-end; margin-bottom: 12px; }
 h1 { font-size: 1.6rem; margin: 0 0 4px; }
 .sub { color: var(--muted); margin: 0; }
 .kinds { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); flex: none; }
@@ -72,16 +73,14 @@ table.vals td.u { color: var(--muted); font-size: .85rem; white-space: nowrap; }
 <body>
 <main>
   <header class="top">
-    <div>
-      <h1 id="title">이중진자</h1>
-      <p class="sub" id="sub"></p>
-    </div>
     <nav class="kinds">
+      <a href="spring.html">용수철 진자</a>
       <a href="pendulum.html">단진자</a>
       <a href="pendulum-advanced.html?type=double" data-type="double">이중진자</a>
-      <a href="pendulum-advanced.html?type=spring" data-type="spring">용수철 진자</a>
-      <a href="spring.html">수직 용수철</a>
+      <a href="pendulum-advanced.html?type=spring" data-type="spring">혼돈 용수철</a>
     </nav>
+    <h1 id="title">이중진자</h1>
+    <p class="sub" id="sub"></p>
   </header>
 
   <div class="layout">
@@ -173,7 +172,7 @@ table.vals td.u { color: var(--muted); font-size: .85rem; white-space: nowrap; }
       hint: '「궤적 남기기」를 누르면 아래 추가 지나간 길이 그려져요. 처음 각도를 1°만 바꿔서 다시 해 보면 궤적이 전혀 달라집니다. (막대는 가볍고 늘어나지 않으며, 공기 저항은 없다고 가정)',
     },
     spring: {
-      title: '용수철 진자',
+      title: '혼돈 용수철',
       sub: '실 대신 용수철에 추를 매단 진자입니다. 좌우로 흔들리는 운동과 늘었다 줄었다 하는 운동이 서로 에너지를 주고받습니다.',
       hint: '「궤적 남기기」를 누르면 추가 지나간 길이 그려져요. 「2 : 1 공명 만들기」를 누른 뒤 궤적을 보면 두 운동이 번갈아 커졌다 작아지는 모습이 잘 보입니다. (용수철은 질량이 없고 공기 저항은 없다고 가정)',
     },

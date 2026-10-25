@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>수직 용수철 진자</title>
+<title>용수철 진자</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
 <style>
@@ -24,7 +24,8 @@ body {
   line-height: 1.5;
 }
 main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; }
-.top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.top { display: flex; flex-direction: column; align-items: flex-start; margin-bottom: 18px; }
+.top .kinds { align-self: flex-end; margin-bottom: 12px; }
 h1 { font-size: 1.6rem; margin: 0 0 4px; }
 .sub { color: var(--muted); margin: 0; }
 .kinds { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); flex: none; }
@@ -86,16 +87,14 @@ ul { margin: 6px 0; padding-left: 20px; }
 <body>
 <main>
   <header class="top">
-    <div>
-      <h1>수직 용수철 진자</h1>
-      <p class="sub">용수철에 매단 추가 위아래로 단진동합니다. 질량, 용수철 상수, 중력가속도를 바꾸며 주기를 알아봅니다.</p>
-    </div>
     <nav class="kinds">
+      <a href="spring.html" class="sel">용수철 진자</a>
       <a href="pendulum.html">단진자</a>
       <a href="pendulum-advanced.html?type=double">이중진자</a>
-      <a href="pendulum-advanced.html?type=spring">용수철 진자</a>
-      <a href="spring.html" class="sel">수직 용수철</a>
+      <a href="pendulum-advanced.html?type=spring">혼돈 용수철</a>
     </nav>
+    <h1>용수철 진자</h1>
+    <p class="sub">용수철에 매단 추가 위아래로 단진동합니다. 질량, 용수철 상수, 중력가속도를 바꾸며 주기를 알아봅니다.</p>
   </header>
 
   <div class="layout">
@@ -134,7 +133,7 @@ ul { margin: 6px 0; padding-left: 20px; }
         <label>진폭 A (평형 위치에서 아래로 당긴 거리)</label>
         <div class="line">
           <input type="range" id="Ar" min="1" max="40" step="1" value="10">
-          <span id="Av" style="width:52px;text-align:right">10 cm</span>
+          <input type="number" id="An" min="1" max="40" step="0.1" value="10"> cm
         </div>
         <div class="hint" id="ampHint">진폭을 바꿔도 주기는 같아요.</div>
       </div>
@@ -302,7 +301,15 @@ ul { margin: 6px 0; padding-left: 20px; }
     state.place = hit ? hit[0] : null;
     changed();
   });
-  $('Ar').addEventListener('input', e => { state.amp = Number(e.target.value); $('Av').textContent = state.amp + ' cm'; changed(); });
+  const setAmp = v => {
+    v = Number(v);
+    if (!isFinite(v)) { $('An').value = state.amp; return; }
+    state.amp = Math.round(clamp(v, 1, 40) * 10) / 10;
+    $('Ar').value = state.amp; $('An').value = state.amp;
+    changed();
+  };
+  $('Ar').addEventListener('input', e => setAmp(e.target.value));
+  $('An').addEventListener('change', e => setAmp(e.target.value));
   $('cmp').addEventListener('change', e => { state.cmp = e.target.value; changed(); });
   $('speed').addEventListener('change', e => { state.speed = Number(e.target.value); });
   $('run').addEventListener('click', () => { state.running = !state.running; $('run').textContent = state.running ? '⏸ 멈춤' : '▶ 다시 움직이기'; });
