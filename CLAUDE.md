@@ -16,3 +16,4 @@
   - **남은 일 (파일 올리기):** 사용자가 setup.sql을 Supabase에서 다시 Run 했는지 확인하지 못했다. 실제 사이트에서 휴대폰으로 올리고 교사 화면에서 여는 시험도 아직 안 했다.
 - 2026-10-23: 맥놀이 시뮬레이션 `beats.html` 추가(수업 앱과 별개인 단독 페이지, Web Audio로 두 사인파를 들려주고 파형·포락선을 소리와 맞춰 그림). 주소: https://happywax0206-byte.github.io/-/beats.html
 - 2026-10-25: 진자 주기 시뮬레이션 `pendulum.html` 추가(길이·g(행성 11곳 + 직접 입력)·진폭 조절). 계산은 근사 T=2π√(L/g)와 실제 진자(운동 방정식 RK4, 주기는 AGM 공식) 중 전환. 비교: 다른 길이·지구·근사 vs 실제. 주소: https://happywax0206-byte.github.io/-/pendulum.html
+  - 우상단 [단진자][이중진자][용수철 진자] 버튼. 이중진자·용수철 진자는 `pendulum-advanced.html?type=double|spring` 한 페이지(궤적 남기기, RK4). 세 화면 모두 라그랑주 역학 설명(KaTeX)과 실시간 위치·속도·가속도 표.

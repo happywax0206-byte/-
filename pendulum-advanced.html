@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>진자 실험실</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<style>
+:root {
+  --bg: #f4f6fa; --card: #ffffff; --ink: #1d2433; --muted: #5d6678; --line: #e1e5ee;
+  --c1: #2f6fde; --c2: #e0782b; --accent: #2f6fde; --accent-ink: #fff; --grid: #eef1f6; --hl: #d43d5c;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151c; --card: #1b2029; --ink: #e8ebf2; --muted: #9aa3b5; --line: #2c3340;
+    --c1: #6ea1ff; --c2: #ffa25c; --accent: #6ea1ff; --accent-ink: #0d1220; --grid: #232935; --hl: #ff6f8c;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  line-height: 1.5;
+}
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; }
+.top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+.sub { color: var(--muted); margin: 0; }
+.kinds { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); flex: none; }
+.kinds a { padding: 8px 14px; color: var(--ink); text-decoration: none; font-weight: 600; }
+.kinds a + a { border-left: 1px solid var(--line); }
+.kinds a.sel { background: var(--accent); color: var(--accent-ink); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+.card h2 { font-size: 1.05rem; margin: 0 0 10px; }
+.card h3 { font-size: .98rem; margin: 0 0 4px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+button {
+  font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  border-radius: 10px; padding: 8px 14px; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+#run { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+#trail.on { background: var(--c2); border-color: var(--c2); color: #fff; font-weight: 700; }
+.layout { display: grid; grid-template-columns: 320px 1fr; gap: 16px; align-items: start; }
+.ctl { margin-bottom: 14px; }
+.ctl > label, .ctl > .lbl { display: block; font-weight: 600; margin-bottom: 2px; }
+.ctl .line { display: flex; gap: 10px; align-items: center; }
+.ctl input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
+input[type=number] { width: 84px; font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); }
+select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+.hint { color: var(--muted); font-size: .88rem; }
+.info { background: var(--grid); border-radius: 10px; padding: 8px 12px; font-size: .92rem; margin-bottom: 14px; }
+canvas { display: block; width: 100%; }
+#scene { height: 500px; }
+.lag { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.step { background: var(--grid); border-radius: 12px; padding: 8px 14px; margin-bottom: 10px; overflow-x: auto; }
+.step .katex-display { margin: .4em 0; }
+.tex-fallback { font-family: "Cambria Math", "Times New Roman", serif; padding: 4px 0; white-space: pre-wrap; }
+table.vals { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table.vals th { text-align: left; font-size: .85rem; color: var(--muted); padding: 10px 6px 4px; border-bottom: 1px solid var(--line); }
+table.vals td { padding: 3px 6px; border-bottom: 1px solid var(--grid); }
+table.vals td.v { text-align: right; font-weight: 600; font-family: ui-monospace, "Consolas", monospace; white-space: nowrap; }
+table.vals td.u { color: var(--muted); font-size: .85rem; white-space: nowrap; }
+@media (max-width: 860px) {
+  .layout, .lag { grid-template-columns: 1fr; }
+  #scene { height: 400px; }
+  h1 { font-size: 1.35rem; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <div>
+      <h1 id="title">이중진자</h1>
+      <p class="sub" id="sub"></p>
+    </div>
+    <nav class="kinds">
+      <a href="pendulum.html">단진자</a>
+      <a href="pendulum-advanced.html?type=double" data-type="double">이중진자</a>
+      <a href="pendulum-advanced.html?type=spring" data-type="spring">용수철 진자</a>
+    </nav>
+  </header>
+
+  <div class="layout">
+    <section class="card">
+      <div id="panel_double"><div id="sl_double"></div></div>
+      <div id="panel_spring">
+        <div id="sl_spring"></div>
+        <div class="info" id="springInfo"></div>
+        <div class="ctl"><button id="reso">2 : 1 공명 만들기</button>
+          <div class="hint">용수철 진동수를 진자 진동수의 2배로 맞추면, 늘었다 줄었다 하는 운동과 흔들리는 운동이 에너지를 크게 주고받아요.</div></div>
+      </div>
+      <div class="ctl">
+        <div class="lbl">중력가속도 g</div>
+        <div class="line">
+          <select id="gsel" style="flex:1"></select>
+          <input type="number" id="gn" min="0.01" max="1000" step="0.01" value="9.8"> m/s²
+        </div>
+      </div>
+      <div class="ctl" style="margin-bottom:0">
+        <label>화면 속도</label>
+        <select id="speed">
+          <option value="1" selected>실제 속도</option>
+          <option value="0.5">2배 느리게</option>
+          <option value="0.25">4배 느리게</option>
+        </select>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row" style="margin-bottom:10px">
+        <button id="run">⏸ 멈춤</button>
+        <button id="reset">↺ 처음부터</button>
+        <button id="trail">✏ 궤적 남기기</button>
+        <button id="clearTrail">궤적 지우기</button>
+        <span class="hint" id="clock" style="margin-left:auto">0.0 초</span>
+      </div>
+      <canvas id="scene"></canvas>
+      <div class="hint" id="sceneHint" style="margin-top:8px"></div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>라그랑주 역학으로 운동방정식 구하기</h2>
+    <div class="lag">
+      <div id="lagSteps"></div>
+      <div>
+        <h3>지금 이 순간의 값</h3>
+        <div class="hint">원점 = 매단 점, x는 오른쪽이 +, y는 위쪽이 + 입니다. 각도는 아래 수직선에서 잰 값입니다.</div>
+        <table class="vals" id="vals"></table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const TAU = Math.PI * 2, D2R = Math.PI / 180;
+  const PLACES = [
+    ['수성', 3.7], ['금성', 8.87], ['지구', 9.8], ['화성', 3.71], ['목성', 24.79], ['토성', 10.44],
+    ['천왕성', 8.69], ['해왕성', 11.15], ['명왕성', 0.62], ['달', 1.62], ['태양', 274],
+  ];
+
+  const P = {
+    double: { l1: 1, l2: 1, m1: 1, m2: 1, a1: 120, a2: -30 },
+    spring: { k: 40, m: 1, l0: 1, a: 30, s: 0.2 },
+  };
+  const SPECS = {
+    double: [
+      ['l1', '위 막대 길이 ℓ₁', 0.3, 2, 0.05, 'm'],
+      ['l2', '아래 막대 길이 ℓ₂', 0.3, 2, 0.05, 'm'],
+      ['m1', '위 추 질량 m₁', 0.1, 5, 0.1, 'kg'],
+      ['m2', '아래 추 질량 m₂', 0.1, 5, 0.1, 'kg'],
+      ['a1', '처음 각도 θ₁', -180, 180, 1, '°'],
+      ['a2', '처음 각도 θ₂', -180, 180, 1, '°'],
+    ],
+    spring: [
+      ['k', '용수철 상수 k', 5, 300, 0.5, 'N/m'],
+      ['m', '추 질량 m', 0.1, 3, 0.05, 'kg'],
+      ['l0', '용수철 자연 길이 ℓ₀', 0.3, 2, 0.05, 'm'],
+      ['a', '처음 각도 θ₀', -90, 90, 1, '°'],
+      ['s', '처음에 평형 길이보다 더 늘린 길이', -0.5, 0.8, 0.01, 'm'],
+    ],
+  };
+  const TEXT = {
+    double: {
+      title: '이중진자',
+      sub: '진자 끝에 진자를 하나 더 단 이중진자입니다. 처음 각도가 아주 조금만 달라도 움직임이 완전히 달라지는 혼돈(카오스) 운동을 합니다.',
+      hint: '「궤적 남기기」를 누르면 아래 추가 지나간 길이 그려져요. 처음 각도를 1°만 바꿔서 다시 해 보면 궤적이 전혀 달라집니다. (막대는 가볍고 늘어나지 않으며, 공기 저항은 없다고 가정)',
+    },
+    spring: {
+      title: '용수철 진자',
+      sub: '실 대신 용수철에 추를 매단 진자입니다. 좌우로 흔들리는 운동과 늘었다 줄었다 하는 운동이 서로 에너지를 주고받습니다.',
+      hint: '「궤적 남기기」를 누르면 추가 지나간 길이 그려져요. 「2 : 1 공명 만들기」를 누른 뒤 궤적을 보면 두 운동이 번갈아 커졌다 작아지는 모습이 잘 보입니다. (용수철은 질량이 없고 공기 저항은 없다고 가정)',
+    },
+  };
+
+  const state = { type: 'double', g: 9.8, speed: 1, running: true, trail: false, t: 0, s: null, trailPts: [], Rmax: 1, broke: false };
+
+  function fmt(x, d) { return Number(x).toFixed(d); }
+  function clamp(v, a, b) { return Math.min(b, Math.max(a, v)); }
+
+  // ---------- 운동방정식 (라그랑주 방정식에서 얻은 식) ----------
+  function derivDouble(s) {
+    const { l1, l2, m1, m2 } = P.double, g = state.g;
+    const [t1, t2, w1, w2] = s;
+    const d = t1 - t2, den = 2 * m1 + m2 - m2 * Math.cos(2 * d);
+    const a1 = (-g * (2 * m1 + m2) * Math.sin(t1) - m2 * g * Math.sin(t1 - 2 * t2)
+      - 2 * Math.sin(d) * m2 * (w2 * w2 * l2 + w1 * w1 * l1 * Math.cos(d))) / (l1 * den);
+    const a2 = (2 * Math.sin(d) * (w1 * w1 * l1 * (m1 + m2) + g * (m1 + m2) * Math.cos(t1)
+      + w2 * w2 * l2 * m2 * Math.cos(d))) / (l2 * den);
+    return [w1, w2, a1, a2];
+  }
+  function derivSpring(s) {
+    const { k, m, l0 } = P.spring, g = state.g;
+    const [r, th, rd, thd] = s;
+    return [rd, thd, r * thd * thd + g * Math.cos(th) - k / m * (r - l0), -(g * Math.sin(th) + 2 * rd * thd) / r];
+  }
+  const deriv = s => (state.type === 'double' ? derivDouble(s) : derivSpring(s));
+  function rk4(f, s, h) {
+    const k1 = f(s);
+    const k2 = f(s.map((v, i) => v + h / 2 * k1[i]));
+    const k3 = f(s.map((v, i) => v + h / 2 * k2[i]));
+    const k4 = f(s.map((v, i) => v + h * k3[i]));
+    return s.map((v, i) => v + h / 6 * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]));
+  }
+
+  // 추의 위치 (원점: 매단 점, y는 위쪽 +)
+  function bobs(s) {
+    if (state.type === 'double') {
+      const { l1, l2 } = P.double;
+      const x1 = l1 * Math.sin(s[0]), y1 = -l1 * Math.cos(s[0]);
+      return [[x1, y1], [x1 + l2 * Math.sin(s[1]), y1 - l2 * Math.cos(s[1])]];
+    }
+    return [[s[0] * Math.sin(s[1]), -s[0] * Math.cos(s[1])]];
+  }
+
+  // ---------- 처음 상태 ----------
+  const rEq = () => P.spring.l0 + P.spring.m * state.g / P.spring.k;
+  function reset() {
+    state.t = 0; state.trailPts = [];
+    if (state.broke) { state.broke = false; $('sceneHint').textContent = TEXT[state.type].hint; }
+    if (state.type === 'double') {
+      state.s = [P.double.a1 * D2R, P.double.a2 * D2R, 0, 0];
+    } else {
+      const { k, m, l0, a, s } = P.spring, g = state.g;
+      const r0 = Math.max(0.05, rEq() + s), th0 = a * D2R;
+      state.s = [r0, th0, 0, 0];
+      // 에너지 보존으로 추가 갈 수 있는 가장 먼 거리를 구해 화면 축척을 정한다
+      const E = 0.5 * k * (r0 - l0) ** 2 - m * g * r0 * Math.cos(th0);
+      const u = (m * g + Math.sqrt(Math.max(0, m * m * g * g + 2 * k * (m * g * l0 + E)))) / k;
+      state.Rmax = Math.max(l0 + u, r0) * 1.03;
+      const fs = Math.sqrt(k / m) / TAU, fp = Math.sqrt(g / rEq()) / TAU;
+      $('springInfo').innerHTML = '평형 길이 ℓ₀ + mg/k = <b>' + fmt(rEq(), 3) + ' m</b><br>' +
+        '용수철 진동수 √(k/m)/2π = <b>' + fmt(fs, 3) + ' Hz</b><br>' +
+        '진자 진동수 √(g/ℓ)/2π ≈ <b>' + fmt(fp, 3) + ' Hz</b><br>' +
+        '비율 = <b>' + fmt(fs / fp, 2) + ' : 1</b>';
+    }
+    lastVals = 0;
+  }
+
+  // ---------- 조작 ----------
+  const setters = { double: {}, spring: {} };
+  for (const type in SPECS) {
+    SPECS[type].forEach(([key, label, min, max, step, unit]) => {
+      const id = type + '_' + key;
+      const div = document.createElement('div');
+      div.className = 'ctl';
+      div.innerHTML = '<label for="' + id + 'n">' + label + '</label><div class="line">' +
+        '<input type="range" id="' + id + 'r" min="' + min + '" max="' + max + '" step="' + step + '" value="' + P[type][key] + '">' +
+        '<input type="number" id="' + id + 'n" min="' + min + '" max="' + max + '" step="' + step + '" value="' + P[type][key] + '"> ' + unit + '</div>';
+      $('sl_' + type).appendChild(div);
+      const set = v => {
+        v = Number(v);
+        if (!isFinite(v)) return;
+        v = Number((Math.round(clamp(v, min, max) / step) * step).toFixed(3));
+        P[type][key] = v;
+        $(id + 'r').value = v; $(id + 'n').value = v;
+        reset();
+      };
+      $(id + 'r').addEventListener('input', e => set(e.target.value));
+      $(id + 'n').addEventListener('change', e => set(e.target.value));
+      setters[type][key] = set;
+    });
+  }
+  $('reso').addEventListener('click', () => {
+    const { m, l0 } = P.spring;
+    setters.spring.k(3 * m * state.g / l0); // √(k/m) = 2√(g/(ℓ₀+mg/k)) 를 k에 대해 풀면 k = 3mg/ℓ₀
+  });
+
+  PLACES.forEach(([name, g]) => $('gsel').add(new Option(name + ' (' + g + ')', g)));
+  $('gsel').add(new Option('직접 입력', ''));
+  $('gsel').value = '9.8';
+  $('gsel').addEventListener('change', e => {
+    if (e.target.value === '') { $('gn').focus(); return; }
+    state.g = Number(e.target.value); $('gn').value = state.g; reset();
+  });
+  $('gn').addEventListener('change', e => {
+    const v = Number(e.target.value);
+    if (!isFinite(v) || v <= 0) { e.target.value = state.g; return; }
+    state.g = clamp(v, 0.01, 1000); e.target.value = state.g;
+    $('gsel').value = PLACES.some(p => p[1] === state.g) ? String(state.g) : '';
+    reset();
+  });
+  $('speed').addEventListener('change', e => { state.speed = Number(e.target.value); });
+  $('run').addEventListener('click', () => { state.running = !state.running; $('run').textContent = state.running ? '⏸ 멈춤' : '▶ 다시 움직이기'; });
+  $('reset').addEventListener('click', reset);
+  $('trail').addEventListener('click', () => {
+    state.trail = !state.trail;
+    if (!state.trail) state.trailPts = [];
+    $('trail').classList.toggle('on', state.trail);
+    $('trail').textContent = state.trail ? '✏ 궤적 남기는 중' : '✏ 궤적 남기기';
+  });
+  $('clearTrail').addEventListener('click', () => { state.trailPts = []; });
+
+  document.querySelectorAll('.kinds a[data-type]').forEach(a => a.addEventListener('click', e => {
+    e.preventDefault();
+    setType(a.dataset.type);
+  }));
+
+  function setType(type) {
+    state.type = type;
+    history.replaceState(null, '', '?type=' + type);
+    document.querySelectorAll('.kinds a[data-type]').forEach(a => a.classList.toggle('sel', a.dataset.type === type));
+    $('panel_double').hidden = type !== 'double';
+    $('panel_spring').hidden = type !== 'spring';
+    $('title').textContent = TEXT[type].title;
+    $('sub').textContent = TEXT[type].sub;
+    $('sceneHint').textContent = TEXT[type].hint;
+    document.title = TEXT[type].title + ' · 진자 실험실';
+    renderLagrange();
+    buildTable();
+    reset();
+  }
+
+  // ---------- 라그랑주 역학 설명 ----------
+  function tex(el, src, display = true) {
+    if (window.katex) katex.render(src, el, { displayMode: display, throwOnError: false });
+    else { el.textContent = src; el.className = 'tex-fallback'; }
+  }
+  const COMMON = [
+    ['라그랑지안 = 운동 에너지 − 퍼텐셜 에너지', '\\mathcal{L} = T - V'],
+    ['오일러–라그랑주 방정식 (좌표 q마다 하나씩)', '\\frac{d}{dt}\\left(\\frac{\\partial \\mathcal{L}}{\\partial \\dot q}\\right) - \\frac{\\partial \\mathcal{L}}{\\partial q} = 0'],
+  ];
+  const LAG = {
+    double: [
+      ['① 좌표 정하기: q = (θ₁, θ₂)',
+        '\\begin{aligned} x_1 &= \\ell_1\\sin\\theta_1, & y_1 &= -\\ell_1\\cos\\theta_1 \\\\ x_2 &= x_1 + \\ell_2\\sin\\theta_2, & y_2 &= y_1 - \\ell_2\\cos\\theta_2 \\end{aligned}'],
+      ['② 운동 에너지 T, 퍼텐셜 에너지 V',
+        '\\begin{aligned} T &= \\tfrac12(m_1+m_2)\\ell_1^2\\dot\\theta_1^2 + \\tfrac12 m_2\\ell_2^2\\dot\\theta_2^2 + m_2\\ell_1\\ell_2\\dot\\theta_1\\dot\\theta_2\\cos(\\theta_1-\\theta_2) \\\\ V &= -(m_1+m_2)g\\ell_1\\cos\\theta_1 - m_2 g\\ell_2\\cos\\theta_2 \\end{aligned}'],
+      ...COMMON.map(([a, b], i) => [(i ? '④ ' : '③ ') + a, b]),
+      ['⑤ θ₁에 대해 계산',
+        '\\begin{aligned} \\frac{\\partial \\mathcal{L}}{\\partial \\dot\\theta_1} &= (m_1+m_2)\\ell_1^2\\dot\\theta_1 + m_2\\ell_1\\ell_2\\dot\\theta_2\\cos(\\theta_1-\\theta_2) \\\\ \\frac{\\partial \\mathcal{L}}{\\partial \\theta_1} &= -m_2\\ell_1\\ell_2\\dot\\theta_1\\dot\\theta_2\\sin(\\theta_1-\\theta_2) - (m_1+m_2)g\\ell_1\\sin\\theta_1 \\end{aligned}'],
+      ['⑥ 운동방정식',
+        '\\begin{aligned} &(m_1+m_2)\\ell_1\\ddot\\theta_1 + m_2\\ell_2\\ddot\\theta_2\\cos(\\theta_1-\\theta_2) + m_2\\ell_2\\dot\\theta_2^2\\sin(\\theta_1-\\theta_2) + (m_1+m_2)g\\sin\\theta_1 = 0 \\\\ &\\ell_2\\ddot\\theta_2 + \\ell_1\\ddot\\theta_1\\cos(\\theta_1-\\theta_2) - \\ell_1\\dot\\theta_1^2\\sin(\\theta_1-\\theta_2) + g\\sin\\theta_2 = 0 \\end{aligned}'],
+    ],
+    spring: [
+      ['① 좌표 정하기: q = (r, θ)  (r: 용수철 길이)',
+        'x = r\\sin\\theta, \\qquad y = -r\\cos\\theta'],
+      ['② 운동 에너지 T, 퍼텐셜 에너지 V (중력 + 탄성)',
+        '\\begin{aligned} T &= \\tfrac12 m\\left(\\dot r^2 + r^2\\dot\\theta^2\\right) \\\\ V &= -mgr\\cos\\theta + \\tfrac12 k\\,(r-\\ell_0)^2 \\end{aligned}'],
+      ...COMMON.map(([a, b], i) => [(i ? '④ ' : '③ ') + a, b]),
+      ['⑤ r과 θ에 대해 각각 계산',
+        '\\begin{aligned} \\frac{\\partial \\mathcal{L}}{\\partial \\dot r} &= m\\dot r, & \\frac{\\partial \\mathcal{L}}{\\partial r} &= mr\\dot\\theta^2 + mg\\cos\\theta - k(r-\\ell_0) \\\\ \\frac{\\partial \\mathcal{L}}{\\partial \\dot \\theta} &= mr^2\\dot\\theta, & \\frac{\\partial \\mathcal{L}}{\\partial \\theta} &= -mgr\\sin\\theta \\end{aligned}'],
+      ['⑥ 운동방정식',
+        '\\begin{aligned} m\\ddot r &= mr\\dot\\theta^2 + mg\\cos\\theta - k(r-\\ell_0) \\\\ r\\ddot\\theta &= -2\\dot r\\dot\\theta - g\\sin\\theta \\end{aligned}'],
+    ],
+  };
+  const LAG_NOTE = {
+    double: '컴퓨터는 ⑥의 두 식을 θ̈₁, θ̈₂에 대해 풀고, 아주 짧은 시간(0.0005초)마다 룽게–쿠타(RK4) 방법으로 각도와 각속도를 이어서 계산합니다.',
+    spring: 'mr θ̇² 는 원심력, −2mṙθ̇ 은 코리올리 힘에 해당하는 항입니다. 컴퓨터는 이 식을 0.0005초마다 룽게–쿠타(RK4) 방법으로 이어서 계산합니다.',
+  };
+  function renderLagrange() {
+    const box = $('lagSteps');
+    box.innerHTML = '';
+    LAG[state.type].forEach(([title, src]) => {
+      const d = document.createElement('div');
+      d.className = 'step';
+      d.innerHTML = '<div style="font-weight:700"></div><div></div>';
+      d.firstChild.textContent = title;
+      tex(d.lastChild, src);
+      box.appendChild(d);
+    });
+    const n = document.createElement('div');
+    n.className = 'hint';
+    n.textContent = LAG_NOTE[state.type];
+    box.appendChild(n);
+  }
+
+  // ---------- 지금 이 순간의 값 ----------
+  const sg = (v, d = 3) => (v < 0 ? '−' : '+') + Math.abs(v).toFixed(d);
+  const wrap = a => { a = ((a + Math.PI) % TAU + TAU) % TAU - Math.PI; return a; };
+  const ang = a => sg(wrap(a)) + ' (' + sg(wrap(a) / D2R, 1) + '°)';
+  const mag = (x, y) => Math.hypot(x, y).toFixed(3);
+
+  const ROWS = {
+    double: [
+      ['각도 (일반화 좌표)'],
+      ['th1', 'θ₁', 'rad'], ['th2', 'θ₂', 'rad'],
+      ['w1', '각속도 θ̇₁', 'rad/s'], ['w2', '각속도 θ̇₂', 'rad/s'],
+      ['al1', '각가속도 θ̈₁', 'rad/s²'], ['al2', '각가속도 θ̈₂', 'rad/s²'],
+      ['아래 추 (m₂)'],
+      ['p2', '위치 (x, y)', 'm'], ['v2', '속도 (vₓ, v_y)', 'm/s'], ['vm2', '속력 |v|', 'm/s'],
+      ['a2', '가속도 (aₓ, a_y)', 'm/s²'], ['am2', '가속도 크기 |a|', 'm/s²'],
+      ['위 추 (m₁)'],
+      ['p1', '위치 (x, y)', 'm'], ['v1', '속도 (vₓ, v_y)', 'm/s'], ['a1', '가속도 (aₓ, a_y)', 'm/s²'],
+      ['에너지'],
+      ['T', '운동 에너지 T', 'J'], ['V', '퍼텐셜 에너지 V', 'J'], ['E', '역학적 에너지 T + V', 'J'],
+    ],
+    spring: [
+      ['길이와 각도 (일반화 좌표)'],
+      ['r', '용수철 길이 r', 'm'], ['th', '각도 θ', 'rad'],
+      ['rd', 'ṙ (늘어나는 빠르기)', 'm/s'], ['thd', '각속도 θ̇', 'rad/s'],
+      ['rdd', 'r̈', 'm/s²'], ['thdd', '각가속도 θ̈', 'rad/s²'],
+      ['추'],
+      ['p', '위치 (x, y)', 'm'], ['v', '속도 (vₓ, v_y)', 'm/s'], ['vm', '속력 |v|', 'm/s'],
+      ['a', '가속도 (aₓ, a_y)', 'm/s²'], ['am', '가속도 크기 |a|', 'm/s²'],
+      ['ext', '용수철이 늘어난 길이 r − ℓ₀', 'm'],
+      ['에너지'],
+      ['T', '운동 에너지 T', 'J'], ['Vg', '중력 퍼텐셜 에너지', 'J'], ['Vs', '탄성 퍼텐셜 에너지', 'J'], ['E', '역학적 에너지', 'J'],
+    ],
+  };
+  function buildTable() {
+    const t = $('vals');
+    t.innerHTML = '';
+    ROWS[state.type].forEach(r => {
+      const tr = t.insertRow();
+      if (r.length === 1) { const th = document.createElement('th'); th.colSpan = 3; th.textContent = r[0]; tr.appendChild(th); return; }
+      tr.insertCell().textContent = r[1];
+      const v = tr.insertCell(); v.className = 'v'; v.id = 'val_' + r[0];
+      const u = tr.insertCell(); u.className = 'u'; u.textContent = r[2];
+    });
+  }
+  const pair = (x, y) => '(' + sg(x) + ', ' + sg(y) + ')';
+
+  function values() {
+    const s = state.s, d = deriv(s), g = state.g;
+    if (state.type === 'double') {
+      const { l1, l2, m1, m2 } = P.double;
+      const [t1, t2, w1, w2] = s, [, , a1, a2] = d;
+      const [[x1, y1], [x2, y2]] = bobs(s);
+      const vx1 = l1 * w1 * Math.cos(t1), vy1 = l1 * w1 * Math.sin(t1);
+      const vx2 = vx1 + l2 * w2 * Math.cos(t2), vy2 = vy1 + l2 * w2 * Math.sin(t2);
+      const ax1 = l1 * (a1 * Math.cos(t1) - w1 * w1 * Math.sin(t1)), ay1 = l1 * (a1 * Math.sin(t1) + w1 * w1 * Math.cos(t1));
+      const ax2 = ax1 + l2 * (a2 * Math.cos(t2) - w2 * w2 * Math.sin(t2)), ay2 = ay1 + l2 * (a2 * Math.sin(t2) + w2 * w2 * Math.cos(t2));
+      const T = 0.5 * m1 * (vx1 ** 2 + vy1 ** 2) + 0.5 * m2 * (vx2 ** 2 + vy2 ** 2);
+      const V = m1 * g * y1 + m2 * g * y2;
+      return {
+        th1: ang(t1), th2: ang(t2), w1: sg(w1), w2: sg(w2), al1: sg(a1), al2: sg(a2),
+        p2: pair(x2, y2), v2: pair(vx2, vy2), vm2: mag(vx2, vy2), a2: pair(ax2, ay2), am2: mag(ax2, ay2),
+        p1: pair(x1, y1), v1: pair(vx1, vy1), a1: pair(ax1, ay1),
+        T: T.toFixed(3), V: sg(V), E: sg(T + V),
+      };
+    }
+    const { k, m, l0 } = P.spring;
+    const [r, th, rd, thd] = s, [, , rdd, thdd] = d;
+    const [[x, y]] = bobs(s);
+    const vx = rd * Math.sin(th) + r * thd * Math.cos(th), vy = -rd * Math.cos(th) + r * thd * Math.sin(th);
+    // 가속도 = (용수철 힘 + 중력) / m
+    const ax = -k / m * (r - l0) * Math.sin(th), ay = k / m * (r - l0) * Math.cos(th) - g;
+    const T = 0.5 * m * (vx * vx + vy * vy), Vg = m * g * y, Vs = 0.5 * k * (r - l0) ** 2;
+    return {
+      r: r.toFixed(3), th: ang(th), rd: sg(rd), thd: sg(thd), rdd: sg(rdd), thdd: sg(thdd),
+      p: pair(x, y), v: pair(vx, vy), vm: mag(vx, vy), a: pair(ax, ay), am: mag(ax, ay), ext: sg(r - l0),
+      T: T.toFixed(3), Vg: sg(Vg), Vs: Vs.toFixed(3), E: sg(T + Vg + Vs),
+    };
+  }
+  let lastVals = 0;
+  function showValues(now) {
+    if (now - lastVals < 100) return;
+    lastVals = now;
+    const v = values();
+    for (const key in v) { const el = $('val_' + key); if (el) el.textContent = v[key]; }
+  }
+
+  // ---------- 그리기 ----------
+  let colors = {};
+  function readColors() {
+    const s = getComputedStyle(document.documentElement);
+    ['c1', 'c2', 'ink', 'muted', 'line', 'grid', 'hl'].forEach(k => colors[k] = s.getPropertyValue('--' + k).trim());
+  }
+  readColors();
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readColors);
+
+  function fit(cv) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+      cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    }
+    const g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    return { g, w, h };
+  }
+
+  function drawTrail(g, X, Y) {
+    const pts = state.trailPts, n = pts.length, CH = 40;
+    if (n < 2) return;
+    g.strokeStyle = colors.c2; g.lineWidth = 1.6; g.lineJoin = 'round';
+    for (let i = 0; i < n - 1; i += CH) {
+      g.globalAlpha = 0.12 + 0.88 * (i / n);
+      g.beginPath(); g.moveTo(X(pts[i][0]), Y(pts[i][1]));
+      for (let j = i + 1; j <= Math.min(i + CH, n - 1); j++) g.lineTo(X(pts[j][0]), Y(pts[j][1]));
+      g.stroke();
+    }
+    g.globalAlpha = 1;
+  }
+  function bob(g, x, y, m, color) {
+    g.fillStyle = color;
+    g.beginPath(); g.arc(x, y, 7 + 6 * Math.cbrt(m), 0, TAU); g.fill();
+  }
+  function mount(g, px, py) {
+    g.fillStyle = colors.line; g.fillRect(px - 40, py - 6, 80, 6);
+    g.fillStyle = colors.ink; g.beginPath(); g.arc(px, py, 4, 0, TAU); g.fill();
+  }
+
+  function drawScene() {
+    const { g, w, h } = fit($('scene'));
+    const bs = bobs(state.s);
+    if (state.type === 'double') {
+      const { l1, l2, m1, m2 } = P.double;
+      const R = l1 + l2, px = w / 2, py = h / 2, sc = (Math.min(w, h) / 2 - 24) / R;
+      const X = x => px + x * sc, Y = y => py - y * sc;
+      g.strokeStyle = colors.line; g.setLineDash([4, 6]); g.lineWidth = 1;
+      g.beginPath(); g.arc(px, py, R * sc, 0, TAU); g.stroke();
+      g.beginPath(); g.moveTo(px, py); g.lineTo(px, py + R * sc); g.stroke();
+      g.setLineDash([]);
+      drawTrail(g, X, Y);
+      mount(g, px, py);
+      g.strokeStyle = colors.ink; g.lineWidth = 2.5;
+      g.beginPath(); g.moveTo(px, py); g.lineTo(X(bs[0][0]), Y(bs[0][1])); g.lineTo(X(bs[1][0]), Y(bs[1][1])); g.stroke();
+      bob(g, X(bs[0][0]), Y(bs[0][1]), m1, colors.c1);
+      bob(g, X(bs[1][0]), Y(bs[1][1]), m2, colors.c2);
+    } else {
+      const { l0, m } = P.spring;
+      const px = w / 2, py = 34, sc = Math.min((h - py - 24) / state.Rmax, (w / 2 - 24) / state.Rmax);
+      const X = x => px + x * sc, Y = y => py - y * sc;
+      g.strokeStyle = colors.line; g.setLineDash([4, 6]); g.lineWidth = 1;
+      g.beginPath(); g.moveTo(px, py); g.lineTo(px, h - 10); g.stroke();
+      // 자연 길이와 평형 길이 표시
+      g.beginPath(); g.arc(px, py, l0 * sc, Math.PI * 0.3, Math.PI * 0.7); g.stroke();
+      g.setLineDash([]);
+      g.fillStyle = colors.muted; g.font = '12px system-ui, sans-serif';
+      g.fillText('자연 길이 ℓ₀', px + l0 * sc * Math.cos(Math.PI * 0.3) + 4, py + l0 * sc * Math.sin(Math.PI * 0.3));
+      drawTrail(g, X, Y);
+      mount(g, px, py);
+      // 용수철: 양 끝은 곧게, 가운데는 지그재그
+      const bx = X(bs[0][0]), by = Y(bs[0][1]);
+      const dx = bx - px, dy = by - py, len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len;
+      const N = 16, end = Math.min(14, len * 0.15), amp = 9;
+      g.strokeStyle = colors.ink; g.lineWidth = 1.8; g.beginPath(); g.moveTo(px, py);
+      g.lineTo(px + ux * end, py + uy * end);
+      for (let i = 1; i < N * 2; i++) {
+        const u = end + (len - 2 * end) * i / (N * 2), side = i % 2 ? amp : -amp;
+        g.lineTo(px + ux * u - uy * side, py + uy * u + ux * side);
+      }
+      g.lineTo(bx - ux * end, by - uy * end); g.lineTo(bx, by); g.stroke();
+      bob(g, bx, by, m, colors.c1);
+    }
+  }
+
+  // ---------- 매 화면 ----------
+  const H = 0.0005;
+  let last = performance.now(), trailClock = 0;
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (state.running && !state.broke) {
+      let left = dt * state.speed;
+      while (left > 1e-9) {
+        const h = Math.min(H, left);
+        state.s = rk4(deriv, state.s, h);
+        state.t += h; left -= h; trailClock += h;
+        if (state.trail && trailClock >= 0.004) {
+          trailClock = 0;
+          const b = bobs(state.s);
+          state.trailPts.push(b[b.length - 1]);
+          if (state.trailPts.length > 15000) state.trailPts.splice(0, 1000);
+        }
+      }
+      if (!state.s.every(isFinite) || (state.type === 'spring' && state.s[0] < 0.01)) {
+        state.broke = true;
+        $('sceneHint').textContent = '용수철이 너무 짧게 줄어들어 계산을 멈췄어요. 값을 바꾸거나 「처음부터」를 눌러 주세요.';
+      }
+    }
+    $('clock').textContent = fmt(state.t, 1) + ' 초';
+    if (!state.broke) { drawScene(); showValues(now); }
+    requestAnimationFrame(frame);
+  }
+
+  const q = new URLSearchParams(location.search).get('type');
+  setType(q === 'spring' ? 'spring' : 'double');
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
