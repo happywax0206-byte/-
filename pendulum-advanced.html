@@ -53,6 +53,11 @@ select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid 
 .hint { color: var(--muted); font-size: .88rem; }
 .info { background: var(--grid); border-radius: 10px; padding: 8px 12px; font-size: .92rem; margin-bottom: 14px; }
 canvas { display: block; width: 100%; }
+.relax { text-align: center; margin: 8px 0 16px; }
+.relax p { margin: 0; }
+.relax-big { color: #e02424; font-size: 1.8rem; font-weight: 800; line-height: 1.3; }
+.relax-small { color: #8a8f99; font-size: .95rem; margin-top: 6px !important; }
+@media (max-width: 640px) { .relax-big { font-size: 1.35rem; } }
 #scene { height: 500px; }
 .lag { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; align-items: start; }
 .step { background: var(--grid); border-radius: 12px; padding: 8px 14px; margin-bottom: 10px; overflow-x: auto; }
@@ -120,6 +125,11 @@ table.vals td.u { color: var(--muted); font-size: .85rem; white-space: nowrap; }
       <canvas id="scene"></canvas>
       <div class="hint" id="sceneHint" style="margin-top:8px"></div>
     </section>
+  </div>
+
+  <div class="relax">
+    <p class="relax-big">몰라도 돼요!! 쫄지 말고 그냥 모양만 감상해도 충분합니다!</p>
+    <p class="relax-small">혹시나 궁금한 친구 있으면 언제든지 질문해요~ 물리학과 대학교 2학년 과정에서 배운답니다.</p>
   </div>
 
   <section class="card">
