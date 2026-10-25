@@ -321,6 +321,17 @@ table.vals td.u { color: var(--muted); font-size: .85rem; white-space: nowrap; }
     if (window.katex) katex.render(src, el, { displayMode: display, throwOnError: false });
     else { el.textContent = src; el.className = 'tex-fallback'; }
   }
+  // 글 속에 $…$로 감싼 부분만 수식으로 그린다
+  function mixed(el, s) {
+    el.textContent = '';
+    s.split('$').forEach((part, i) => {
+      if (!part) return;
+      const span = document.createElement('span');
+      if (i % 2 && window.katex) katex.render(part, span, { throwOnError: false });
+      else span.textContent = part;
+      el.appendChild(span);
+    });
+  }
   const COMMON = [
     ['라그랑지안 = 운동 에너지 − 퍼텐셜 에너지', '\\mathcal{L} = T - V'],
     ['오일러–라그랑주 방정식 (좌표 q마다 하나씩)', '\\frac{d}{dt}\\left(\\frac{\\partial \\mathcal{L}}{\\partial \\dot q}\\right) - \\frac{\\partial \\mathcal{L}}{\\partial q} = 0'],
@@ -350,8 +361,8 @@ table.vals td.u { color: var(--muted); font-size: .85rem; white-space: nowrap; }
     ],
   };
   const LAG_NOTE = {
-    double: '컴퓨터는 ⑥의 두 식을 θ̈₁, θ̈₂에 대해 풀고, 아주 짧은 시간(0.0005초)마다 룽게–쿠타(RK4) 방법으로 각도와 각속도를 이어서 계산합니다.',
-    spring: 'mr θ̇² 는 원심력, −2mṙθ̇ 은 코리올리 힘에 해당하는 항입니다. 컴퓨터는 이 식을 0.0005초마다 룽게–쿠타(RK4) 방법으로 이어서 계산합니다.',
+    double: '컴퓨터는 ⑥의 두 식을 $\\ddot\\theta_1, \\ddot\\theta_2$에 대해 풀고, 아주 짧은 시간(0.0005초)마다 룽게–쿠타(RK4) 방법으로 각도와 각속도를 이어서 계산합니다.',
+    spring: '$mr\\dot\\theta^2$ 은 원심력, $-2m\\dot r\\dot\\theta$ 는 코리올리 힘에 해당하는 항입니다. 컴퓨터는 이 식을 0.0005초마다 룽게–쿠타(RK4) 방법으로 이어서 계산합니다.',
   };
   function renderLagrange() {
     const box = $('lagSteps');
@@ -366,7 +377,7 @@ table.vals td.u { color: var(--muted); font-size: .85rem; white-space: nowrap; }
     });
     const n = document.createElement('div');
     n.className = 'hint';
-    n.textContent = LAG_NOTE[state.type];
+    mixed(n, LAG_NOTE[state.type]);
     box.appendChild(n);
   }
 
@@ -376,31 +387,32 @@ table.vals td.u { color: var(--muted); font-size: .85rem; white-space: nowrap; }
   const ang = a => sg(wrap(a)) + ' (' + sg(wrap(a) / D2R, 1) + '°)';
   const mag = (x, y) => Math.hypot(x, y).toFixed(3);
 
+  // 라벨 속 $…$ 부분은 수식으로 그린다 (θ̇ 같은 문자는 글꼴에 따라 점이 옆으로 밀려 보임)
   const ROWS = {
     double: [
       ['각도 (일반화 좌표)'],
-      ['th1', 'θ₁', 'rad'], ['th2', 'θ₂', 'rad'],
-      ['w1', '각속도 θ̇₁', 'rad/s'], ['w2', '각속도 θ̇₂', 'rad/s'],
-      ['al1', '각가속도 θ̈₁', 'rad/s²'], ['al2', '각가속도 θ̈₂', 'rad/s²'],
-      ['아래 추 (m₂)'],
-      ['p2', '위치 (x, y)', 'm'], ['v2', '속도 (vₓ, v_y)', 'm/s'], ['vm2', '속력 |v|', 'm/s'],
-      ['a2', '가속도 (aₓ, a_y)', 'm/s²'], ['am2', '가속도 크기 |a|', 'm/s²'],
-      ['위 추 (m₁)'],
-      ['p1', '위치 (x, y)', 'm'], ['v1', '속도 (vₓ, v_y)', 'm/s'], ['a1', '가속도 (aₓ, a_y)', 'm/s²'],
+      ['th1', '각도 $\\theta_1$', 'rad'], ['th2', '각도 $\\theta_2$', 'rad'],
+      ['w1', '각속도 $\\dot\\theta_1$', 'rad/s'], ['w2', '각속도 $\\dot\\theta_2$', 'rad/s'],
+      ['al1', '각가속도 $\\ddot\\theta_1$', 'rad/s²'], ['al2', '각가속도 $\\ddot\\theta_2$', 'rad/s²'],
+      ['아래 추 ($m_2$)'],
+      ['p2', '위치 $(x, y)$', 'm'], ['v2', '속도 $(v_x, v_y)$', 'm/s'], ['vm2', '속력 $|v|$', 'm/s'],
+      ['a2', '가속도 $(a_x, a_y)$', 'm/s²'], ['am2', '가속도 크기 $|a|$', 'm/s²'],
+      ['위 추 ($m_1$)'],
+      ['p1', '위치 $(x, y)$', 'm'], ['v1', '속도 $(v_x, v_y)$', 'm/s'], ['a1', '가속도 $(a_x, a_y)$', 'm/s²'],
       ['에너지'],
-      ['T', '운동 에너지 T', 'J'], ['V', '퍼텐셜 에너지 V', 'J'], ['E', '역학적 에너지 T + V', 'J'],
+      ['T', '운동 에너지 $T$', 'J'], ['V', '퍼텐셜 에너지 $V$', 'J'], ['E', '역학적 에너지 $T + V$', 'J'],
     ],
     spring: [
       ['길이와 각도 (일반화 좌표)'],
-      ['r', '용수철 길이 r', 'm'], ['th', '각도 θ', 'rad'],
-      ['rd', 'ṙ (늘어나는 빠르기)', 'm/s'], ['thd', '각속도 θ̇', 'rad/s'],
-      ['rdd', 'r̈', 'm/s²'], ['thdd', '각가속도 θ̈', 'rad/s²'],
+      ['r', '용수철 길이 $r$', 'm'], ['th', '각도 $\\theta$', 'rad'],
+      ['rd', '늘어나는 빠르기 $\\dot r$', 'm/s'], ['thd', '각속도 $\\dot\\theta$', 'rad/s'],
+      ['rdd', '$\\ddot r$', 'm/s²'], ['thdd', '각가속도 $\\ddot\\theta$', 'rad/s²'],
       ['추'],
-      ['p', '위치 (x, y)', 'm'], ['v', '속도 (vₓ, v_y)', 'm/s'], ['vm', '속력 |v|', 'm/s'],
-      ['a', '가속도 (aₓ, a_y)', 'm/s²'], ['am', '가속도 크기 |a|', 'm/s²'],
-      ['ext', '용수철이 늘어난 길이 r − ℓ₀', 'm'],
+      ['p', '위치 $(x, y)$', 'm'], ['v', '속도 $(v_x, v_y)$', 'm/s'], ['vm', '속력 $|v|$', 'm/s'],
+      ['a', '가속도 $(a_x, a_y)$', 'm/s²'], ['am', '가속도 크기 $|a|$', 'm/s²'],
+      ['ext', '용수철이 늘어난 길이 $r - \\ell_0$', 'm'],
       ['에너지'],
-      ['T', '운동 에너지 T', 'J'], ['Vg', '중력 퍼텐셜 에너지', 'J'], ['Vs', '탄성 퍼텐셜 에너지', 'J'], ['E', '역학적 에너지', 'J'],
+      ['T', '운동 에너지 $T$', 'J'], ['Vg', '중력 퍼텐셜 에너지', 'J'], ['Vs', '탄성 퍼텐셜 에너지', 'J'], ['E', '역학적 에너지', 'J'],
     ],
   };
   function buildTable() {
@@ -408,8 +420,8 @@ table.vals td.u { color: var(--muted); font-size: .85rem; white-space: nowrap; }
     t.innerHTML = '';
     ROWS[state.type].forEach(r => {
       const tr = t.insertRow();
-      if (r.length === 1) { const th = document.createElement('th'); th.colSpan = 3; th.textContent = r[0]; tr.appendChild(th); return; }
-      tr.insertCell().textContent = r[1];
+      if (r.length === 1) { const th = document.createElement('th'); th.colSpan = 3; mixed(th, r[0]); tr.appendChild(th); return; }
+      mixed(tr.insertCell(), r[1]);
       const v = tr.insertCell(); v.className = 'v'; v.id = 'val_' + r[0];
       const u = tr.insertCell(); u.className = 'u'; u.textContent = r[2];
     });
