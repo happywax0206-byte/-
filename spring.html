@@ -145,6 +145,7 @@ ul { margin: 6px 0; padding-left: 20px; }
           <option value="mass">질량이 다른 추와 비교</option>
           <option value="k">용수철 상수가 다른 용수철과 비교</option>
           <option value="earth">같은 진자를 지구에 둔 경우와 비교</option>
+          <option value="amp">진폭이 다른 경우와 비교</option>
         </select>
         <div id="m2box" hidden style="margin-top:10px">
           <label style="font-weight:600"><span class="dot" style="background:var(--c2)"></span>두 번째 추의 질량 m₂</label>
@@ -168,6 +169,13 @@ ul { margin: 6px 0; padding-left: 20px; }
             <span class="hint">k₁의</span>
             <button data-kr="0.25">¼배</button><button data-kr="0.5">½배</button>
             <button data-kr="2">2배</button><button data-kr="4">4배</button><button data-kr="9">9배</button>
+          </div>
+        </div>
+        <div id="a2box" hidden style="margin-top:10px">
+          <label style="font-weight:600"><span class="dot" style="background:var(--c2)"></span>두 번째 진자의 진폭 A₂</label>
+          <div class="line">
+            <input type="range" id="A2r" min="1" max="40" step="1" value="20">
+            <input type="number" id="A2n" min="1" max="40" step="0.1" value="20"> cm
           </div>
         </div>
       </div>
@@ -248,8 +256,8 @@ ul { margin: 6px 0; padding-left: 20px; }
     ['천왕성', 8.69], ['해왕성', 11.15], ['명왕성', 0.62], ['달', 1.62], ['태양', 274],
   ];
 
-  const state = { m: 0.5, k: 20, m2: 2, k2: 80, g: 9.8, place: '지구', amp: 10, cmp: 'none', speed: 1, running: true, t: 0 };
-  let oscs = [], A = 0.1; // 화면의 용수철 진자들, 실제로 쓰는 진폭(m)
+  const state = { m: 0.5, k: 20, m2: 2, k2: 80, g: 9.8, place: '지구', amp: 10, amp2: 20, cmp: 'none', speed: 1, running: true, t: 0 };
+  let oscs = []; // 화면의 용수철 진자들 (o.A: 실제로 쓰는 진폭, m)
 
   function fmt(x, d) { return Number(x).toFixed(d); }
   function clamp(v, a, b) { return Math.min(b, Math.max(a, v)); }
@@ -261,7 +269,7 @@ ul { margin: 6px 0; padding-left: 20px; }
     return { m, k, g, T, w: TAU / T, eq: m * g / k, color, label };
   }
   // 아래로 A만큼 당겼다가 놓으므로, 위쪽을 +로 한 변위는 x(t) = −A cos ωt
-  const disp = (o, t) => -A * Math.cos(o.w * t);
+  const disp = (o, t) => -o.A * Math.cos(o.w * t);
 
   // ---------- 조작 ----------
   const box = $('planets');
@@ -301,15 +309,19 @@ ul { margin: 6px 0; padding-left: 20px; }
     state.place = hit ? hit[0] : null;
     changed();
   });
-  const setAmp = v => {
-    v = Number(v);
-    if (!isFinite(v)) { $('An').value = state.amp; return; }
-    state.amp = Math.round(clamp(v, 1, 40) * 10) / 10;
-    $('Ar').value = state.amp; $('An').value = state.amp;
-    changed();
-  };
-  $('Ar').addEventListener('input', e => setAmp(e.target.value));
-  $('An').addEventListener('change', e => setAmp(e.target.value));
+  function bindAmp(rId, nId, key) {
+    const set = v => {
+      v = Number(v);
+      if (!isFinite(v)) { $(nId).value = state[key]; return; }
+      state[key] = Math.round(clamp(v, 1, 40) * 10) / 10;
+      $(rId).value = state[key]; $(nId).value = state[key];
+      changed();
+    };
+    $(rId).addEventListener('input', e => set(e.target.value));
+    $(nId).addEventListener('change', e => set(e.target.value));
+  }
+  bindAmp('Ar', 'An', 'amp');
+  bindAmp('A2r', 'A2n', 'amp2');
   $('cmp').addEventListener('change', e => { state.cmp = e.target.value; changed(); });
   $('speed').addEventListener('change', e => { state.speed = Number(e.target.value); });
   $('run').addEventListener('click', () => { state.running = !state.running; $('run').textContent = state.running ? '⏸ 멈춤' : '▶ 다시 움직이기'; });
@@ -349,6 +361,7 @@ ul { margin: 6px 0; padding-left: 20px; }
     if (state.cmp === 'mass') syms = [S('T_1', 'm_1', 'k', 'T₁', 'm₁', 'k'), S('T_2', 'm_2', 'k', 'T₂', 'm₂', 'k')];
     else if (state.cmp === 'k') syms = [S('T_1', 'm', 'k_1', 'T₁', 'm', 'k₁'), S('T_2', 'm', 'k_2', 'T₂', 'm', 'k₂')];
     else if (state.cmp === 'earth') syms = [BASE, S('T_{\\text{지구}}', 'm', 'k', 'T지구', 'm', 'k')];
+    else if (state.cmp === 'amp') syms = [S('T_1', 'm', 'k', 'T₁', 'm', 'k'), S('T_2', 'm', 'k', 'T₂', 'm', 'k')];
     else syms = [BASE];
 
     const sf = $('sceneFx');
@@ -381,6 +394,9 @@ ul { margin: 6px 0; padding-left: 20px; }
     } else if (state.cmp === 'earth') {
       $('fxCmpTitle').textContent = '중력가속도만 다를 때 — 주기 공식에 g가 없어요';
       tex($('fxCmp'), '\\frac{T}{T_{\\text{지구}}} = \\frac{2\\pi\\sqrt{m/k}}{2\\pi\\sqrt{m/k}} = 1', true, 'T/T지구 = 1');
+    } else if (state.cmp === 'amp') {
+      $('fxCmpTitle').textContent = '진폭만 다를 때 — 주기 공식에 A가 없어요';
+      tex($('fxCmp'), '\\frac{T_2}{T_1} = \\frac{2\\pi\\sqrt{m/k}}{2\\pi\\sqrt{m/k}} = 1', true, 'T₂/T₁ = 1');
     }
   }
 
@@ -391,18 +407,21 @@ ul { margin: 6px 0; padding-left: 20px; }
     if (state.cmp === 'mass') oscs = [makeOsc(state.m, state.k, state.g, 'c1', 'm₁ = ' + fmt(state.m, 2) + ' kg'), makeOsc(state.m2, state.k, state.g, 'c2', 'm₂ = ' + fmt(state.m2, 2) + ' kg')];
     else if (state.cmp === 'k') oscs = [makeOsc(state.m, state.k, state.g, 'c1', 'k₁ = ' + state.k + ' N/m'), makeOsc(state.m, state.k2, state.g, 'c2', 'k₂ = ' + state.k2 + ' N/m')];
     else if (state.cmp === 'earth') oscs = [makeOsc(state.m, state.k, state.g, 'c1', where), makeOsc(state.m, state.k, G_EARTH, 'c2', '지구')];
+    else if (state.cmp === 'amp') oscs = [makeOsc(state.m, state.k, state.g, 'c1', 'A₁ = ' + fmt(state.amp, 1) + ' cm'), makeOsc(state.m, state.k, state.g, 'c2', 'A₂ = ' + fmt(state.amp2, 1) + ' cm')];
     else oscs = [makeOsc(state.m, state.k, state.g, 'c1', where)];
 
     // 용수철이 0 길이 가까이 줄어들지 않도록 진폭을 제한한다
     const maxA = Math.min(...oscs.map(o => L0 + o.eq - 0.05));
-    A = Math.min(state.amp / 100, maxA);
+    const want = oscs.map((o, i) => (state.cmp === 'amp' && i === 1 ? state.amp2 : state.amp) / 100);
+    oscs.forEach((o, i) => { o.A = Math.min(want[i], maxA); });
     const ah = $('ampHint');
-    if (A < state.amp / 100 - 1e-9) { ah.className = 'hint warn'; ah.textContent = '용수철이 너무 짧아지지 않도록 진폭을 ' + fmt(A * 100, 1) + ' cm로 줄여서 보여 줘요.'; }
+    if (oscs.some((o, i) => o.A < want[i] - 1e-9)) { ah.className = 'hint warn'; ah.textContent = '용수철이 너무 짧아지지 않도록 진폭을 ' + fmt(maxA * 100, 1) + ' cm로 줄여서 보여 줘요.'; }
     else { ah.className = 'hint'; ah.textContent = '진폭을 바꿔도 주기는 같아요.'; }
 
     document.querySelectorAll('[data-place]').forEach(b => b.classList.toggle('sel', b.dataset.place === state.place));
     $('m2box').hidden = state.cmp !== 'mass';
     $('k2box').hidden = state.cmp !== 'k';
+    $('a2box').hidden = state.cmp !== 'amp';
     $('T2stat').hidden = oscs.length < 2;
     $('Tv').textContent = fmtT(oscs[0].T);
     if (oscs.length > 1) $('T2v').textContent = fmtT(oscs[1].T);
@@ -417,6 +436,8 @@ ul { margin: 6px 0; padding-left: 20px; }
       txt = '용수철 상수가 ' + fmt(r, 2) + '배이면 주기는 ' + fmt(1 / Math.sqrt(r), 2) + '배 (1/√' + fmt(r, 2) + ')';
     } else if (state.cmp === 'earth') {
       txt = '중력이 달라도 주기는 똑같아요! 평형 위치에서 늘어난 길이만 다릅니다: ' + where + ' ' + fmtLen(oscs[0].eq) + ', 지구 ' + fmtLen(oscs[1].eq);
+    } else if (state.cmp === 'amp') {
+      txt = '진폭이 ' + fmt(state.amp2 / state.amp, 2) + '배여도 주기는 똑같아요! 더 멀리 움직이는 만큼 더 빠르게 움직이기 때문이에요.';
     } else if (state.g !== G_EARTH) {
       txt = '중력가속도를 바꿔도 주기는 그대로예요. 평형 위치(늘어난 길이)만 달라집니다.';
     }
@@ -467,7 +488,7 @@ ul { margin: 6px 0; padding-left: 20px; }
     const top = 30, bottom = 16;
     // 같은 눈금: 항상 0~2 m 자. 크게 보기: 용수철 길이에 맞춰 축척을 고른다
     const blk = state.zoom ? Math.max(...oscs.map(o => blockSize(o.m))) : blockSize(5);
-    const maxLen = Math.max(...oscs.map(o => L0 + o.eq + A));
+    const maxLen = Math.max(...oscs.map(o => L0 + o.eq + o.A));
     const span = state.zoom ? niceCeil(maxLen) : FIXED_SPAN;
     const pxPerM = (h - top - bottom - blk) / span;
     const two = oscs.length > 1;
@@ -482,7 +503,7 @@ ul { margin: 6px 0; padding-left: 20px; }
       const half = Math.min(90, w * (two ? 0.15 : 0.22));
       // 진폭 범위
       g.fillStyle = colors.grid;
-      g.fillRect(x - half, Y(L0 + o.eq - A), half * 2, 2 * A * pxPerM);
+      g.fillRect(x - half, Y(L0 + o.eq - o.A), half * 2, 2 * o.A * pxPerM);
       // 자연 길이, 평형 위치
       g.lineWidth = 1.5; g.setLineDash([5, 5]);
       g.strokeStyle = colors.muted; g.beginPath(); g.moveTo(x - half, yNat); g.lineTo(x + half, yNat); g.stroke();
@@ -527,7 +548,7 @@ ul { margin: 6px 0; padding-left: 20px; }
     const { g, w, h } = fit($('graph'));
     const left = 56, right = w - 10, top = 18, bottom = h - 24;
     const mid = (top + bottom) / 2;
-    const ycm = A * 100;
+    const ycm = Math.max(...oscs.map(o => o.A)) * 100;
     // 같은 눈금: 변위 ±40 cm, 시간 10초로 고정
     const ystep = state.zoom ? [1, 2, 5, 10, 20].find(s => ycm / s <= 3) : 10;
     const ymax = state.zoom ? Math.max(ycm * 1.15, ystep) : 44;
