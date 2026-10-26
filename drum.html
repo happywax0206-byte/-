@@ -1,0 +1,749 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>북의 2차원 정상파</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<style>
+:root {
+  --bg: #f4f6fa; --card: #ffffff; --ink: #1d2433; --muted: #5d6678; --line: #e1e5ee;
+  --accent: #2f6fde; --accent-ink: #fff; --grid: #eef1f6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151c; --card: #1b2029; --ink: #e8ebf2; --muted: #9aa3b5; --line: #2c3340;
+    --accent: #6ea1ff; --accent-ink: #0d1220; --grid: #232935;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  line-height: 1.5;
+}
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; }
+.top { margin-bottom: 18px; }
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+.sub { color: var(--muted); margin: 0; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+.card h2 { font-size: 1.05rem; margin: 0 0 10px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+button {
+  font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  border-radius: 10px; padding: 8px 14px; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button.sel { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.tabs button { font-weight: 700; font-size: 1.02rem; padding: 10px; }
+.lbl { display: block; font-weight: 600; margin-bottom: 6px; }
+.hint { color: var(--muted); font-size: .88rem; }
+select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+input[type=range] { accent-color: var(--accent); width: 120px; }
+label.chk { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+label.chk input { accent-color: var(--accent); width: 16px; height: 16px; }
+.modes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.modes button { display: flex; gap: 8px; align-items: center; padding: 6px 8px; text-align: left; line-height: 1.25; }
+.modes canvas { width: 52px; height: 52px; flex: none; }
+.modes b { display: block; font-size: 1rem; }
+.modes small { display: block; opacity: .8; }
+.views { display: grid; grid-template-columns: 1.25fr 1fr; gap: 14px; }
+.views figure { margin: 0; }
+.views figcaption { font-weight: 600; margin-bottom: 4px; }
+.views figcaption span { font-weight: 400; color: var(--muted); font-size: .85rem; }
+canvas { display: block; width: 100%; }
+#c3d { height: 380px; cursor: grab; touch-action: none; }
+#cTop { aspect-ratio: 1 / 1; max-height: 380px; max-width: 380px; margin: 0 auto; }
+#cTop.hit { cursor: crosshair; }
+#cSpec { height: 190px; cursor: pointer; }
+.info { background: var(--grid); border-radius: 12px; padding: 10px 14px; margin-top: 12px; }
+.ctrls { margin-top: 12px; }
+#play { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; min-width: 110px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .85rem; color: var(--muted); margin-top: 6px; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
+.fx { background: var(--grid); border-radius: 12px; padding: 10px 14px; margin: 10px 0; overflow-x: auto; }
+.fx .katex { font-size: 1.12em; }
+.tex-fallback { font-family: "Cambria Math", "Times New Roman", serif; font-size: 1.05rem; }
+table.ratio { border-collapse: collapse; font-variant-numeric: tabular-nums; width: 100%; max-width: 560px; }
+table.ratio th, table.ratio td { border-bottom: 1px solid var(--line); padding: 6px; text-align: left; }
+table.ratio th { color: var(--muted); font-weight: 600; font-size: .88rem; }
+ul { margin: 6px 0; padding-left: 20px; }
+[hidden] { display: none !important; }
+@media (max-width: 860px) {
+  .views { grid-template-columns: 1fr; }
+  .modes { grid-template-columns: repeat(2, 1fr); }
+  #c3d { height: 300px; }
+  h1 { font-size: 1.35rem; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <h1>북의 2차원 정상파</h1>
+    <p class="sub">가장자리가 테에 묶인 둥근 북 가죽이 떨리는 모습이에요. 정상파를 하나씩 보거나, 북을 직접 두드려 보세요. (화면은 아주 느리게 보여 줍니다)</p>
+  </header>
+
+  <section class="card">
+    <div class="tabs">
+      <button id="tabSingle" class="sel">① 정상파 하나씩 보기</button>
+      <button id="tabStrike">② 북 두드려 보기</button>
+    </div>
+
+    <div id="pSingle">
+      <span class="lbl">정상파를 고르세요 <span class="hint">— m: 가운데를 지나는 직선 마디선 수, n: 원 모양 마디선 수(가장자리 포함)</span></span>
+      <div class="modes" id="modes"></div>
+    </div>
+
+    <div id="pStrike" hidden>
+      <span class="lbl">어디를 칠까요? <span class="hint">— 아래 「위에서 본 모습」을 직접 눌러도 그 자리를 쳐요</span></span>
+      <div class="row">
+        <button data-r="0">한가운데</button>
+        <button data-r="0.45">가운데와 가장자리 사이</button>
+        <button data-r="0.8">가장자리 가까이</button>
+        <button id="again">↻ 같은 곳 다시 치기</button>
+        <label class="chk"><input type="checkbox" id="damp" checked> 점점 잦아들기</label>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="views">
+      <figure>
+        <figcaption>비스듬히 본 모습 <span>— 끌어서 돌려 보세요</span></figcaption>
+        <canvas id="c3d"></canvas>
+      </figure>
+      <figure>
+        <figcaption>위에서 본 모습 <span>— <b style="color:#d6334f">빨강</b> 위로, <b style="color:#2f6fde">파랑</b> 아래로</span></figcaption>
+        <canvas id="cTop"></canvas>
+      </figure>
+    </div>
+    <div class="row ctrls">
+      <button id="play">⏸ 멈춤</button>
+      <label>빠르기
+        <select id="speed">
+          <option value="0.25">0.25배</option>
+          <option value="0.5">0.5배</option>
+          <option value="1" selected>1배</option>
+          <option value="2">2배</option>
+        </select>
+      </label>
+      <label>높이 과장 <input type="range" id="zs" min="0.1" max="0.6" step="0.02" value="0.3"></label>
+      <label class="chk"><input type="checkbox" id="nodal" checked> 마디선 보기</label>
+      <span id="sandBox" class="row" style="gap:6px">
+        <label class="chk"><input type="checkbox" id="sand"> 모래 뿌리기</label>
+        <button id="resand" hidden>모래 다시 뿌리기</button>
+      </span>
+      <label class="chk"><input type="checkbox" id="sound"> 소리 듣기</label>
+    </div>
+    <div class="info" id="info"></div>
+  </section>
+
+  <section class="card" id="specCard" hidden>
+    <h2>어떤 정상파들이 섞였을까?</h2>
+    <canvas id="cSpec"></canvas>
+    <div class="legend" id="legend"></div>
+    <p class="hint" style="margin:6px 0 0">막대 위치는 진동수(기본음의 몇 배), 높이는 그 정상파 소리의 세기예요. 점선은 정수 배 자리(줄이나 피리라면 배음이 있을 곳)입니다. 막대를 누르면 그 정상파만 따로 볼 수 있어요.</p>
+  </section>
+
+  <section class="card">
+    <h2>원리</h2>
+    <ul>
+      <li>북 가죽은 <b>가장자리가 테에 고정</b>되어 있어서 가장자리는 늘 움직이지 않는 <b>마디</b>예요. 그래서 가죽 위에서 오가던 파동이 겹쳐 제자리에서 떨리는 <b>2차원 정상파</b>가 생깁니다.</li>
+      <li>줄의 정상파에는 마디가 <b>점</b>으로 생기지만, 북 가죽에서는 마디가 <b>선</b>(마디선)으로 생겨요. 마디선은 <b>가운데를 지나는 직선</b>(m개)과 <b>동심원</b>(가장자리까지 n개) 두 가지입니다.</li>
+      <li>마디선을 사이에 둔 두 부분은 늘 <b>반대 방향</b>으로 움직여요(한쪽이 빨강이면 옆은 파랑).</li>
+      <li><b>모래 뿌리기</b>: 많이 흔들리는 곳의 모래는 튕겨 나가고, 움직이지 않는 마디선에서만 멈춰 쌓여요. 이렇게 생긴 무늬를 <b>클라드니 도형</b>이라고 해요.</li>
+    </ul>
+    <div class="fx" id="fxU"></div>
+    <div class="fx" id="fxF"></div>
+    <p class="hint" style="margin:0 0 6px"><i>J<sub>m</sub></i>: 베셀 함수(원 모양 북에서 생기는 물결 모양), <i>j<sub>mn</sub></i>: <i>J<sub>m</sub></i>가 n번째로 0이 되는 값, <i>a</i>: 북의 반지름, <i>T</i>: 가죽의 장력(단위 길이당), <i>σ</i>: 가죽의 면밀도(1 m²당 질량)</p>
+    <ul>
+      <li>줄은 진동수가 기본음의 <b>1, 2, 3, 4…배</b>로 딱 정수 배지만, 북은 <b>1, 1.59, 2.14, 2.30…배</b>처럼 정수 배가 아니에요. 그래서 북 소리는 피아노나 기타처럼 뚜렷한 음높이로 들리지 않고 「둥」 하고 울려요.</li>
+      <li><b>북을 치면</b> 여러 정상파가 한꺼번에 섞여 생겨요. 친 자리가 마디인 정상파는 생기지 않아요. 한가운데를 치면 가운데를 지나는 직선 마디선이 있는 정상파(m ≥ 1)는 생기지 않고 동심원 무늬(m = 0)만 생깁니다.</li>
+      <li>진동수가 높은 정상파일수록 빨리 잦아들어서, 시간이 지나면 낮은 정상파 몇 개만 남아요.</li>
+    </ul>
+    <table class="ratio">
+      <thead><tr><th>정상파 (m, n)</th><th>직선 마디선</th><th>원 마디선(가장자리 포함)</th><th>진동수 (기본음의 몇 배)</th></tr></thead>
+      <tbody id="ratioBody"></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const TAU = Math.PI * 2;
+
+  // ---------- 베셀 함수 J_m(x): 적분 J_m(x) = (1/π)∫₀^π cos(mτ − x sinτ) dτ 를 미리 표로 ----------
+  const MMAX = 7, XMAX = 30, DX = 0.004, NX = Math.round(XMAX / DX) + 1;
+  const JT = [];
+  {
+    const K = 64, sn = [];
+    for (let k = 0; k <= K; k++) sn.push(Math.sin(k * Math.PI / K));
+    for (let m = 0; m <= MMAX; m++) {
+      const a = new Float32Array(NX), mt = [];
+      for (let k = 0; k <= K; k++) mt.push(m * k * Math.PI / K);
+      for (let i = 0; i < NX; i++) {
+        const x = i * DX;
+        let s = 0;
+        for (let k = 0; k <= K; k++) s += (k === 0 || k === K ? 0.5 : 1) * Math.cos(mt[k] - x * sn[k]);
+        a[i] = s / K;
+      }
+      JT.push(a);
+    }
+  }
+  function J(m, x) {
+    const a = JT[m], u = x / DX, i = u | 0;
+    if (i >= NX - 1) return a[NX - 1];
+    return a[i] + (a[i + 1] - a[i]) * (u - i);
+  }
+  // J_m 의 0점 j_mn (첫 0점은 m보다 크므로 그 앞은 건너뛴다)
+  const Z = [];
+  for (let m = 0; m < MMAX; m++) {
+    const a = JT[m], z = [];
+    for (let i = Math.max(2, Math.floor(m / DX)); i < NX && z.length < 10; i++) {
+      if ((a[i - 1] > 0) !== (a[i] > 0)) z.push((i - 1 + a[i - 1] / (a[i - 1] - a[i])) * DX);
+    }
+    Z.push(z);
+  }
+  const J01 = Z[0][0];
+  const ratio = (m, n) => Z[m][n - 1] / J01;
+
+  // ---------- 격자: 위에서 본 그림(G×G 픽셀), 입체 그물(극좌표) ----------
+  const G = 200;
+  const pr = new Float32Array(G * G), pt = new Float32Array(G * G), ins = [];
+  for (let row = 0; row < G; row++) for (let col = 0; col < G; col++) {
+    const x = (col + 0.5) / G * 2 - 1, y = 1 - (row + 0.5) / G * 2, p = row * G + col;
+    pr[p] = Math.hypot(x, y); pt[p] = Math.atan2(y, x);
+    if (pr[p] <= 1) ins.push(p);
+  }
+  const INS = Int32Array.from(ins);
+  const NR = 30, NT = 72, NN = (NR + 1) * NT;
+  const nr = new Float32Array(NN), nt = new Float32Array(NN), nx = new Float32Array(NN), ny = new Float32Array(NN);
+  for (let i = 0; i <= NR; i++) for (let j = 0; j < NT; j++) {
+    const q = i * NT + j, r = i / NR, t = j / NT * TAU;
+    nr[q] = r; nt[q] = t; nx[q] = r * Math.cos(t); ny[q] = r * Math.sin(t);
+  }
+  function makeShape(m, jj, th0) {
+    const pix = new Float32Array(G * G), node = new Float32Array(NN);
+    for (let i = 0; i < INS.length; i++) { const p = INS[i]; pix[p] = J(m, jj * pr[p]) * Math.cos(m * (pt[p] - th0)); }
+    for (let q = 0; q < NN; q++) node[q] = J(m, jj * nr[q]) * Math.cos(m * (nt[q] - th0));
+    return { pix, node };
+  }
+  const pixAt = (x, y) => {
+    const col = Math.min(G - 1, Math.max(0, Math.floor((x + 1) / 2 * G)));
+    const row = Math.min(G - 1, Math.max(0, Math.floor((1 - y) / 2 * G)));
+    return row * G + col;
+  };
+
+  // ---------- 상태 ----------
+  const F_SINGLE = 0.5;   // 정상파 하나: 화면에서 1초에 0.5번 진동(빠르기 1배)
+  const F1VIS = 0.35;     // 두드리기: 기본음이 화면에서 1초에 0.35번
+  const TAU1 = 7;         // 두드리기: 기본음이 1/e로 줄어드는 시간(화면 시간 s)
+  const JMAX = 22;        // 두드리기에 넣는 정상파: j_mn ≤ 22 (모두 38개)
+  const SIGMA = 0.06;     // 북채 끝의 크기(반지름 대비)
+  const F1 = 130;         // 소리: 기본음 130 Hz
+  const st = {
+    tab: 'single', m: 1, n: 1, playing: true, speed: 1, t: 0, zs: 0.3,
+    nodal: true, sand: false, sound: false, damp: true, yaw: -0.45, el: 0.62, strike: null,
+  };
+  let comps = [];
+  const field = new Float32Array(G * G), fnode = new Float32Array(NN);
+
+  // ---------- 색 ----------
+  const mq = matchMedia('(prefers-color-scheme: dark)');
+  let dark = mq.matches, LUT, css = {};
+  const MCOL = ['#2f6fde', '#e0782b', '#1f9d6b', '#7a52e0', '#d43d5c', '#0e9aa7', '#b8860b'];
+  function hex(h) { return [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)); }
+  function buildTheme() {
+    dark = mq.matches;
+    const neg = hex(dark ? '#4f8dff' : '#2f6fde'), mid = hex(dark ? '#2a303c' : '#f3f4f8'), pos = hex(dark ? '#ff5c78' : '#d6334f');
+    LUT = new Uint8ClampedArray(512 * 3);
+    for (let i = 0; i < 512; i++) {
+      const v = i / 511 * 2 - 1, e = v < 0 ? neg : pos, f = Math.pow(Math.abs(v), 0.8);
+      for (let c = 0; c < 3; c++) LUT[i * 3 + c] = mid[c] + (e[c] - mid[c]) * f;
+    }
+    const cs = getComputedStyle(document.documentElement);
+    for (const k of ['ink', 'muted', 'line', 'grid', 'card']) css[k] = cs.getPropertyValue('--' + k).trim();
+  }
+  const lutIdx = v => (v >= 1 ? 511 : v <= -1 ? 0 : Math.round((v + 1) * 255.5)) * 3;
+  buildTheme();
+
+  // ---------- 캔버스 ----------
+  const c3d = $('c3d'), cTop = $('cTop'), cSpec = $('cSpec');
+  const x3 = c3d.getContext('2d'), xt = cTop.getContext('2d'), xs = cSpec.getContext('2d');
+  const off = document.createElement('canvas'); off.width = off.height = G;
+  const xo = off.getContext('2d'), img = xo.createImageData(G, G);
+  function fit(cv, ctx) {
+    const d = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * d) || cv.height !== Math.round(h * d)) { cv.width = Math.round(w * d); cv.height = Math.round(h * d); }
+    ctx.setTransform(d, 0, 0, d, 0, 0);
+    return [w, h];
+  }
+
+  // ---------- 정상파 하나 ----------
+  function setSingle(m, n) {
+    st.m = m; st.n = n;
+    const s = makeShape(m, Z[m][n - 1], 0);
+    let mx = 0;
+    for (let i = 0; i < INS.length; i++) mx = Math.max(mx, Math.abs(s.pix[INS[i]]));
+    for (let i = 0; i < INS.length; i++) s.pix[INS[i]] /= mx;
+    for (let q = 0; q < NN; q++) s.node[q] /= mx;
+    comps = [{ m, n, pix: s.pix, node: s.node }];
+    document.querySelectorAll('#modes button').forEach(b => b.classList.toggle('sel', +b.dataset.m === m && +b.dataset.n === n));
+    updateInfo(); updateTone();
+  }
+
+  // ---------- 두드리기 ----------
+  // 한 점을 아래로 탁 치면(속도 충격) u = Σ A_k φ_k(r,θ) sin(ω_k t) e^{−γ_k t},
+  // A_k ∝ φ_k(친 자리) / (‖φ_k‖² ω_k). 친 자리가 마디인 정상파는 A_k = 0.
+  function strikeAt(x, y) {
+    const r0 = Math.min(Math.hypot(x, y), 0.95), th0 = r0 > 1e-6 ? Math.atan2(y, x) : 0;
+    const list = [];
+    for (let m = 0; m < MMAX; m++) for (let n = 1; n <= Z[m].length; n++) {
+      const jj = Z[m][n - 1];
+      if (jj > JMAX) break;
+      const norm = (m === 0 ? TAU : Math.PI) * J(m + 1, jj) ** 2 / 2;
+      const c = J(m, jj * r0) * Math.exp(-((jj * SIGMA) ** 2) / 4) / norm;
+      if (Math.abs(c) < 1e-5) continue;
+      const omega = TAU * F1VIS * jj / J01;
+      list.push({ m, n, j: jj, A: -c / omega, omega, sa: Math.abs(c), ...makeShape(m, jj, th0) });
+    }
+    // 친 자리가 가장 깊이 들어갈 때를 1로 맞춘다
+    let mx = 1e-9;
+    for (let s = 1; s <= 120; s++) {
+      const t = s / 120 * 0.6 / F1VIS;
+      let u = 0;
+      for (const c of list) u += c.A * J(c.m, c.j * r0) * Math.sin(c.omega * t);
+      mx = Math.max(mx, Math.abs(u));
+    }
+    for (const c of list) c.A *= 1.6 / mx;   // 처음 움푹 들어간 뒤의 물결도 잘 보이게 조금 키운다(색은 ±1에서 포화)
+    const maxSa = Math.max(...list.map(c => c.sa));
+    st.strike = { x: r0 * Math.cos(th0), y: r0 * Math.sin(th0), r0, maxSa };
+    comps = list; st.t = 0;
+    if (!st.playing) setPlaying(true);
+    strikeSound(list);
+    updateInfo();
+  }
+  const gamma = c => st.damp ? (c.j / J01) / TAU1 : 0;
+
+  // ---------- 장 계산 ----------
+  function weight(c) {
+    if (st.tab === 'single') return Math.cos(TAU * F_SINGLE * st.t);
+    return c.A * Math.sin(c.omega * st.t) * Math.exp(-gamma(c) * st.t);
+  }
+  function computeField() {
+    for (let i = 0; i < INS.length; i++) field[INS[i]] = 0;
+    fnode.fill(0);
+    for (const c of comps) {
+      const w = weight(c);
+      if (Math.abs(w) < 1e-6) continue;
+      const a = c.pix, b = c.node;
+      for (let i = 0; i < INS.length; i++) { const p = INS[i]; field[p] += w * a[p]; }
+      for (let q = 0; q < NN; q++) fnode[q] += w * b[q];
+    }
+  }
+
+  // ---------- 마디선 (정상파 하나일 때) ----------
+  function nodalLines() {
+    if (st.tab !== 'single' || !st.nodal) return null;
+    const { m, n } = st, circles = [], diams = [];
+    for (let k = 1; k < n; k++) circles.push(Z[m][k - 1] / Z[m][n - 1]);
+    for (let i = 0; i < m; i++) diams.push((2 * i + 1) * Math.PI / (2 * m));
+    return { circles, diams };
+  }
+
+  // ---------- 위에서 본 모습 ----------
+  function drawTop() {
+    const [w, h] = fit(cTop, xt);
+    xt.clearRect(0, 0, w, h);
+    const R = Math.min(w, h) / 2 - 8, cx = w / 2, cy = h / 2;
+    const d = img.data, sandOn = st.sand && st.tab === 'single';
+    for (let i = 0; i < INS.length; i++) {
+      const p = INS[i], k = lutIdx(field[p]), o = p * 4;
+      d[o] = LUT[k]; d[o + 1] = LUT[k + 1]; d[o + 2] = LUT[k + 2]; d[o + 3] = 255;
+    }
+    xo.putImageData(img, 0, 0);
+    xt.save();
+    xt.beginPath(); xt.arc(cx, cy, R, 0, TAU); xt.clip();
+    if (sandOn) { xt.fillStyle = '#1b1f27'; xt.fillRect(cx - R, cy - R, 2 * R, 2 * R); xt.globalAlpha = 0.28; }
+    xt.imageSmoothingEnabled = true;
+    xt.drawImage(off, cx - R, cy - R, 2 * R, 2 * R);
+    xt.globalAlpha = 1;
+    if (sandOn) {
+      xt.fillStyle = '#f5e7b2';
+      for (let i = 0; i < NG; i++) xt.fillRect(cx + gx[i] * R - 0.8, cy - gy[i] * R - 0.8, 1.6, 1.6);
+    }
+    xt.restore();
+    const nl = nodalLines();
+    if (nl) {
+      xt.save();
+      xt.strokeStyle = sandOn ? 'rgba(255,255,255,.55)' : css.ink; xt.lineWidth = 1.4; xt.setLineDash([5, 4]);
+      for (const rho of nl.circles) { xt.beginPath(); xt.arc(cx, cy, rho * R, 0, TAU); xt.stroke(); }
+      for (const a of nl.diams) {
+        xt.beginPath(); xt.moveTo(cx + Math.cos(a) * R, cy - Math.sin(a) * R); xt.lineTo(cx - Math.cos(a) * R, cy + Math.sin(a) * R); xt.stroke();
+      }
+      xt.restore();
+    }
+    xt.beginPath(); xt.arc(cx, cy, R, 0, TAU);
+    xt.strokeStyle = dark ? '#8d95a5' : '#7b8290'; xt.lineWidth = 4; xt.stroke();
+    if (st.tab === 'strike') {
+      if (st.strike) {
+        const sx = cx + st.strike.x * R, sy = cy - st.strike.y * R, fade = Math.max(0, 1 - st.t / 2.5);
+        xt.strokeStyle = css.ink; xt.lineWidth = 2; xt.globalAlpha = 0.35 + 0.65 * fade;
+        xt.beginPath(); xt.moveTo(sx - 7, sy - 7); xt.lineTo(sx + 7, sy + 7); xt.moveTo(sx + 7, sy - 7); xt.lineTo(sx - 7, sy + 7); xt.stroke();
+        xt.globalAlpha = 1;
+      } else {
+        xt.fillStyle = css.muted; xt.font = '15px system-ui, sans-serif'; xt.textAlign = 'center';
+        xt.fillText('여기를 눌러 북을 쳐 보세요', cx, cy);
+      }
+    }
+  }
+  function topToDisk(ev) {
+    const b = cTop.getBoundingClientRect(), R = Math.min(b.width, b.height) / 2 - 8;
+    return [(ev.clientX - b.left - b.width / 2) / R, -(ev.clientY - b.top - b.height / 2) / R];
+  }
+
+  // ---------- 비스듬히 본 모습(입체) ----------
+  const PX = new Float32Array(NN), PY = new Float32Array(NN), PD = new Float32Array(NN), PZ = new Float32Array(NN);
+  const NQ = NR * NT, qOrder = new Int32Array(NQ), qDepth = new Float32Array(NQ);
+  for (let k = 0; k < NQ; k++) qOrder[k] = k;
+  const LIGHT = (() => { const v = [-0.45, 0.5, 0.75], l = Math.hypot(...v); return v.map(c => c / l); })();
+  const SHELL = 0.32;
+  let V;
+  function setView(w, h) {
+    const R = Math.min(w * 0.4, h * 0.5);
+    V = { cy: Math.cos(st.yaw), sy: Math.sin(st.yaw), cE: Math.cos(st.el), sE: Math.sin(st.el), D: 4.5, R, X: w / 2, Y: h * 0.48 - R * 0.12 * Math.cos(st.el) };
+  }
+  function proj(x, y, z) {
+    const xr = x * V.cy - y * V.sy, yr = x * V.sy + y * V.cy;
+    const up = yr * V.sE + z * V.cE, depth = yr * V.cE - z * V.sE, s = V.D / (V.D + depth);
+    return [V.X + xr * s * V.R, V.Y - up * s * V.R, depth, yr];
+  }
+  function draw3D() {
+    const [w, h] = fit(c3d, x3);
+    x3.clearRect(0, 0, w, h);
+    setView(w, h);
+    const zs = st.zs;
+    for (let q = 0; q < NN; q++) {
+      PZ[q] = zs * fnode[q];
+      const p = proj(nx[q], ny[q], PZ[q]);
+      PX[q] = p[0]; PY[q] = p[1]; PD[q] = p[2];
+    }
+    for (let i = 0; i < NR; i++) for (let j = 0; j < NT; j++) {
+      const k = i * NT + j, a = i * NT + j, b = a + NT, j1 = (j + 1) % NT, c = (i + 1) * NT + j1, dd = i * NT + j1;
+      qDepth[k] = PD[a] + PD[b] + PD[c] + PD[dd];
+    }
+    qOrder.sort((p, q) => qDepth[q] - qDepth[p]);
+    // 그림자처럼 바닥에 깔리는 타원
+    {
+      const pts = [];
+      for (let j = 0; j <= 48; j++) { const t = j / 48 * TAU; pts.push(proj(1.08 * Math.cos(t), 1.08 * Math.sin(t), -SHELL - 0.02)); }
+      x3.beginPath(); pts.forEach((p, i) => i ? x3.lineTo(p[0], p[1]) : x3.moveTo(p[0], p[1]));
+      x3.fillStyle = dark ? 'rgba(0,0,0,.35)' : 'rgba(30,40,60,.10)'; x3.fill();
+    }
+    x3.lineWidth = 0.8; x3.lineJoin = 'round';
+    for (let s = 0; s < NQ; s++) {
+      const k = qOrder[s], i = (k / NT) | 0, j = k % NT, j1 = (j + 1) % NT;
+      const a = i * NT + j, b = a + NT, c = (i + 1) * NT + j1, dd = i * NT + j1;
+      // 대각선 두 개의 외적 = 면의 법선 → 밝기
+      const ux = nx[c] - nx[a], uy = ny[c] - ny[a], uz = PZ[c] - PZ[a];
+      const vx = nx[dd] - nx[b], vy = ny[dd] - ny[b], vz = PZ[dd] - PZ[b];
+      let Nx = uy * vz - uz * vy, Ny = uz * vx - ux * vz, Nz = ux * vy - uy * vx;
+      if (Nz < 0) { Nx = -Nx; Ny = -Ny; Nz = -Nz; }
+      const nl = Math.hypot(Nx, Ny, Nz) || 1;
+      const dot = (Nx * LIGHT[0] + Ny * LIGHT[1] + Nz * LIGHT[2]) / nl;
+      const br = Math.min(1.25, Math.max(0.45, 0.45 + 0.55 * dot / LIGHT[2]));
+      const v = (fnode[a] + fnode[b] + fnode[c] + fnode[dd]) / 4, li = lutIdx(v);
+      const col = `rgb(${Math.min(255, LUT[li] * br) | 0},${Math.min(255, LUT[li + 1] * br) | 0},${Math.min(255, LUT[li + 2] * br) | 0})`;
+      x3.fillStyle = col; x3.strokeStyle = col;
+      x3.beginPath(); x3.moveTo(PX[a], PY[a]); x3.lineTo(PX[b], PY[b]); x3.lineTo(PX[c], PY[c]); x3.lineTo(PX[dd], PY[dd]); x3.closePath();
+      x3.fill(); x3.stroke();
+    }
+    // 마디선(높이 0인 곳)
+    const nlns = nodalLines();
+    if (nlns) {
+      x3.save(); x3.strokeStyle = css.ink; x3.globalAlpha = 0.75; x3.lineWidth = 1.3; x3.setLineDash([5, 4]);
+      for (const rho of nlns.circles) {
+        x3.beginPath();
+        for (let j = 0; j <= 96; j++) { const t = j / 96 * TAU, p = proj(rho * Math.cos(t), rho * Math.sin(t), 0); j ? x3.lineTo(p[0], p[1]) : x3.moveTo(p[0], p[1]); }
+        x3.stroke();
+      }
+      for (const an of nlns.diams) {
+        const p = proj(Math.cos(an), Math.sin(an), 0), q = proj(-Math.cos(an), -Math.sin(an), 0);
+        x3.beginPath(); x3.moveTo(p[0], p[1]); x3.lineTo(q[0], q[1]); x3.stroke();
+      }
+      x3.restore();
+    }
+    // 북통 앞면(가죽보다 나중에 그려 가죽이 아래로 처진 부분을 가린다)
+    const NS = 96, wood = dark ? [150, 104, 62] : [176, 122, 70];
+    for (let j = 0; j < NS; j++) {
+      const t0 = j / NS * TAU, t1 = (j + 1) / NS * TAU, tm = (t0 + t1) / 2;
+      const nyr = Math.cos(tm) * V.sy + Math.sin(tm) * V.cy;   // 바깥 법선의 앞뒤 성분
+      if (nyr > 0.02) continue;
+      const p0 = proj(Math.cos(t0), Math.sin(t0), 0), p1 = proj(Math.cos(t1), Math.sin(t1), 0);
+      const p2 = proj(Math.cos(t1), Math.sin(t1), -SHELL), p3 = proj(Math.cos(t0), Math.sin(t0), -SHELL);
+      const side = Math.cos(tm) * V.cy - Math.sin(tm) * V.sy;   // 화면 좌우 성분
+      const br = 0.72 + 0.28 * (-nyr) - 0.18 * side;
+      const col = `rgb(${wood.map(c => Math.min(255, c * br) | 0).join(',')})`;
+      x3.fillStyle = col; x3.strokeStyle = col;
+      x3.beginPath(); x3.moveTo(p0[0], p0[1]); x3.lineTo(p1[0], p1[1]); x3.lineTo(p2[0], p2[1]); x3.lineTo(p3[0], p3[1]); x3.closePath();
+      x3.fill(); x3.stroke();
+    }
+    // 테
+    x3.beginPath();
+    for (let j = 0; j <= NS; j++) { const t = j / NS * TAU, p = proj(Math.cos(t), Math.sin(t), 0); j ? x3.lineTo(p[0], p[1]) : x3.moveTo(p[0], p[1]); }
+    x3.strokeStyle = dark ? '#a3abba' : '#6f7683'; x3.lineWidth = 3.5; x3.stroke();
+  }
+  let drag = null;
+  c3d.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; c3d.setPointerCapture(e.pointerId); c3d.style.cursor = 'grabbing'; });
+  c3d.addEventListener('pointermove', e => {
+    if (!drag) return;
+    st.yaw -= (e.clientX - drag.x) * 0.008;
+    st.el = Math.min(1.5, Math.max(0.15, st.el + (e.clientY - drag.y) * 0.006));
+    drag = { x: e.clientX, y: e.clientY };
+    if (!st.playing) render();
+  });
+  const endDrag = () => { drag = null; c3d.style.cursor = ''; };
+  c3d.addEventListener('pointerup', endDrag); c3d.addEventListener('pointercancel', endDrag);
+
+  // ---------- 모래(클라드니 도형) ----------
+  const NG = 6000, gx = new Float32Array(NG), gy = new Float32Array(NG);
+  function scatterSand() {
+    for (let i = 0; i < NG; i++) { const r = 0.98 * Math.sqrt(Math.random()), a = Math.random() * TAU; gx[i] = r * Math.cos(a); gy[i] = r * Math.sin(a); }
+  }
+  function stepSand(dt) {
+    const pix = comps[0].pix, k = Math.min(0.12, 4 * dt * st.speed);
+    for (let i = 0; i < NG; i++) {
+      const A = Math.abs(pix[pixAt(gx[i], gy[i])]), s = k * A;
+      if (s < 1e-5) continue;
+      gx[i] += s * (Math.random() * 2 - 1); gy[i] += s * (Math.random() * 2 - 1);
+      const r = Math.hypot(gx[i], gy[i]);
+      if (r > 0.99) { const f = (1.98 - r) / r; gx[i] *= f; gy[i] *= f; }
+    }
+  }
+
+  // ---------- 진동수 막대 ----------
+  const specBars = [];
+  function drawSpec() {
+    const [w, h] = fit(cSpec, xs);
+    xs.clearRect(0, 0, w, h);
+    const L = 30, Rm = 12, T = 22, B = 34, pw = w - L - Rm, ph = h - T - B;
+    const XR = Math.ceil(JMAX / J01) + 0.3, X = f => L + f / XR * pw;
+    xs.font = '12px system-ui, sans-serif'; xs.textAlign = 'center';
+    xs.strokeStyle = css.line; xs.lineWidth = 1;
+    xs.beginPath(); xs.moveTo(L, T + ph); xs.lineTo(L + pw, T + ph); xs.stroke();
+    xs.save(); xs.setLineDash([3, 4]); xs.strokeStyle = css.muted; xs.globalAlpha = 0.6;
+    for (let k = 1; k < XR; k++) { xs.beginPath(); xs.moveTo(X(k), T); xs.lineTo(X(k), T + ph); xs.stroke(); }
+    xs.restore();
+    xs.fillStyle = css.muted;
+    for (let k = 0; k < XR; k++) xs.fillText(k + '배', X(k), T + ph + 15);
+    xs.fillText('진동수 (기본음의 몇 배)', L + pw / 2, h - 3);
+    specBars.length = 0;
+    if (!st.strike) { xs.fillText('북을 치면 여기에 나타나요', L + pw / 2, T + ph / 2); return; }
+    const bw = Math.max(4, Math.min(8, pw / 90));
+    const items = comps.map(c => ({ c, f: c.j / J01, v: c.sa / st.strike.maxSa * Math.exp(-gamma(c) * st.t) }));
+    for (const it of items) {
+      const x = X(it.f), bh = it.v * ph;
+      xs.fillStyle = MCOL[it.c.m];
+      xs.fillRect(x - bw / 2, T + ph - bh, bw, bh);
+      specBars.push({ x, m: it.c.m, n: it.c.n });
+    }
+    xs.fillStyle = css.ink; xs.font = '11px system-ui, sans-serif';
+    let lastX = -1e9;
+    for (const it of items.filter(i => i.v > 0.18).sort((a, b) => a.f - b.f)) {
+      const x = X(it.f);
+      if (x - lastX < 34) continue;
+      xs.fillText(`(${it.c.m},${it.c.n})`, x, T + ph - it.v * ph - 4);
+      lastX = x;
+    }
+  }
+  cSpec.addEventListener('click', e => {
+    const b = cSpec.getBoundingClientRect(), x = e.clientX - b.left;
+    let best = null, bd = 9;
+    for (const s of specBars) { const d = Math.abs(s.x - x); if (d < bd) { bd = d; best = s; } }
+    if (best) { setTab('single'); setSingle(best.m, best.n); }
+  });
+  $('legend').innerHTML = MCOL.map((c, m) => `<span><i style="background:${c}"></i>m = ${m}</span>`).join('') + '<span>(막대 색 = 직선 마디선 수)</span>';
+
+  // ---------- 소리 (실제 빠르기, 기본음 130 Hz) ----------
+  let AC = null, tone = null;
+  function ac() {
+    if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+    if (AC.state === 'suspended') AC.resume();
+    return AC;
+  }
+  function updateTone() {
+    const want = st.sound && st.tab === 'single' && st.playing;
+    if (want) {
+      const a = ac(), f = F1 * ratio(st.m, st.n);
+      if (!tone) {
+        const o = a.createOscillator(), g = a.createGain();
+        o.type = 'sine'; o.frequency.value = f; g.gain.value = 0;
+        o.connect(g).connect(a.destination); o.start();
+        g.gain.setTargetAtTime(0.18, a.currentTime, 0.03);
+        tone = { o, g };
+      } else tone.o.frequency.setTargetAtTime(f, a.currentTime, 0.02);
+    } else if (tone) {
+      tone.g.gain.setTargetAtTime(0, AC.currentTime, 0.03);
+      tone.o.stop(AC.currentTime + 0.3);
+      tone = null;
+    }
+  }
+  function strikeSound(list) {
+    if (!st.sound) return;
+    const a = ac(), now = a.currentTime + 0.01, max = Math.max(...list.map(c => c.sa));
+    const use = list.filter(c => c.sa / max > 0.01), tot = use.reduce((s, c) => s + c.sa, 0);
+    for (const c of use) {
+      const o = a.createOscillator(), g = a.createGain(), rr = c.j / J01, tau = st.damp ? 1.1 / rr : 4;
+      o.type = 'sine'; o.frequency.value = F1 * rr;
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(0.45 * c.sa / tot, now + 0.004);
+      g.gain.setTargetAtTime(0, now + 0.004, tau);
+      o.connect(g).connect(a.destination);
+      o.start(now); o.stop(now + 0.004 + tau * 7);
+    }
+  }
+
+  // ---------- 화면 글 ----------
+  function updateInfo() {
+    let s;
+    if (st.tab === 'single') {
+      const { m, n } = st;
+      s = `<b>(m, n) = (${m}, ${n})</b> · 가운데를 지나는 직선 마디선 <b>${m}개</b>, 원 마디선 <b>${n}개</b>(가장자리 포함) · 진동수 = 기본음의 <b>${ratio(m, n).toFixed(2)}배</b>`;
+      if (st.sound) s += ` <span class="hint">(소리 ${Math.round(F1 * ratio(m, n))} Hz)</span>`;
+    } else if (!st.strike) {
+      s = '위의 버튼을 누르거나 「위에서 본 모습」을 눌러 북을 쳐 보세요.';
+    } else {
+      const k = comps.filter(c => c.sa / st.strike.maxSa > 0.01).length;
+      s = `친 자리: 가운데에서 반지름의 <b>${st.strike.r0.toFixed(2)}배</b> 떨어진 곳 · 섞인 정상파 <b>${k}개</b>` +
+        (st.strike.r0 < 0.02 ? ' (한가운데를 쳐서 동심원 모양 정상파만 생겼어요)' : '');
+    }
+    $('info').innerHTML = s;
+  }
+
+  // ---------- 조작 ----------
+  function buildModeButtons() {
+    const box = $('modes');
+    box.innerHTML = '';
+    for (let n = 1; n <= 3; n++) for (let m = 0; m <= 3; m++) {
+      const b = document.createElement('button');
+      b.dataset.m = m; b.dataset.n = n;
+      b.innerHTML = `<canvas></canvas><span><b>(${m}, ${n})</b><small>기본음의 ${ratio(m, n).toFixed(2)}배</small></span>`;
+      b.onclick = () => setSingle(m, n);
+      box.appendChild(b);
+      drawMini(b.querySelector('canvas'), m, n);
+    }
+    document.querySelectorAll('#modes button').forEach(b => b.classList.toggle('sel', +b.dataset.m === st.m && +b.dataset.n === st.n));
+  }
+  function drawMini(cv, m, n) {
+    const S = 64; cv.width = cv.height = S;
+    const x = cv.getContext('2d'), im = x.createImageData(S, S), jj = Z[m][n - 1];
+    const vals = new Float32Array(S * S); let mx = 0;
+    for (let r = 0; r < S; r++) for (let c = 0; c < S; c++) {
+      const X = (c + 0.5) / S * 2 - 1, Y = 1 - (r + 0.5) / S * 2, rr = Math.hypot(X, Y);
+      if (rr > 1) { vals[r * S + c] = NaN; continue; }
+      const v = J(m, jj * rr) * Math.cos(m * Math.atan2(Y, X));
+      vals[r * S + c] = v; mx = Math.max(mx, Math.abs(v));
+    }
+    for (let p = 0; p < S * S; p++) {
+      if (Number.isNaN(vals[p])) continue;
+      const k = lutIdx(vals[p] / mx);
+      im.data[p * 4] = LUT[k]; im.data[p * 4 + 1] = LUT[k + 1]; im.data[p * 4 + 2] = LUT[k + 2]; im.data[p * 4 + 3] = 255;
+    }
+    x.putImageData(im, 0, 0);
+    x.beginPath(); x.arc(S / 2, S / 2, S / 2 - 1.5, 0, TAU); x.strokeStyle = dark ? '#8d95a5' : '#7b8290'; x.lineWidth = 2.5; x.stroke();
+  }
+
+  function setTab(tab) {
+    st.tab = tab;
+    $('tabSingle').classList.toggle('sel', tab === 'single');
+    $('tabStrike').classList.toggle('sel', tab === 'strike');
+    $('pSingle').hidden = tab !== 'single';
+    $('pStrike').hidden = tab !== 'strike';
+    $('specCard').hidden = tab !== 'strike';
+    $('sandBox').hidden = tab !== 'single';
+    $('nodal').parentElement.hidden = tab !== 'single';
+    cTop.classList.toggle('hit', tab === 'strike');
+    st.t = 0;
+    if (tab === 'single') setSingle(st.m, st.n);
+    else { comps = []; st.strike = null; updateInfo(); updateTone(); }
+    if (!st.playing) render();
+  }
+  function setPlaying(p) {
+    st.playing = p;
+    $('play').textContent = p ? '⏸ 멈춤' : '▶ 계속';
+    updateTone();
+  }
+
+  $('tabSingle').onclick = () => setTab('single');
+  $('tabStrike').onclick = () => setTab('strike');
+  $('play').onclick = () => setPlaying(!st.playing);
+  $('speed').onchange = e => { st.speed = +e.target.value; };
+  $('zs').oninput = e => { st.zs = +e.target.value; if (!st.playing) render(); };
+  $('nodal').onchange = e => { st.nodal = e.target.checked; if (!st.playing) render(); };
+  $('sand').onchange = e => {
+    st.sand = e.target.checked; $('resand').hidden = !st.sand;
+    if (st.sand) { scatterSand(); if (!st.playing) setPlaying(true); }
+    if (!st.playing) render();
+  };
+  $('resand').onclick = () => { scatterSand(); if (!st.playing) render(); };
+  $('sound').onchange = e => { st.sound = e.target.checked; if (st.sound) ac(); updateTone(); updateInfo(); };
+  $('damp').onchange = e => { st.damp = e.target.checked; };
+  document.querySelectorAll('#pStrike [data-r]').forEach(b => {
+    b.onclick = () => { const r = +b.dataset.r; strikeAt(r * Math.cos(0.5), r * Math.sin(0.5)); };
+  });
+  $('again').onclick = () => { if (st.strike) strikeAt(st.strike.x, st.strike.y); else strikeAt(0, 0); };
+  cTop.addEventListener('click', e => {
+    if (st.tab !== 'strike') return;
+    const [x, y] = topToDisk(e);
+    if (Math.hypot(x, y) <= 1) strikeAt(x, y);
+  });
+  mq.addEventListener('change', () => { buildTheme(); buildModeButtons(); if (!st.playing) render(); });
+
+  // ---------- 수식·표 ----------
+  function tex(id, src, plain) {
+    const el = $(id);
+    if (window.katex) katex.render(src, el, { displayMode: true, throwOnError: false });
+    else { el.textContent = plain; el.classList.add('tex-fallback'); }
+  }
+  tex('fxU', String.raw`u(r,\theta,t) = A\,J_m\!\left(j_{mn}\,\tfrac{r}{a}\right)\cos(m\theta)\,\cos(2\pi f_{mn} t)`,
+    'u(r,θ,t) = A · J_m(j_mn · r/a) · cos(mθ) · cos(2π f_mn t)');
+  tex('fxF', String.raw`f_{mn} = \frac{j_{mn}}{2\pi a}\sqrt{\frac{T}{\sigma}}, \qquad \frac{f_{mn}}{f_{01}} = \frac{j_{mn}}{j_{01}}\;\;(j_{01}\approx 2.405)`,
+    'f_mn = j_mn/(2πa) · √(T/σ),   f_mn / f_01 = j_mn / j_01  (j_01 ≈ 2.405)');
+  {
+    const rows = [];
+    for (let m = 0; m < MMAX; m++) for (let n = 1; n <= 4; n++) rows.push({ m, n, f: ratio(m, n) });
+    rows.sort((a, b) => a.f - b.f);
+    $('ratioBody').innerHTML = rows.slice(0, 10).map(r =>
+      `<tr><td>(${r.m}, ${r.n})</td><td>${r.m}개</td><td>${r.n}개</td><td><b>${r.f.toFixed(2)}</b>배</td></tr>`).join('');
+  }
+
+  // ---------- 돌리기 ----------
+  function render() {
+    computeField();
+    draw3D();
+    drawTop();
+    if (st.tab === 'strike') drawSpec();
+  }
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (st.playing) {
+      st.t += dt * st.speed;
+      if (st.tab === 'single' && st.sand) stepSand(dt);
+    }
+    render();
+    requestAnimationFrame(frame);
+  }
+  buildModeButtons();
+  setSingle(st.m, st.n);
+  scatterSand();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
