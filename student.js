@@ -204,7 +204,8 @@ function buildShell() {
   const title = h("strong", {});
   const who = h("span", {});
   const simStage = h("div", { class: "sim-stage", hidden: true });
-  const slideBox = h("div", { class: "slide-box" }, img, simStage,
+  const simLayer = slideLayer(img);   // 슬라이드 위 정한 자리에 얹는 시뮬레이션
+  const slideBox = h("div", { class: "slide-box" }, img, simLayer, simStage,
     h("nav", { class: "pager" }, prev, where, next, back, h("span", { class: "spacer" }),
       h("button", { class: "ghost", type: "button", onclick: zoom }, "크게 보기")),
     h("p", { class: "muted small" }, "다음 쪽은 선생님이 넘기면 자동으로 열립니다."));
@@ -217,7 +218,7 @@ function buildShell() {
     h("main", { class: "lesson" }, conn, closed, slideBox, list));
   const anytimeHead = h("h2", { class: "section-head" }, "언제든 할 수 있는 활동");
   const empty = h("p", { class: "muted center" });
-  shell = { img, simStage, prev, next, where, back, closed, conn, title, who, slideBox, list, anytimeHead, empty, stageSim: null, stageKey: "" };
+  shell = { img, simStage, simLayer, prev, next, where, back, closed, conn, title, who, slideBox, list, anytimeHead, empty, stageSim: null, stageKey: "" };
 }
 
 // 슬라이드를 화면 가득 띄운다. 누르거나 Esc로 닫는다. 선생님이 쪽을 넘기면 띄운 그림도 바뀐다.
@@ -279,6 +280,10 @@ function render(pageChanged) {
   const stageSim = hasSlides ? here.find((a) => a.kind === "sim" && a.sim_full) : null;
   showStageSim(stageSim);
   if (stageSim) here = here.filter((a) => a !== stageSim);
+  // 「슬라이드 위 정한 자리」 시뮬레이션은 카드 대신 슬라이드 위에 얹는다
+  const boxed = hasSlides && !stageSim ? here.filter((a) => a.kind === "sim" && !a.sim_full && validSimBox(a.sim_box)) : [];
+  showSimBoxes(shell.simLayer, boxed, loadSim, (a) => loadSim(a).then((html) => openSimFull(a.title, html)));
+  if (boxed.length) here = here.filter((a) => !boxed.includes(a));
   const els = here.map(cardFor);
   if (anytime.length) els.push(shell.anytimeHead, anytime.map(cardFor));
   if (!here.length && !anytime.length) {

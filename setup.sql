@@ -47,6 +47,10 @@ alter table activities add column if not exists page_to int;
 -- 나중에 더한 칸: 시뮬레이션(html 한 파일)과 '슬라이드 자리에 띄우기'
 alter table activities add column if not exists html text;
 alter table activities add column if not exists sim_full boolean not null default false;
+-- 나중에 더한 칸: 시뮬레이션을 슬라이드 위 정한 자리에 얹을 때의 자리 {x, y, w, h}(슬라이드 안 0~1 비율). 비우면 슬라이드 아래 카드
+alter table activities add column if not exists sim_box jsonb;
+alter table activities drop constraint if exists activities_sim_box_size;
+alter table activities add constraint activities_sim_box_size check (sim_box is null or octet_length(sim_box::text) <= 200);
 alter table activities drop constraint if exists activities_kind_check;
 alter table activities add constraint activities_kind_check check (kind in ('slide', 'survey', 'quiz', 'sim'));
 alter table activities drop constraint if exists activities_html_size;
@@ -252,7 +256,7 @@ begin
     'activities', coalesce((
       select jsonb_agg(jsonb_build_object(
         'id', a.id, 'kind', a.kind, 'title', a.title, 'page', a.page, 'page_to', a.page_to, 'named', a.named, 'shared', a.shared,
-        'sim_full', a.sim_full, 'html_ver', case when a.kind = 'sim' then md5(coalesce(a.html, '')) end,
+        'sim_full', a.sim_full, 'sim_box', a.sim_box, 'html_ver', case when a.kind = 'sim' then md5(coalesce(a.html, '')) end,
         'questions', case
           when a.kind = 'quiz' and a.show_answer and r.student_id is not null then a.questions
           else (select coalesce(jsonb_agg(q - 'answer' - 'explain'), '[]'::jsonb) from jsonb_array_elements(a.questions) q)

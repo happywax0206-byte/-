@@ -123,7 +123,8 @@ async function save(table, row, id) {
   const { data, error } = await q.select();
   if (error) {
     alert("저장하지 못했습니다: " + error.message +
-      (/page_to/.test(error.message) ? " · 여러 쪽에 걸친 질문을 쓰려면 Supabase SQL Editor에서 setup.sql을 한 번 실행하세요. 끝 쪽 칸을 비우면 지금도 저장됩니다." : ""));
+      (/page_to/.test(error.message) ? " · 여러 쪽에 걸친 질문을 쓰려면 Supabase SQL Editor에서 setup.sql을 한 번 실행하세요. 끝 쪽 칸을 비우면 지금도 저장됩니다." : "") +
+      (/sim_box/.test(error.message) ? " · 「슬라이드 위 원하는 자리에」를 쓰려면 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요." : ""));
     return null;
   }
   return data[0];
@@ -175,7 +176,8 @@ function drawRun() {
   const openBtn = h("button", { type: "button", onclick() { setLesson({ open: !lesson.open }); } });
   const openText = h("span", {});
   const simStage = h("div", { class: "sim-stage", hidden: true });
-  const stage = h("div", { class: "stage" }, img, simStage);
+  const simLayer = slideLayer(img);
+  const stage = h("div", { class: "stage" }, img, simLayer, simStage);
   const panel = h("div", { class: "stack" });
   const roster = h("section", { class: "card stack" });
   const hasSlides = lesson.slide_count > 0;
@@ -192,7 +194,7 @@ function drawRun() {
       h("section", { class: "card row between" }, openText, openBtn),
       roster,
       panel)));
-  run = { img, simStage, simKey: "", where, prev, next, openBtn, openText, panel, roster, blocks: new Map() };
+  run = { img, simStage, simLayer, simKey: "", where, prev, next, openBtn, openText, panel, roster, blocks: new Map() };
   refreshRun();
 }
 
@@ -222,6 +224,9 @@ function refreshRun() {
     run.simKey = simKey;
     run.simStage.replaceChildren(...(stageSim ? [simFrame(stageSim.html, stageSim.title)] : []));
   }
+  // 슬라이드 위 정한 자리에 얹는 시뮬레이션
+  const boxed = L.slide_count > 0 && !stageSim ? shown.filter((a) => a.kind === "sim" && !a.sim_full && validSimBox(a.sim_box) && onPage(a, L.page)) : [];
+  showSimBoxes(run.simLayer, boxed, (a) => a.html, (a) => openSimFull(a.title, a.html));
   drawRoster(shown.filter((a) => a.kind !== "sim"));
   run.panel.replaceChildren(...(shown.length ? shown.map(runBlock)
     : [h("p", { class: "card muted" }, L.page + "쪽에는 활동이 없습니다. 「질문·설문 만들기」에서 추가하세요.")]));
@@ -255,7 +260,9 @@ function runBlock(a) {
     h("div", { class: "row between" },
       h("div", {}, h("p", { class: "muted small" }, "시뮬레이션 · " + whereText(a)), h("h2", {}, a.title)),
       h("button", { class: "primary", type: "button", onclick() { openSimFull(a.title, a.html); } }, "크게 실행")),
-    h("p", { class: "pill" }, a.sim_full && lesson.slide_count ? "학생 화면: 슬라이드 자리에 크게 보임" : "학생 화면: 슬라이드 아래 카드로 보임"));
+    h("p", { class: "pill" }, !lesson.slide_count ? "학생 화면: 카드로 보임"
+      : a.sim_full ? "학생 화면: 슬라이드 대신 크게 보임"
+      : validSimBox(a.sim_box) ? "학생 화면: 슬라이드 위 정한 자리에 보임" : "학생 화면: 슬라이드 아래 카드로 보임"));
   if (isInfoActivity(a)) return h("section", { class: "card stack" },
     h("div", { class: "row between" },
       h("div", {}, h("p", { class: "muted small" }, "설명 카드 · " + whereText(a)), h("h2", {}, a.title)),
@@ -426,7 +433,7 @@ function drawBuild() {
       drawBuild();
     } }, h("strong", {}, "설명 카드"), h("span", {}, "글과 외부 링크만 표시")),
     h("button", { type: "button", class: "kind", onclick() {
-      editing = { kind: "sim", title: "", page: lesson.slide_count ? lesson.page : null, sim_full: lesson.slide_count > 0, html: "", questions: [] };
+      editing = { kind: "sim", title: "", page: lesson.slide_count ? lesson.page : null, sim_full: false, sim_box: null, html: "", questions: [] };
       drawBuild();
     } }, h("strong", {}, "시뮬레이션"), h("span", {}, "html 파일을 슬라이드 사이에")));
   main.replaceChildren(h("div", { class: "build" },
@@ -434,6 +441,58 @@ function drawBuild() {
       h("section", { class: "card stack" }, h("h2", {}, "새로 만들기"), kinds),
       h("section", { class: "card stack" }, h("h2", {}, "이 수업의 활동"), list)),
     editing ? editor() : h("section", { class: "card muted" }, "왼쪽에서 새로 만들거나, 고칠 활동을 고르세요.")));
+}
+
+// 편집 화면의 자리 정하기: 그 쪽 슬라이드 위에 시뮬레이션 상자를 놓고, 끌어서 옮기거나 오른쪽 아래 모서리로 크기를 바꾼다.
+// 상자 안에는 실제 시뮬레이션이 수업 때와 같은 비율로 보인다(조작은 막아 둠).
+function simPlacer(e, getHtml) {
+  const img = h("img", { class: "slide", alt: "", draggable: "false" });
+  const layer = slideLayer(img, "place-layer");
+  const box = simBoxEl({ id: "edit", title: e.title || "시뮬레이션" }, e.sim_box, null);
+  box.classList.add("place-box");
+  const cover = h("div", { class: "place-cover" }, h("span", { class: "place-label" }, "시뮬레이션"), h("span", { class: "place-handle", title: "끌어서 크기 조절" }));
+  box.append(cover);
+  layer.append(box);
+  const MIN = 0.08;
+  const clamp = () => {
+    const b = e.sim_box;
+    b.w = Math.min(Math.max(b.w, MIN), 1);
+    b.h = Math.min(Math.max(b.h, MIN), 1);
+    b.x = Math.min(Math.max(b.x, 0), 1 - b.w);
+    b.y = Math.min(Math.max(b.y, 0), 1 - b.h);
+  };
+  cover.addEventListener("pointerdown", (ev) => {
+    ev.preventDefault();
+    const resize = ev.target.classList.contains("place-handle");
+    const r = layer.getBoundingClientRect();
+    const start = Object.assign({}, e.sim_box);
+    const x0 = ev.clientX, y0 = ev.clientY;
+    cover.setPointerCapture(ev.pointerId);
+    const move = (m) => {
+      const dx = (m.clientX - x0) / r.width, dy = (m.clientY - y0) / r.height;
+      const b = e.sim_box;
+      if (resize) { b.w = Math.min(start.w + dx, 1 - b.x); b.h = Math.min(start.h + dy, 1 - b.y); }
+      else { b.x = start.x + dx; b.y = start.y + dy; }
+      clamp();
+      layer.relayout();
+    };
+    const up = () => {
+      cover.removeEventListener("pointermove", move);
+      cover.removeEventListener("pointerup", up);
+      cover.removeEventListener("pointercancel", up);
+    };
+    cover.addEventListener("pointermove", move);
+    cover.addEventListener("pointerup", up);
+    cover.addEventListener("pointercancel", up);
+  });
+  const setPage = (n) => { img.src = slideSrc(lesson, Math.min(Math.max(n || 1, 1), Math.max(lesson.slide_count, 1))); };
+  const loadHtml = () => {
+    const html = getHtml();
+    box._frame.srcdoc = (html || "").trim() ? html : "<p style='font:24px sans-serif;padding:1em;color:#64748b'>html을 넣으면 여기에 미리 보입니다.</p>";
+  };
+  if (lesson.slide_count) setPage(e.page ?? lesson.page);
+  if (e.mode === "box") loadHtml();
+  return { el: h("div", { class: "place-wrap" }, img, layer), setPage, loadHtml, redraw: () => layer.relayout() };
 }
 
 function simEditor() {
@@ -449,18 +508,51 @@ function simEditor() {
     if (f.size > 2000000) { msg.textContent = "파일이 너무 큽니다. html 파일 하나로 된 시뮬레이션만 올릴 수 있습니다."; return; }
     e.html = await f.text();
     code.value = e.html;
+    if (e.mode === "box") place.loadHtml();
     size.textContent = sizeText();
     if (!e.title.trim()) { e.title = f.name.replace(/\.html?$/i, ""); title.value = e.title; }
     msg.textContent = "";
   } });
-  const pageIn = h("input", { type: "number", min: 1, max: Math.max(lesson.slide_count, 1), value: e.page ?? lesson.page, class: "num", "aria-label": "시작 쪽", oninput() { e.page = parseInt(pageIn.value, 10) || 1; } });
+  const pageIn = h("input", { type: "number", min: 1, max: Math.max(lesson.slide_count, 1), value: e.page ?? lesson.page, class: "num", "aria-label": "시작 쪽", oninput() { e.page = parseInt(pageIn.value, 10) || 1; place.setPage(e.page); } });
   const pageToIn = h("input", { type: "number", min: 1, max: Math.max(lesson.slide_count, 1), value: e.page_to > e.page ? e.page_to : "", placeholder: "(한 쪽만)", class: "num", "aria-label": "끝 쪽", oninput() { e.page_to = parseInt(pageToIn.value, 10) || null; } });
+
+  // 보일 자리: 슬라이드 아래 카드(기본) / 슬라이드 위 정한 자리 / 슬라이드 대신 크게
+  if (!e.mode) e.mode = e.sim_full ? "full" : validSimBox(e.sim_box) ? "box" : "below";
+  if (!validSimBox(e.sim_box)) e.sim_box = { x: 0.5, y: 0.2, w: 0.45, h: 0.6 };
+  const place = simPlacer(e, () => e.html);
+  const placeBox = h("div", { class: "stack", hidden: e.mode !== "box" },
+    h("p", { class: "muted small" }, "파란 상자를 끌어서 옮기고, 오른쪽 아래 모서리를 끌어서 크기를 조절하세요. 교사·학생 화면 모두 이 자리에 같은 비율로 보입니다. 학생은 상자의 ⤢ 단추로 크게 볼 수 있습니다."),
+    place.el,
+    h("div", { class: "row" },
+      h("button", { class: "ghost", type: "button", onclick() { Object.assign(e.sim_box, { x: 0.5, y: 0.2, w: 0.45, h: 0.6 }); place.redraw(); } }, "오른쪽 절반으로"),
+      h("button", { class: "ghost", type: "button", onclick() { Object.assign(e.sim_box, { x: 0.05, y: 0.55, w: 0.9, h: 0.42 }); place.redraw(); } }, "아래쪽 넓게"),
+      h("button", { class: "ghost", type: "button", onclick() { place.loadHtml(); } }, "상자 안 미리보기 새로고침")));
+  const modes = h("fieldset", { class: "place-modes" }, h("legend", {}, "슬라이드와 함께 어떻게 보일까요?"),
+    [["below", "슬라이드 아래에 카드로 (기본)"], ["box", "슬라이드 위 원하는 자리에 (끌어서 위치·크기 조절)"], ["full", "슬라이드 대신 화면 가득"]].map(([k, text]) =>
+      h("label", { class: "option" }, h("input", { type: "radio", name: "sim-mode", checked: e.mode === k, onchange() {
+        e.mode = k;
+        placeBox.hidden = k !== "box";
+        if (k === "box") { place.setPage(e.page ?? lesson.page); place.loadHtml(); }
+      } }), h("span", {}, text))));
+
   async function saveSim() {
     e.title = e.title.trim();
     if (!e.title) { msg.textContent = "제목을 입력하세요."; return; }
     if (!(e.html || "").trim()) { msg.textContent = "html 파일을 고르거나 코드를 붙여넣으세요."; return; }
     if (e.html.length > 500000) { msg.textContent = "코드가 너무 깁니다(최대 50만 자)."; return; }
-    const row = { kind: "sim", title: e.title, page: lesson.slide_count ? e.page : null, html: e.html, sim_full: !!e.sim_full && lesson.slide_count > 0, show_answer: false, named: false, questions: [] };
+    const slides = lesson.slide_count > 0;
+    const row = { kind: "sim", title: e.title, page: slides ? e.page : null, html: e.html, sim_full: slides && e.mode === "full", show_answer: false, named: false, questions: [] };
+    // sim_box 칸은 setup.sql을 다시 실행해야 생긴다. 칸이 없는 데이터베이스에서도 다른 방식은 저장되도록 필요할 때만 보낸다
+    const boxNow = slides && e.mode === "box";
+    const hasBoxCol = activities.some((x) => "sim_box" in x);
+    if (boxNow && activities.length && !hasBoxCol) {
+      msg.textContent = "「슬라이드 위 원하는 자리에」를 쓰려면 먼저 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행해야 합니다. 다른 방식은 지금도 저장됩니다.";
+      return;
+    }
+    if (boxNow || hasBoxCol) {
+      const b = e.sim_box;
+      row.sim_box = boxNow ? { x: +b.x.toFixed(4), y: +b.y.toFixed(4), w: +b.w.toFixed(4), h: +b.h.toFixed(4) } : null;
+    }
     const to = row.page != null && e.page_to > row.page ? Math.min(e.page_to, lesson.slide_count) : null;
     if (to != null || activities.some((x) => "page_to" in x)) row.page_to = to;
     if (!e.id) { row.lesson_id = lesson.id; row.sort = activities.length; }
@@ -479,9 +571,9 @@ function simEditor() {
     h("label", {}, "또는 코드 붙여넣기", code), size,
     lesson.slide_count ? h("div", { class: "row wrap" },
       h("label", {}, "어디에 넣을까요?", h("div", { class: "row" }, pageIn, h("span", {}, "쪽부터"), pageToIn, h("span", {}, "쪽까지")))) : null,
-    lesson.slide_count ? h("label", { class: "check" }, h("input", { type: "checkbox", checked: !!e.sim_full, onchange(ev) { e.sim_full = ev.target.checked; } }),
-      "슬라이드 자리에 크게 띄우기 (끄면 슬라이드 아래에 카드로 보입니다)") : null,
-    lesson.slide_count ? h("p", { class: "muted small" }, "슬라이드 사이에 넣으려면 PPT에 「시뮬레이션」 같은 빈 슬라이드를 한 장 끼워 두고, 그 쪽에 넣으면서 위 칸을 켜세요.") : null,
+    lesson.slide_count ? modes : null,
+    lesson.slide_count ? placeBox : null,
+    lesson.slide_count ? h("p", { class: "muted small" }, "슬라이드 사이에 애니메이션 쪽을 따로 끼우려면 「수업 설정 → 애니메이션 슬라이드 끝에 추가」를 쓰세요.") : null,
     h("p", { class: "muted small" }, "시뮬레이션은 격리된 칸에서 실행되어 이 웹앱의 로그인 정보에 접근할 수 없습니다. 학생은 이 카드에 답을 입력하지 않습니다."),
     msg,
     h("div", { class: "row between" },
@@ -766,6 +858,8 @@ function drawSettings() {
     if (activities.length) {
       const r = await sb.from("activities").insert(activities.map((a) => ({
         lesson_id: copy.id, kind: a.kind, title: a.title, page: a.page, show_answer: a.show_answer, named: a.named, questions: a.questions, sort: a.sort,
+        // 나중에 더한 칸은 데이터베이스에 있을 때만 복사한다(시뮬레이션 html·띄우는 자리, 끝 쪽)
+        ...Object.fromEntries(["page_to", "html", "sim_full", "sim_box"].filter((k) => k in a).map((k) => [k, a[k]])),
       })));
       if (r.error) alert("활동을 복사하지 못했습니다: " + r.error.message);
     }

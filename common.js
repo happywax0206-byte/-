@@ -67,6 +67,71 @@ function simFrame(html, title) {
   return f;
 }
 
+// ---------- 슬라이드 위에 얹는 시뮬레이션 ----------
+// sim_box = { x, y, w, h }: 슬라이드 그림 안에서의 자리(0~1 비율). 시뮬레이션은 슬라이드 너비를 SIM_BASE 픽셀로 보고 그린 뒤
+// 화면 크기에 맞춰 통째로 줄이거나 키운다. 그래서 교사 화면·학생 휴대폰·전체 화면에서 모두 같은 모양으로 보인다.
+const SIM_BASE = 1280;
+
+function validSimBox(b) {
+  return !!b && [b.x, b.y, b.w, b.h].every((v) => typeof v === "number" && isFinite(v)) && b.w > 0 && b.h > 0;
+}
+
+// 그림 칸 안에서 실제 슬라이드가 그려진 자리(object-fit: contain 이라 위아래나 양옆이 빌 수 있다). offsetParent 기준.
+function slideContentRect(img) {
+  const W = img.clientWidth, H = img.clientHeight;
+  const nw = img.naturalWidth || 16, nh = img.naturalHeight || 9;
+  const k = Math.min(W / nw, H / nh);
+  const w = nw * k, hh = nh * k;
+  return { left: img.offsetLeft + img.clientLeft + (W - w) / 2, top: img.offsetTop + img.clientTop + (H - hh) / 2, width: w, height: hh };
+}
+
+// 슬라이드 그림(img)과 같은 칸(position: relative)에 넣는 층. 그림 크기가 바뀌면 따라서 다시 맞춘다.
+function slideLayer(img, cls) {
+  const layer = h("div", { class: "sim-layer" + (cls ? " " + cls : ""), hidden: true });
+  const relayout = () => {
+    if (img.hidden || !img.naturalWidth || !img.clientWidth) { layer.hidden = true; return; }
+    const r = slideContentRect(img);
+    layer.hidden = false;
+    Object.assign(layer.style, { left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" });
+    const k = r.width / SIM_BASE;
+    for (const box of layer.children) {
+      const b = box._box, f = box.querySelector("iframe");
+      Object.assign(box.style, { left: b.x * 100 + "%", top: b.y * 100 + "%", width: b.w * 100 + "%", height: b.h * 100 + "%" });
+      if (f) Object.assign(f.style, { width: b.w * SIM_BASE + "px", height: (b.h * r.height) / k + "px", transform: "scale(" + k + ")" });
+    }
+  };
+  img.addEventListener("load", relayout);
+  if (window.ResizeObserver) new ResizeObserver(relayout).observe(img);
+  window.addEventListener("resize", relayout);
+  layer.relayout = relayout;
+  return layer;
+}
+
+// 시뮬레이션 상자 하나. full 이 있으면 오른쪽 위에 「크게」 단추
+function simBoxEl(a, box, full) {
+  const f = simFrame(null, a.title);
+  f.classList.add("boxed");
+  const el = h("div", { class: "sim-box" }, f,
+    full ? h("button", { class: "sim-box-full", type: "button", title: "크게 보기", "aria-label": a.title + " 크게 보기", onclick() { full(a); } }, "⤢") : null);
+  el._box = box;
+  el._frame = f;
+  return el;
+}
+
+// 층에 시뮬레이션들을 얹는다. list 가 그대로면(같은 활동·자리·내용) 다시 띄우지 않는다.
+function showSimBoxes(layer, list, getHtml, full) {
+  const key = list.map((a) => a.id + ":" + JSON.stringify(a.sim_box) + ":" + (a.html_ver || (a.html || "").length)).join("|");
+  if (layer._key !== key) {
+    layer._key = key;
+    layer.replaceChildren(...list.map((a) => {
+      const el = simBoxEl(a, a.sim_box, full);
+      Promise.resolve(getHtml(a)).then((html) => { if (layer._key === key) el._frame.srcdoc = html || ""; }).catch(() => {});
+      return el;
+    }));
+  }
+  layer.relayout();
+}
+
 // 시뮬레이션을 화면 가득 띄운다. 닫기 버튼이나 Esc로 닫는다.
 function openSimFull(title, html) {
   const close = () => { box.remove(); document.removeEventListener("keydown", esc); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); };
