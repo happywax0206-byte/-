@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>쌍성의 도플러 효과</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<style>
+:root {
+  --bg: #f4f6fa; --card: #ffffff; --ink: #1d2433; --muted: #5d6678; --line: #e1e5ee;
+  --accent: #2f6fde; --accent-ink: #fff; --grid: #eef1f6;
+  --blue: #2563d9; --red: #d6334f; --sA: #d99a00; --sB: #0e9aa7;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151c; --card: #1b2029; --ink: #e8ebf2; --muted: #9aa3b5; --line: #2c3340;
+    --accent: #6ea1ff; --accent-ink: #0d1220; --grid: #232935;
+    --blue: #5b95ff; --red: #ff5c78; --sA: #ffc23d; --sB: #3fd0dc;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  line-height: 1.5;
+}
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; }
+.top { margin-bottom: 18px; }
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+.sub { color: var(--muted); margin: 0; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+.card h2 { font-size: 1.05rem; margin: 0 0 10px; }
+.card h2 span { font-weight: 400; color: var(--muted); font-size: .88rem; }
+.row { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+button {
+  font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  border-radius: 10px; padding: 8px 14px; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+#play { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; min-width: 110px; }
+select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+.ctls { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px 20px; margin-top: 14px; }
+.ctl label { display: flex; justify-content: space-between; font-weight: 600; font-size: .95rem; }
+.ctl label output { font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ctl input[type=range] { width: 100%; accent-color: var(--accent); }
+.hint { color: var(--muted); font-size: .88rem; }
+.views { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.views figure { margin: 0; }
+figcaption { font-weight: 600; margin-bottom: 4px; }
+figcaption span { font-weight: 400; color: var(--muted); font-size: .85rem; }
+canvas { display: block; width: 100%; }
+#cOrbit { aspect-ratio: 1 / 1; max-height: 470px; }
+#cSky { height: 150px; border-radius: 10px; }
+#cSpec { height: 316px; }
+#cProf { height: 210px; }
+#cRV { height: 240px; cursor: pointer; }
+.stars { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.star { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font-variant-numeric: tabular-nums; }
+.star h3 { margin: 0 0 4px; font-size: 1rem; display: flex; align-items: center; gap: 6px; }
+.star h3 i { width: 14px; height: 14px; border-radius: 50%; display: inline-block; }
+.star .big { font-size: 1.05rem; font-weight: 700; margin-top: 4px; }
+.star .k { color: var(--muted); font-size: .88rem; }
+.blue { color: var(--blue); } .red { color: var(--red); } .none { color: var(--muted); }
+.time { font-variant-numeric: tabular-nums; color: var(--muted); }
+.fx { background: var(--grid); border-radius: 12px; padding: 10px 14px; margin: 10px 0; overflow-x: auto; }
+.fx .katex { font-size: 1.12em; }
+.tex-fallback { font-family: "Cambria Math", "Times New Roman", serif; font-size: 1.05rem; }
+ul { margin: 6px 0; padding-left: 20px; }
+@media (max-width: 860px) {
+  .views { grid-template-columns: 1fr; }
+  h1 { font-size: 1.35rem; }
+}
+@media (max-width: 480px) { .stars { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <h1>쌍성의 도플러 효과</h1>
+    <p class="sub">서로의 둘레를 도는 두 별(쌍성)에서 오는 빛의 스펙트럼을 봐요. 별이 지구 쪽으로 다가오면 흡수선이 파란 쪽으로(청색편이), 멀어지면 빨간 쪽으로(적색편이) 옮겨 갑니다.</p>
+  </header>
+
+  <section class="card">
+    <div class="row">
+      <button id="play">⏸ 멈춤</button>
+      <label>빠르기
+        <select id="speed">
+          <option value="0.25">0.25배</option>
+          <option value="0.5">0.5배</option>
+          <option value="1" selected>1배</option>
+          <option value="2">2배</option>
+        </select>
+      </label>
+      <span class="time" id="time"></span>
+    </div>
+    <div class="ctls">
+      <div class="ctl"><label for="m1">별 A 질량 <output id="m1o"></output></label><input type="range" id="m1" min="0.5" max="5" step="0.1" value="1.5"></div>
+      <div class="ctl"><label for="m2">별 B 질량 <output id="m2o"></output></label><input type="range" id="m2" min="0.5" max="5" step="0.1" value="1.2"></div>
+      <div class="ctl"><label for="sep">두 별 사이 거리 <output id="sepo"></output></label><input type="range" id="sep" min="0.03" max="0.5" step="0.01" value="0.1"></div>
+      <div class="ctl"><label for="inc">궤도를 보는 각도 <output id="inco"></output></label><input type="range" id="inc" min="0" max="90" step="1" value="90"></div>
+      <div class="ctl"><label for="ex">스펙트럼 편이 과장 <output id="exo"></output></label><input type="range" id="ex" min="1" max="300" step="1" value="100"></div>
+    </div>
+    <p class="hint" style="margin:8px 0 0">실제 편이는 0.1~0.3 nm 정도로 아주 작아서, 아래 무지개 스펙트럼은 편이를 과장해서 그려요. 「Hα 선 확대」는 과장 없는 실제 값이에요.</p>
+  </section>
+
+  <section class="card">
+    <div class="views">
+      <figure>
+        <figcaption>궤도를 위에서 본 모습 <span>— 지구는 아래쪽 아주 먼 곳</span></figcaption>
+        <canvas id="cOrbit"></canvas>
+        <p class="hint" style="margin:4px 0 0">궤도 색: 그 자리에서 별이 <b class="blue">다가오는 쪽(파랑)</b>, <b class="red">멀어지는 쪽(빨강)</b>. 굵은 화살표는 지구 쪽 방향(시선 방향)의 속도예요.</p>
+      </figure>
+      <div>
+        <figure>
+          <figcaption>지구에서 망원경으로 본 모습 <span>— 별 크기는 과장</span></figcaption>
+          <canvas id="cSky"></canvas>
+        </figure>
+        <div class="stars">
+          <div class="star" id="infoA"></div>
+          <div class="star" id="infoB"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>스펙트럼 <span>— 검은 줄은 흡수선, 흰 점선은 정지했을 때의 자리</span></h2>
+    <canvas id="cSpec"></canvas>
+    <p class="hint" style="margin:6px 0 0">실제 관측에서는 두 별의 빛이 섞여 들어와요. 두 별이 지구 쪽으로 반대 방향으로 움직일 때 흡수선이 <b>두 줄로 갈라지고</b>, 둘 다 옆으로 움직일 때 <b>한 줄로 겹쳐요</b>. 밝은 별의 흡수선이 더 진하게 보여요.</p>
+  </section>
+
+  <section class="card">
+    <h2>Hα 선 확대 <span>— 과장 없는 실제 파장 (정지했을 때 656.28 nm)</span></h2>
+    <canvas id="cProf"></canvas>
+  </section>
+
+  <section class="card">
+    <h2>시선 속도 곡선 <span>— 그래프를 누르면 그 시각으로 가요</span></h2>
+    <canvas id="cRV"></canvas>
+    <p class="hint" style="margin:6px 0 0">0보다 위: 멀어짐(적색편이), 0보다 아래: 다가옴(청색편이). 두 별은 늘 반대 방향으로 움직이고, 가벼운 별이 더 빠르게 움직여서 곡선이 더 커요.</p>
+  </section>
+
+  <section class="card">
+    <h2>원리</h2>
+    <ul>
+      <li>두 별은 <b>공통 질량 중심</b>(＋ 표시) 둘레를 같은 주기로 돌아요. 질량 중심은 무거운 별 쪽에 가까워서, 무거운 별은 작은 원을 느리게, 가벼운 별은 큰 원을 빠르게 돕니다.</li>
+    </ul>
+    <div class="fx" id="fxCM"></div>
+    <ul>
+      <li>빛을 내는 별이 지구 쪽으로 다가오면 파장이 짧아져 흡수선이 파란 쪽으로 옮겨 가요(<b class="blue">청색편이</b>). 멀어지면 파장이 길어져 빨간 쪽으로 옮겨 가요(<b class="red">적색편이</b>).</li>
+      <li>편이를 만드는 것은 <b>지구 쪽 방향(시선 방향)의 속도</b>뿐이에요. 별이 시선을 가로질러 옆으로 움직이는 순간에는 편이가 없어요.</li>
+    </ul>
+    <div class="fx" id="fxD"></div>
+    <ul>
+      <li>궤도를 정면(0°)에서 보면 별이 지구 쪽으로 다가오거나 멀어지지 않아 편이가 전혀 없어요. 옆(90°)에서 볼 때 편이가 가장 크고, 두 별이 서로를 가리는 <b>식(蝕)</b>도 일어나요.</li>
+      <li>망원경으로 두 별을 따로 볼 수 없을 만큼 멀어도, 흡수선이 주기적으로 갈라졌다 합쳐지는 것을 보고 쌍성임을 알 수 있어요. 이런 별을 <b>분광 쌍성</b>이라고 해요. 두 별의 시선 속도 크기의 비로 질량의 비도 알 수 있어요.</li>
+    </ul>
+  </section>
+</main>
+
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const TAU = Math.PI * 2;
+  const GM_SUN = 1.32712e20, AU = 1.495979e11, C = 299792.458;   // m³/s², m, km/s
+  const LINES = [
+    { n: 'Hδ', l: 410.17 }, { n: 'Hγ', l: 434.05 }, { n: 'Hβ', l: 486.13 }, { n: 'Na', l: 589.29 }, { n: 'Hα', l: 656.28 },
+  ];
+  const HA = 656.28, WL0 = 390, WL1 = 700;
+  const PV = 10;   // 화면에서 한 바퀴 도는 데 걸리는 시간(빠르기 1배, 초)
+
+  const st = { m1: 1.5, m2: 1.2, a: 0.1, inc: 90, ex: 100, playing: true, speed: 1, t: 0 };
+  let P;   // 계산된 물리량
+
+  function phys() {
+    const M = st.m1 + st.m2;
+    const v = Math.sqrt(GM_SUN * M / (st.a * AU)) / 1000;           // 상대 속력 km/s
+    const L1 = Math.pow(st.m1, 3.5), L2 = Math.pow(st.m2, 3.5);      // 주계열성 밝기 ∝ 질량^3.5
+    P = {
+      M, v, v1: v * st.m2 / M, v2: v * st.m1 / M,
+      a1: st.a * st.m2 / M, a2: st.a * st.m1 / M,
+      days: TAU * st.a * AU / (v * 1000) / 86400,
+      f1: L1 / (L1 + L2), f2: L2 / (L1 + L2), si: Math.sin(st.inc * Math.PI / 180), ci: Math.cos(st.inc * Math.PI / 180),
+    };
+  }
+  // 위상 φ에서 두 별의 위치(AU, y가 클수록 지구에서 멀다)와 시선 속도(km/s, +: 멀어짐)
+  function stars(t) {
+    const ph = TAU * t / PV, c = Math.cos(ph), s = Math.sin(ph);
+    return [
+      { x: P.a1 * c, y: P.a1 * s, vx: -P.v1 * s, vy: P.v1 * c, vr: P.v1 * c * P.si, m: st.m1, f: P.f1 },
+      { x: -P.a2 * c, y: -P.a2 * s, vx: P.v2 * s, vy: -P.v2 * c, vr: -P.v2 * c * P.si, m: st.m2, f: P.f2 },
+    ];
+  }
+
+  // ---------- 색 ----------
+  let css = {};
+  const mq = matchMedia('(prefers-color-scheme: dark)');
+  function readCss() {
+    const cs = getComputedStyle(document.documentElement);
+    for (const k of ['ink', 'muted', 'line', 'grid', 'card', 'blue', 'red', 'sA', 'sB']) css[k] = cs.getPropertyValue('--' + k).trim();
+    css.dark = mq.matches;
+  }
+  readCss();
+  mq.addEventListener('change', () => { readCss(); rainbow = null; });
+  const starCol = i => i ? css.sB : css.sA;
+  function wl2rgb(w) {
+    let r = 0, g = 0, b = 0;
+    if (w < 440) { r = -(w - 440) / 60; b = 1; }
+    else if (w < 490) { g = (w - 440) / 50; b = 1; }
+    else if (w < 510) { g = 1; b = -(w - 510) / 20; }
+    else if (w < 580) { r = (w - 510) / 70; g = 1; }
+    else if (w < 645) { r = 1; g = -(w - 645) / 65; }
+    else r = 1;
+    const f = w < 420 ? 0.35 + 0.65 * (w - 380) / 40 : w > 690 ? 0.35 + 0.65 * (760 - w) / 70 : 1;
+    return [r, g, b].map(c => Math.round(255 * Math.pow(Math.max(0, c * f), 0.8)));
+  }
+  let rainbow = null;
+  function getRainbow(w) {
+    if (rainbow && rainbow.width === w) return rainbow;
+    rainbow = document.createElement('canvas'); rainbow.width = w; rainbow.height = 1;
+    const x = rainbow.getContext('2d'), im = x.createImageData(w, 1);
+    for (let i = 0; i < w; i++) {
+      const c = wl2rgb(WL0 + (WL1 - WL0) * (i + 0.5) / w);
+      im.data.set([c[0], c[1], c[2], 255], i * 4);
+    }
+    x.putImageData(im, 0, 0);
+    return rainbow;
+  }
+
+  // ---------- 캔버스 ----------
+  function fit(cv) {
+    const d = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight, ctx = cv.getContext('2d');
+    if (cv.width !== Math.round(w * d) || cv.height !== Math.round(h * d)) { cv.width = Math.round(w * d); cv.height = Math.round(h * d); }
+    ctx.setTransform(d, 0, 0, d, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return [ctx, w, h];
+  }
+  function arrow(x, x1, y1, x2, y2, col, lw) {
+    const dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy);
+    if (L < 2) return;
+    const ux = dx / L, uy = dy / L, hd = Math.min(10, L * 0.5) + lw;
+    x.strokeStyle = col; x.fillStyle = col; x.lineWidth = lw; x.lineCap = 'round';
+    x.beginPath(); x.moveTo(x1, y1); x.lineTo(x2 - ux * hd * 0.6, y2 - uy * hd * 0.6); x.stroke();
+    x.beginPath(); x.moveTo(x2, y2);
+    x.lineTo(x2 - ux * hd - uy * hd * 0.5, y2 - uy * hd + ux * hd * 0.5);
+    x.lineTo(x2 - ux * hd + uy * hd * 0.5, y2 - uy * hd - ux * hd * 0.5);
+    x.closePath(); x.fill();
+  }
+  function starDisk(x, sx, sy, r, col) {
+    const g = x.createRadialGradient(sx, sy, 0, sx, sy, r * 2.2);
+    g.addColorStop(0, '#fff'); g.addColorStop(0.35, col); g.addColorStop(0.5, col + 'aa'); g.addColorStop(1, col + '00');
+    x.fillStyle = g; x.beginPath(); x.arc(sx, sy, r * 2.2, 0, TAU); x.fill();
+  }
+  const starR = m => 7 + 5 * Math.pow(m, 0.6);
+  const vrColor = vr => vr < 0 ? css.blue : css.red;
+
+  // ---------- 궤도(위에서) ----------
+  function drawOrbit(S) {
+    const [x, w, h] = fit($('cOrbit'));
+    const cx = w / 2, cy = h * 0.47, sc = Math.min(w, h) * 0.36 / Math.max(P.a1, P.a2);
+    const vmax = Math.max(P.v1, P.v2), AL = Math.min(w, h) * 0.17;
+    // 궤도: 그 자리에서의 시선 속도 색으로
+    [P.a1, P.a2].forEach(r => {
+      const N = 120;
+      for (let k = 0; k < N; k++) {
+        const t0 = k / N * TAU, t1 = (k + 1) / N * TAU, c = Math.cos((t0 + t1) / 2);
+        x.strokeStyle = c > 0 ? css.red : css.blue;
+        x.globalAlpha = 0.12 + 0.8 * Math.abs(c) * P.si;
+        x.lineWidth = 4;
+        x.beginPath(); x.arc(cx, cy, r * sc, -t1, -t0); x.stroke();
+      }
+      x.globalAlpha = 1;
+    });
+    // 질량 중심
+    x.strokeStyle = css.ink; x.lineWidth = 1.5;
+    x.beginPath(); x.moveTo(cx - 6, cy); x.lineTo(cx + 6, cy); x.moveTo(cx, cy - 6); x.lineTo(cx, cy + 6); x.stroke();
+    // 지구 방향
+    const ey = h - 16;
+    x.fillStyle = css.muted; x.font = '13px system-ui, sans-serif'; x.textAlign = 'center';
+    x.fillText('▼ 지구(관측자)는 이 방향으로 아주 멀리', cx, ey);
+    x.fillText('▲ 멀어지는 쪽', cx, 16);
+    // 별, 속도 화살표
+    S.forEach((s, i) => {
+      const sx = cx + s.x * sc, sy = cy - s.y * sc;
+      x.save(); x.setLineDash([3, 4]); x.strokeStyle = css.muted; x.globalAlpha = 0.6; x.lineWidth = 1;
+      x.beginPath(); x.moveTo(sx, sy); x.lineTo(sx, ey - 14); x.stroke(); x.restore();
+      starDisk(x, sx, sy, starR(s.m), starCol(i));
+      arrow(x, sx, sy, sx + s.vx / vmax * AL, sy - s.vy / vmax * AL, css.muted, 1.5);
+      const ry = s.vr / vmax * AL;
+      if (Math.abs(ry) > 3) arrow(x, sx, sy, sx, sy - ry, vrColor(s.vr), 4);
+      x.fillStyle = css.ink; x.font = 'bold 14px system-ui, sans-serif';
+      x.fillText(i ? 'B' : 'A', sx + starR(s.m) + 10, sy + 5);
+    });
+  }
+
+  // ---------- 지구에서 본 모습 ----------
+  function drawSky(S) {
+    const [x, w, h] = fit($('cSky'));
+    x.fillStyle = '#0b1020'; x.fillRect(0, 0, w, h);
+    const sc = Math.min(w * 0.4, P.ci > 0.01 ? (h / 2 - 22) / P.ci : 1e9) / Math.max(P.a1, P.a2), cx = w / 2, cy = h / 2;
+    const order = S.map((s, i) => ({ s, i, d: s.y * P.si })).sort((p, q) => q.d - p.d);
+    for (const { s, i } of order) {
+      const sx = cx + s.x * sc, sy = cy - s.y * P.ci * sc, r = starR(s.m);
+      // 앞 별이 뒤 별을 가린다(식): 뒤 별을 먼저 그리고, 앞 별은 불투명한 원판 위에 빛무리를 그린다
+      x.fillStyle = '#0b1020'; x.beginPath(); x.arc(sx, sy, r * 0.9, 0, TAU); x.fill();
+      starDisk(x, sx, sy, r, starCol(i));
+      x.fillStyle = '#fff'; x.font = 'bold 13px system-ui, sans-serif'; x.textAlign = 'center';
+      x.fillText(i ? 'B' : 'A', sx, sy - r * 1.6);
+    }
+  }
+
+  // ---------- 별 정보 ----------
+  function fmt(v, d = 1) { return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(d); }
+  function starInfo(el, s, i) {
+    const vmax = Math.max(P.v1, P.v2), dl = HA * s.vr / C;
+    let state, cls;
+    if (Math.abs(s.vr) < 0.08 * vmax || P.si < 0.02) { state = '옆으로 지나감 → 편이 거의 없음'; cls = 'none'; }
+    else if (s.vr < 0) { state = '다가옴 → 청색편이'; cls = 'blue'; }
+    else { state = '멀어짐 → 적색편이'; cls = 'red'; }
+    el.innerHTML = `<h3><i style="background:${starCol(i)}"></i>별 ${i ? 'B' : 'A'}</h3>
+      <div class="k">태양 질량의 ${s.m.toFixed(1)}배 · 공전 속력 ${(i ? P.v2 : P.v1).toFixed(0)} km/s</div>
+      <div>시선 속도 <b>${fmt(s.vr)} km/s</b></div>
+      <div>Hα 편이 <b>${fmt(dl, 3)} nm</b></div>
+      <div class="big ${cls}">${state}</div>`;
+  }
+
+  // ---------- 스펙트럼 띠 ----------
+  function drawSpec(S) {
+    const [x, w, h] = fit($('cSpec'));
+    const L = 6, W = w - 12, lab = 18, sh = 36, gap = 10;
+    const X = l => L + (l - WL0) / (WL1 - WL0) * W;
+    const rb = getRainbow(Math.max(1, Math.round(W)));
+    const obs = (s, l) => l * (1 + st.ex * s.vr / C);
+    const strips = [
+      { t: '정지해 있을 때 (실험실)', lines: LINES.map(o => ({ l: o.l, d: 0.85 })) },
+      { t: '별 A에서 온 빛', col: css.sA, lines: LINES.map(o => ({ l: obs(S[0], o.l), d: 0.85 })) },
+      { t: '별 B에서 온 빛', col: css.sB, lines: LINES.map(o => ({ l: obs(S[1], o.l), d: 0.85 })) },
+      { t: '실제로 관측한 빛 (두 별이 섞임)', lines: [...LINES.map(o => ({ l: obs(S[0], o.l), d: 0.85 * S[0].f })), ...LINES.map(o => ({ l: obs(S[1], o.l), d: 0.85 * S[1].f }))] },
+    ];
+    let y = 0;
+    x.textAlign = 'left';
+    strips.forEach((sp, k) => {
+      x.font = (k === 3 ? 'bold ' : '') + '13px system-ui, sans-serif';
+      if (sp.col) { x.fillStyle = sp.col; x.beginPath(); x.arc(L + 6, y + 9, 5, 0, TAU); x.fill(); }
+      x.fillStyle = css.ink; x.fillText(sp.t, L + (sp.col ? 16 : 0), y + 13);
+      if (k === 0) {
+        x.fillStyle = css.muted; x.textAlign = 'center'; x.font = '12px system-ui, sans-serif';
+        for (const o of LINES) x.fillText(o.n, X(o.l), y + lab + 12);
+        x.textAlign = 'left';
+        y += 16;
+      }
+      const y0 = y + lab;
+      x.imageSmoothingEnabled = true;
+      x.drawImage(rb, L, y0, W, sh);
+      for (const ln of sp.lines) {
+        const lx = X(ln.l);
+        if (lx < L - 4 || lx > L + W + 4) continue;
+        x.fillStyle = `rgba(0,0,0,${0.35 * ln.d})`; x.fillRect(lx - 3.5, y0, 7, sh);
+        x.fillStyle = `rgba(0,0,0,${ln.d})`; x.fillRect(lx - 1.5, y0, 3, sh);
+      }
+      x.save(); x.setLineDash([3, 3]); x.strokeStyle = 'rgba(255,255,255,.85)'; x.lineWidth = 1;
+      if (k > 0) for (const o of LINES) { x.beginPath(); x.moveTo(X(o.l), y0 - 3); x.lineTo(X(o.l), y0 + 5); x.moveTo(X(o.l), y0 + sh - 5); x.lineTo(X(o.l), y0 + sh + 3); x.stroke(); }
+      x.restore();
+      x.strokeStyle = css.line; x.strokeRect(L, y0, W, sh);
+      y = y0 + sh + gap;
+    });
+    x.fillStyle = css.muted; x.font = '12px system-ui, sans-serif'; x.textAlign = 'center';
+    for (let l = 400; l <= 700; l += 50) x.fillText(l + ' nm', Math.min(w - 24, Math.max(24, X(l))), y + 8);
+    x.textAlign = 'left'; x.fillStyle = css.blue; x.fillText('← 파장 짧음(파랑)', L, y + 24);
+    x.textAlign = 'right'; x.fillStyle = css.red; x.fillText('파장 긺(빨강) →', L + W, y + 24);
+  }
+
+  // ---------- Hα 선 확대 ----------
+  function drawProf(S) {
+    const [x, w, h] = fit($('cProf'));
+    const L = 44, R = 12, T = 24, B = 34, pw = w - L - R, ph = h - T - B;
+    const K = Math.max(P.v1, P.v2) * P.si;
+    const span = Math.max(0.12, 1.35 * HA * K / C), sig = 0.035;
+    const X = d => L + (d + span) / (2 * span) * pw, Y = f => T + (1.05 - f) / 1.05 * ph;
+    // 배경: 왼쪽 파랑, 오른쪽 빨강
+    x.fillStyle = css.blue; x.globalAlpha = 0.07; x.fillRect(L, T, pw / 2, ph);
+    x.fillStyle = css.red; x.fillRect(L + pw / 2, T, pw / 2, ph); x.globalAlpha = 1;
+    x.font = '12px system-ui, sans-serif';
+    x.fillStyle = css.blue; x.textAlign = 'left'; x.fillText('청색편이 쪽', L + 4, T - 8);
+    x.fillStyle = css.red; x.textAlign = 'right'; x.fillText('적색편이 쪽', L + pw - 4, T - 8);
+    // 눈금
+    const step = span > 0.6 ? 0.2 : span > 0.3 ? 0.1 : 0.05;
+    x.fillStyle = css.muted; x.textAlign = 'center'; x.strokeStyle = css.line; x.lineWidth = 1;
+    for (let d = -Math.floor(span / step) * step; d <= span + 1e-9; d += step) {
+      x.beginPath(); x.moveTo(X(d), T); x.lineTo(X(d), T + ph); x.stroke();
+      x.fillText((HA + d).toFixed(2), X(d), T + ph + 15);
+    }
+    x.fillText('파장 (nm)', L + pw / 2, h - 3);
+    x.save(); x.translate(12, T + ph / 2); x.rotate(-Math.PI / 2); x.fillText('밝기', 0, 0); x.restore();
+    x.save(); x.setLineDash([4, 4]); x.strokeStyle = css.ink; x.globalAlpha = 0.6;
+    x.beginPath(); x.moveTo(X(0), T); x.lineTo(X(0), T + ph); x.stroke(); x.restore();
+    const dip = (s, d) => 0.8 * s.f * Math.exp(-(((d - HA * s.vr / C) / sig) ** 2) / 2);
+    const N = 300;
+    S.forEach((s, i) => {
+      x.save(); x.setLineDash([5, 4]); x.strokeStyle = starCol(i); x.lineWidth = 2;
+      x.beginPath();
+      for (let k = 0; k <= N; k++) { const d = -span + 2 * span * k / N, px = X(d), py = Y(1 - dip(s, d)); k ? x.lineTo(px, py) : x.moveTo(px, py); }
+      x.stroke(); x.restore();
+    });
+    x.strokeStyle = css.ink; x.lineWidth = 2.5;
+    x.beginPath();
+    for (let k = 0; k <= N; k++) { const d = -span + 2 * span * k / N, px = X(d), py = Y(1 - dip(S[0], d) - dip(S[1], d)); k ? x.lineTo(px, py) : x.moveTo(px, py); }
+    x.stroke();
+    // 범례
+    x.textAlign = 'left'; x.font = '12px system-ui, sans-serif';
+    const lg = [[css.ink, '관측(합)', false], [css.sA, '별 A', true], [css.sB, '별 B', true]];
+    let lx = L + 8;
+    for (const [c, t, dash] of lg) {
+      x.save(); if (dash) x.setLineDash([5, 4]); x.strokeStyle = c; x.lineWidth = 2;
+      x.beginPath(); x.moveTo(lx, T + ph - 12); x.lineTo(lx + 20, T + ph - 12); x.stroke(); x.restore();
+      x.fillStyle = css.ink; x.fillText(t, lx + 24, T + ph - 8);
+      lx += 34 + x.measureText(t).width;
+    }
+  }
+
+  // ---------- 시선 속도 곡선 ----------
+  const rvBox = {};
+  function drawRV() {
+    const [x, w, h] = fit($('cRV'));
+    const L = 52, R = 14, T = 12, B = 34, pw = w - L - R, ph = h - T - B;
+    Object.assign(rvBox, { L, pw });
+    const K = Math.max(10, Math.max(P.v1, P.v2) * P.si * 1.25);
+    const X = u => L + u / 2 * pw, Y = v => T + (K - v) / (2 * K) * ph;
+    x.fillStyle = css.red; x.globalAlpha = 0.07; x.fillRect(L, T, pw, ph / 2);
+    x.fillStyle = css.blue; x.fillRect(L, T + ph / 2, pw, ph / 2); x.globalAlpha = 1;
+    x.font = '12px system-ui, sans-serif'; x.textAlign = 'right';
+    x.fillStyle = css.red; x.fillText('멀어짐 → 적색편이', L + pw - 6, T + 15);
+    x.fillStyle = css.blue; x.fillText('다가옴 → 청색편이', L + pw - 6, T + ph - 6);
+    // 세로 눈금
+    const st0 = K > 150 ? 50 : K > 60 ? 20 : K > 25 ? 10 : 5;
+    x.strokeStyle = css.line; x.lineWidth = 1; x.fillStyle = css.muted;
+    for (let v = -Math.floor(K / st0) * st0; v <= K; v += st0) {
+      x.beginPath(); x.moveTo(L, Y(v)); x.lineTo(L + pw, Y(v)); x.stroke();
+      x.fillText(String(v), L - 6, Y(v) + 4);
+    }
+    x.save(); x.translate(13, T + ph / 2); x.rotate(-Math.PI / 2); x.textAlign = 'center'; x.fillText('시선 속도 (km/s)', 0, 0); x.restore();
+    x.strokeStyle = css.ink; x.globalAlpha = 0.5; x.beginPath(); x.moveTo(L, Y(0)); x.lineTo(L + pw, Y(0)); x.stroke(); x.globalAlpha = 1;
+    // 가로 눈금(일)
+    x.textAlign = 'center';
+    const dstep = niceStep(2 * P.days / 6);
+    for (let d = 0; d <= 2 * P.days + 1e-9; d += dstep) {
+      const px = X(d / P.days);
+      x.beginPath(); x.moveTo(px, T + ph); x.lineTo(px, T + ph + 4); x.stroke();
+      x.fillText(fmtDays(d), px, T + ph + 16);
+    }
+    x.fillText('시간 (일)', L + pw / 2, h - 3);
+    // 곡선
+    [[P.v1, 1], [P.v2, -1]].forEach(([v, sg], i) => {
+      x.strokeStyle = starCol(i); x.lineWidth = 2.5; x.beginPath();
+      for (let k = 0; k <= 400; k++) { const u = 2 * k / 400, px = X(u), py = Y(sg * v * P.si * Math.cos(TAU * u)); k ? x.lineTo(px, py) : x.moveTo(px, py); }
+      x.stroke();
+    });
+    const u = (st.t / PV) % 2;
+    x.strokeStyle = css.ink; x.lineWidth = 1.5;
+    x.beginPath(); x.moveTo(X(u), T); x.lineTo(X(u), T + ph); x.stroke();
+    [[P.v1, 1], [P.v2, -1]].forEach(([v, sg], i) => {
+      x.fillStyle = starCol(i); x.strokeStyle = css.card; x.lineWidth = 2;
+      x.beginPath(); x.arc(X(u), Y(sg * v * P.si * Math.cos(TAU * u)), 6, 0, TAU); x.fill(); x.stroke();
+    });
+  }
+  function niceStep(r) {
+    const p = Math.pow(10, Math.floor(Math.log10(r))), q = r / p;
+    return (q < 1.5 ? 1 : q < 3.5 ? 2 : q < 7.5 ? 5 : 10) * p;
+  }
+  const fmtDays = d => d >= 10 ? d.toFixed(0) : d >= 1 ? (+d.toFixed(1)).toString() : (+d.toFixed(2)).toString();
+  $('cRV').addEventListener('click', e => {
+    const b = $('cRV').getBoundingClientRect(), u = (e.clientX - b.left - rvBox.L) / rvBox.pw * 2;
+    if (u >= 0 && u <= 2) st.t = u * PV;
+  });
+
+  // ---------- 조작 ----------
+  function readCtl() {
+    st.m1 = +$('m1').value; st.m2 = +$('m2').value; st.a = +$('sep').value; st.inc = +$('inc').value; st.ex = +$('ex').value;
+    phys();
+    $('m1o').textContent = `태양의 ${st.m1.toFixed(1)}배`;
+    $('m2o').textContent = `태양의 ${st.m2.toFixed(1)}배`;
+    $('sepo').textContent = `${st.a.toFixed(2)} AU`;
+    $('inco').textContent = st.inc === 90 ? '90° (옆에서)' : st.inc === 0 ? '0° (정면에서)' : `${st.inc}°`;
+    $('exo').textContent = `${st.ex}배`;
+  }
+  ['m1', 'm2', 'sep', 'inc', 'ex'].forEach(id => $(id).addEventListener('input', readCtl));
+  $('play').onclick = () => { st.playing = !st.playing; $('play').textContent = st.playing ? '⏸ 멈춤' : '▶ 계속'; };
+  $('speed').onchange = e => { st.speed = +e.target.value; };
+
+  function tex(id, src, plain) {
+    const el = $(id);
+    if (window.katex) katex.render(src, el, { displayMode: true, throwOnError: false });
+    else { el.textContent = plain; el.classList.add('tex-fallback'); }
+  }
+  tex('fxCM', String.raw`m_A v_A = m_B v_B \qquad (\text{무거운 별일수록 느리게 돈다})`, 'm_A v_A = m_B v_B  (무거운 별일수록 느리게 돈다)');
+  tex('fxD', String.raw`\frac{\Delta\lambda}{\lambda_0} = \frac{v_r}{c} \qquad \begin{cases} v_r < 0 \;(\text{다가옴}) & \Delta\lambda<0 \;\text{청색편이} \\ v_r > 0 \;(\text{멀어짐}) & \Delta\lambda>0 \;\text{적색편이} \end{cases}`,
+    'Δλ/λ₀ = v_r/c   (다가옴 v_r<0 → 청색편이, 멀어짐 v_r>0 → 적색편이)');
+
+  // ---------- 돌리기 ----------
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (st.playing) st.t += dt * st.speed;
+    const S = stars(st.t);
+    drawOrbit(S); drawSky(S); drawSpec(S); drawProf(S); drawRV();
+    starInfo($('infoA'), S[0], 0); starInfo($('infoB'), S[1], 1);
+    $('time').textContent = `공전 주기 ${fmtDays(P.days)}일 · 지난 시간 ${fmtDays(st.t / PV * P.days)}일`;
+    requestAnimationFrame(frame);
+  }
+  readCtl();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
