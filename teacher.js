@@ -808,15 +808,17 @@ function slidesCard() {
   const status = h("p", { class: "msg" });
   const btn = h("button", { class: lesson.slide_count ? "ghost" : "primary", type: "button" }, lesson.slide_count ? "다시 올리기 (기존 슬라이드를 바꿈)" : "올리기");
   const addBtn = lesson.slide_count ? h("button", { class: "primary", type: "button" }, "끝에 추가 (기존 슬라이드는 그대로)") : null;
-  const run = async (upload, done) => {
-    if (!file.files.length) { status.textContent = "PDF 파일이나 그림 파일을 먼저 고르세요."; return; }
+  const htmlFile = h("input", { type: "file", accept: ".html,.htm,text/html", multiple: true });
+  const htmlBtn = h("button", { class: "primary", type: "button" }, "애니메이션 슬라이드 끝에 추가");
+  const buttons = [btn, addBtn, htmlBtn].filter(Boolean);
+  const doUpload = async (input, upload, done) => {
+    if (!input.files.length) { status.textContent = input === htmlFile ? "html 파일을 먼저 고르세요." : "PDF 파일이나 그림 파일을 먼저 고르세요."; return; }
     if (slideBusy) return;
     slideBusy = true;
-    btn.disabled = true;
-    if (addBtn) addBtn.disabled = true;
+    buttons.forEach((b) => { b.disabled = true; });
     bar.hidden = false;
     try {
-      const n = await upload([...file.files], (k, total, what) => {
+      const n = await upload([...input.files], (k, total, what) => {
         bar.max = total;
         bar.value = k;
         status.textContent = what + " " + k + " / " + total;
@@ -827,15 +829,19 @@ function slidesCard() {
     } catch (e) {
       slideBusy = false;
       status.textContent = "올리지 못했습니다: " + (e.message || e);
-      btn.disabled = false;
-      if (addBtn) addBtn.disabled = false;
+      buttons.forEach((b) => { b.disabled = false; });
     }
   };
   btn.addEventListener("click", () => {
-    if (lesson.slide_count && !confirm("기존 슬라이드 " + lesson.slide_count + "장을 모두 새 파일로 바꿀까요?\n기존 슬라이드 뒤에 붙이려면 「끝에 추가」를 누르세요.")) return;
-    run(uploadSlides, (n) => "슬라이드 " + n + "장을 올렸습니다.");
+    const animated = activities.filter((a) => a.kind === "sim" && a.sim_full).length;
+    if (lesson.slide_count && !confirm("기존 슬라이드 " + lesson.slide_count + "장을 모두 새 파일로 바꿀까요?\n기존 슬라이드 뒤에 붙이려면 「끝에 추가」를 누르세요." +
+      (animated ? "\n애니메이션 슬라이드 " + animated + "개는 지워지지 않고 원래 쪽 번호에 남아, 새 슬라이드의 그 쪽을 가립니다. 필요 없으면 「질문·설문 만들기」에서 지우세요." : ""))) return;
+    doUpload(file, uploadSlides, (n) => "슬라이드 " + n + "장을 올렸습니다.");
   });
-  if (addBtn) addBtn.addEventListener("click", () => run(appendSlides, (n) => "슬라이드 " + n + "장을 끝에 붙였습니다."));
+  if (addBtn) addBtn.addEventListener("click", () => doUpload(file, appendSlides, (n) => "슬라이드 " + n + "장을 끝에 붙였습니다."));
+  htmlBtn.addEventListener("click", () => doUpload(htmlFile, addHtmlSlides, (n) => "애니메이션 슬라이드 " + n + "장을 끝에 붙였습니다."));
+  // 애니메이션(html)이 슬라이드 자리에 뜨는 쪽
+  const htmlOn = (i) => activities.find((a) => a.kind === "sim" && a.sim_full && a.page === i && !(a.page_to > i));
 
   // 미리보기를 끌어 순서를 바꾼다. 그림의 왼쪽 반에 놓으면 그 앞, 오른쪽 반이면 그 뒤로 간다.
   const thumbs = h("div", { class: "thumbs" });
@@ -870,13 +876,16 @@ function slidesCard() {
       },
     },
       h("img", { src: slideSrc(lesson, i), alt: i + "쪽", loading: "lazy", draggable: "false" }),
-      h("figcaption", {}, h("span", {}, i + "쪽"),
+      h("figcaption", {}, h("span", { title: htmlOn(i) ? htmlOn(i).title : null }, i + "쪽" + (htmlOn(i) ? " · 애니메이션" : "")),
         h("button", { class: "link danger", type: "button", "aria-label": i + "쪽 삭제", onclick() { deleteSlide(i, status); } }, "삭제"))));
   }
   return h("section", { class: "card stack" },
     h("h2", {}, "슬라이드 " + (lesson.slide_count ? lesson.slide_count + "장" : "없음")),
     h("p", { class: "muted small" }, "PowerPoint에서 「파일 → 다른 이름으로 저장 → PDF」로 저장한 파일을 올리면 쪽마다 그림으로 바뀝니다. 그림 파일(PNG, JPG) 여러 장을 올려도 됩니다(파일 이름 순서). 100쪽까지."),
-    h("div", { class: "row wrap" }, file, addBtn, btn), bar, status,
+    h("div", { class: "row wrap" }, file, addBtn, btn),
+    h("p", { class: "muted small" }, "애니메이션이 들어간 html 파일은 아래에서 올립니다. 끝에 「▶ 애니메이션」 쪽이 생기고, 수업할 때 그 쪽에서는 교사·학생 화면 모두 슬라이드 대신 애니메이션이 움직입니다. 파일 하나로 된 html(최대 50만 자)만 됩니다."),
+    h("div", { class: "row wrap" }, htmlFile, htmlBtn),
+    bar, status,
     lesson.slide_count ? h("div", { class: "row slide-tools" },
       h("span", { class: "muted small grow" }, "미리보기를 끌어서 순서를 바꿉니다(붙어 있는 질문도 따라갑니다). 빈 칸이 있거나 쪽 수가 맞지 않으면 →"),
       h("button", { class: "ghost", type: "button", onclick() { deleteSlide(null, status); } }, "번호 다시 맞추기")) : null,
@@ -1041,9 +1050,12 @@ async function deleteSlide(k, status) {
   let folder;
   try { folder = editableSlideFolder(); } catch (e) { return alert(e.message); }
   const base = lesson.slide_dir.split("?")[0];
+  // 이 쪽 자리에 뜨는 애니메이션은 쪽과 함께 지운다(남겨 두면 당겨진 다음 슬라이드를 가린다)
+  const sims = k ? activities.filter((a) => a.kind === "sim" && a.sim_full && a.page === k && !(a.page_to > k)) : [];
   if (k) {
-    const onIt = activities.filter((a) => a.page === k && !(a.page_to > k));
+    const onIt = activities.filter((a) => a.page === k && !(a.page_to > k) && !sims.includes(a));
     if (!confirm(k + "쪽 슬라이드를 지울까요? 뒤쪽 슬라이드가 한 칸씩 앞으로 당겨집니다." +
+      (sims.length ? "\n이 쪽의 애니메이션 「" + sims.map((a) => a.title).join("」, 「") + "」도 함께 지웁니다." : "") +
       (onIt.length ? "\n이 쪽에만 있던 질문 " + onIt.length + "개는 지우지 않고, 그 자리로 당겨지는 다음 슬라이드에 붙습니다." : ""))) return;
   }
   slideBusy = true;
@@ -1067,10 +1079,14 @@ async function deleteSlide(k, status) {
       if (r.error) throw r.error;
     }
     const left = nums.length;
+    if (sims.length) {
+      const d = await sb.from("activities").delete().in("id", sims.map((a) => a.id));
+      if (d.error) throw d.error;
+    }
     if (k) {
       const shift = (pg) => (pg == null ? pg : pg > k ? pg - 1 : pg);
       for (const a of activities) {
-        if (a.page == null) continue;
+        if (a.page == null || sims.includes(a)) continue;
         const page = Math.min(shift(a.page), Math.max(left, 1));
         let to = a.page_to > a.page ? Math.min(shift(a.page_to), Math.max(left, 1)) : a.page_to ?? null;
         if (to != null && to <= page) to = null;
@@ -1117,10 +1133,17 @@ async function uploadSlides(files, progress) {
 
 // 기존 슬라이드는 그대로 두고 마지막 쪽 뒤에 붙인다. 질문의 쪽 번호도 바뀌지 않는다.
 async function appendSlides(files, progress) {
-  const folder = editableSlideFolder();
-  await checkSlideNums(folder);
+  if (lesson.slide_count) await checkSlideNums(editableSlideFolder());   // 오래 걸리는 PDF 변환 전에 먼저 확인
   const images = await toSlideImages(files, progress);
+  await appendImages(images, progress);
+  return images.length;
+}
+
+// 그림 묶음을 마지막 쪽 뒤에 붙이고, 붙이기 전의 쪽 수를 돌려준다. 슬라이드가 없으면 이 수업의 폴더에 1쪽부터 올린다.
+async function appendImages(images, progress) {
   const start = lesson.slide_count;
+  const folder = start ? editableSlideFolder() : slideFolder(lesson);
+  if (start) await checkSlideNums(folder);
   if (start + images.length > 100) throw new Error("슬라이드는 모두 100장까지입니다(지금 " + start + "장, 더할 것 " + images.length + "장).");
   for (const [i, blob] of images.entries()) {
     progress(i, images.length, "올리는 중");
@@ -1128,10 +1151,60 @@ async function appendSlides(files, progress) {
     if (error) throw error;
   }
   progress(images.length, images.length, "올리는 중");
-  const dir = lesson.slide_dir.split("?")[0] + "?v=" + Date.now();
-  const { error } = await sb.from("lessons").update({ slide_dir: dir, slide_count: start + images.length }).eq("id", lesson.id);
+  if (!start) {
+    // 예전에 남은 그림이 있으면 지운다(번호가 꼬이지 않게)
+    const { data: old } = await sb.storage.from("slides").list(folder.replace(/\/$/, ""), { limit: 1000 });
+    const extra = (old || []).map((o) => o.name).filter((n) => parseInt(n, 10) > images.length).map((n) => folder + n);
+    if (extra.length) await sb.storage.from("slides").remove(extra);
+  }
+  const base = start ? lesson.slide_dir.split("?")[0] : SB_URL + "/storage/v1/object/public/slides/" + folder + "{n}.jpg";
+  const { error } = await sb.from("lessons").update({ slide_dir: base + "?v=" + Date.now(), slide_count: start + images.length }).eq("id", lesson.id);
   if (error) throw error;
-  return images.length;
+  return start;
+}
+
+// 애니메이션 슬라이드: html 파일마다 「▶ 애니메이션」 그림을 한 쪽씩 끝에 붙이고,
+// 그 쪽 자리에 크게 뜨는 시뮬레이션(sim_full)을 만든다. 쪽을 옮기면 시뮬레이션도 따라간다(moveSlide).
+async function addHtmlSlides(files, progress) {
+  const sims = [];
+  for (const f of files) {
+    if (!/\.html?$/i.test(f.name)) throw new Error(f.name + ": html 파일만 올릴 수 있습니다.");
+    const html = await f.text();
+    if (!html.trim()) throw new Error(f.name + ": 빈 파일입니다.");
+    if (html.length > 500000) throw new Error(f.name + ": 너무 깁니다(최대 50만 자). 그림을 파일 안에 넣었다면 그림 크기를 줄여 주세요.");
+    sims.push({ title: f.name.replace(/\.html?$/i, "").trim().slice(0, 100) || "애니메이션", html });
+  }
+  const images = [];
+  for (const s of sims) images.push(await htmlSlideImage(s.title));
+  const start = await appendImages(images, progress);
+  const { error } = await sb.from("activities").insert(sims.map((s, i) => ({
+    lesson_id: lesson.id, kind: "sim", title: s.title, page: start + i + 1, html: s.html, sim_full: true,
+    show_answer: false, named: false, questions: [], sort: activities.length + i,
+  })));
+  if (error) throw new Error("슬라이드 자리는 만들었지만 애니메이션을 저장하지 못했습니다: " + error.message + " · 「질문·설문 만들기 → 시뮬레이션」에서 " + (start + 1) + "쪽에 직접 넣을 수 있습니다.");
+  return sims.length;
+}
+
+// 미리보기와 「크게 보기」 전에 잠깐 보이는 자리 표시 그림
+function htmlSlideImage(title) {
+  const c = h("canvas", { width: SLIDE_WIDTH, height: SLIDE_WIDTH * 9 / 16 });
+  const g = c.getContext("2d");
+  const W = c.width;
+  g.fillStyle = "#1e293b";
+  g.fillRect(0, 0, W, c.height);
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.fillStyle = "#fff";
+  g.font = "bold 170px sans-serif";
+  g.fillText("▶", W / 2, 320);
+  g.font = "bold 72px sans-serif";
+  let t = title;
+  while (t.length > 1 && g.measureText(t).width > W - 200) t = t.slice(0, -1);
+  g.fillText(t === title ? t : t.slice(0, -1) + "…", W / 2, 560);
+  g.font = "44px sans-serif";
+  g.fillStyle = "#cbd5e1";
+  g.fillText("애니메이션 슬라이드", W / 2, 670);
+  return canvasToJpeg(c);
 }
 
 // 수업을 지울 때 그 수업의 슬라이드 그림도 지운다(복제한 다른 수업이 같은 그림을 쓰면 남긴다)
