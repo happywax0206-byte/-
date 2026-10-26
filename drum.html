@@ -104,6 +104,7 @@ ul { margin: 6px 0; padding-left: 20px; }
         <button data-r="0.45">가운데와 가장자리 사이</button>
         <button data-r="0.8">가장자리 가까이</button>
         <button id="again">↻ 같은 곳 다시 치기</button>
+        <button id="resetStrike">⟲ 리셋</button>
         <label class="chk"><input type="checkbox" id="damp" checked> 점점 잦아들기</label>
       </div>
     </div>
@@ -593,19 +594,43 @@ ul { margin: 6px 0; padding-left: 20px; }
       tone = null;
     }
   }
+  // 북 소리: 낮은 기본음(65 Hz) + 정상파들. 높은 정상파와 m ≥ 1 정상파는 소리를 잘 내보내지 못하고
+  // 빨리 잦아들어서 작게 넣는다. 처음에 음이 살짝 내려가는 것과 북채가 닿는 「퉁」 잡음을 더한다.
+  const F_DRUM = 65;
+  let buses = [];
   function strikeSound(list) {
     if (!st.sound) return;
-    const a = ac(), now = a.currentTime + 0.01, max = Math.max(...list.map(c => c.sa));
-    const use = list.filter(c => c.sa / max > 0.01), tot = use.reduce((s, c) => s + c.sa, 0);
+    stopStrikeSound();
+    const a = ac(), now = a.currentTime + 0.01;
+    const bus = a.createGain(); bus.gain.value = 1; bus.connect(a.destination); buses.push(bus);
+    const wt = c => c.sa * (c.m === 0 ? 1 : 0.4) / Math.pow(c.j / J01, 1.5);
+    const max = Math.max(...list.map(wt));
+    const use = list.filter(c => wt(c) / max > 0.02), tot = use.reduce((s, c) => s + wt(c), 0);
+    let end = now;
     for (const c of use) {
-      const o = a.createOscillator(), g = a.createGain(), rr = c.j / J01, tau = st.damp ? 1.1 / rr : 4;
-      o.type = 'sine'; o.frequency.value = F1 * rr;
+      const o = a.createOscillator(), g = a.createGain(), rr = c.j / J01;
+      const tau = (st.damp ? 1.2 : 4) / Math.pow(rr, 1.4);
+      o.type = 'sine';
+      o.frequency.setValueAtTime(F_DRUM * rr * 1.06, now);
+      o.frequency.setTargetAtTime(F_DRUM * rr, now, 0.06);
       g.gain.setValueAtTime(0, now);
-      g.gain.linearRampToValueAtTime(0.45 * c.sa / tot, now + 0.004);
-      g.gain.setTargetAtTime(0, now + 0.004, tau);
-      o.connect(g).connect(a.destination);
-      o.start(now); o.stop(now + 0.004 + tau * 7);
+      g.gain.linearRampToValueAtTime(0.6 * wt(c) / tot, now + 0.006);
+      g.gain.setTargetAtTime(0, now + 0.006, tau);
+      o.connect(g).connect(bus);
+      o.start(now); o.stop(now + 0.006 + tau * 7);
+      end = Math.max(end, now + tau * 7);
     }
+    // 북채가 닿는 소리: 짧은 잡음을 낮은 소리만 통과시켜서
+    const len = Math.round(a.sampleRate * 0.12), buf = a.createBuffer(1, len, a.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (a.sampleRate * 0.02));
+    const ns = a.createBufferSource(), lp = a.createBiquadFilter(), ng = a.createGain();
+    ns.buffer = buf; lp.type = 'lowpass'; lp.frequency.value = 600; ng.gain.value = 0.35;
+    ns.connect(lp).connect(ng).connect(bus); ns.start(now);
+    setTimeout(() => { bus.disconnect(); buses = buses.filter(b => b !== bus); }, (end - a.currentTime + 0.5) * 1000);
+  }
+  function stopStrikeSound() {
+    if (!AC) return;
+    for (const b of buses) b.gain.setTargetAtTime(0, AC.currentTime, 0.02);
   }
 
   // ---------- 화면 글 ----------
@@ -669,9 +694,14 @@ ul { margin: 6px 0; padding-left: 20px; }
     $('nodal').parentElement.hidden = tab !== 'single';
     cTop.classList.toggle('hit', tab === 'strike');
     st.t = 0;
+    stopStrikeSound();
     if (tab === 'single') setSingle(st.m, st.n);
-    else { comps = []; st.strike = null; updateInfo(); updateTone(); }
+    else resetStrike();
     if (!st.playing) render();
+  }
+  function resetStrike() {
+    comps = []; st.strike = null; st.t = 0;
+    stopStrikeSound(); updateInfo(); updateTone();
   }
   function setPlaying(p) {
     st.playing = p;
@@ -697,6 +727,7 @@ ul { margin: 6px 0; padding-left: 20px; }
     b.onclick = () => { const r = +b.dataset.r; strikeAt(r * Math.cos(0.5), r * Math.sin(0.5)); };
   });
   $('again').onclick = () => { if (st.strike) strikeAt(st.strike.x, st.strike.y); else strikeAt(0, 0); };
+  $('resetStrike').onclick = resetStrike;
   cTop.addEventListener('click', e => {
     if (st.tab !== 'strike') return;
     const [x, y] = topToDisk(e);
