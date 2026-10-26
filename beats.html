@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>맥놀이 실험실</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
 <style>
 :root {
   --bg: #f4f6fa; --card: #ffffff; --ink: #1d2433; --muted: #5d6678; --line: #e1e5ee;
@@ -68,6 +70,9 @@ canvas { display: block; width: 100%; }
 .bar > div { height: 100%; width: 0; background: var(--env); }
 #phaseState { font-weight: 700; font-size: 1.05rem; }
 .formula { font-size: 1.05rem; background: var(--grid); border-radius: 10px; padding: 10px 12px; overflow-x: auto; white-space: nowrap; }
+.formula .katex-display { margin: .4em 0; }
+.formula .katex { font-size: 1.2em; }
+.stat .k .katex { font-size: 1.05em; }
 ul { margin: 6px 0; padding-left: 20px; }
 @media (max-width: 640px) {
   #main { height: 320px; }
@@ -90,14 +95,14 @@ ul { margin: 6px 0; padding-left: 20px; }
 
     <div class="controls">
       <div class="ctl">
-        <label><span class="dot" style="background:var(--c1)"></span>소리 1의 진동수 f₁</label>
+        <label><span class="dot" style="background:var(--c1)"></span>소리 1의 진동수 <span data-tex="f_1">f₁</span></label>
         <div class="line">
           <input type="range" id="f1r" min="100" max="1000" step="1" value="440">
           <input type="number" id="f1n" min="100" max="1000" step="1" value="440"> Hz
         </div>
       </div>
       <div class="ctl">
-        <label>두 소리의 진동수 차이 Δf = f₂ − f₁</label>
+        <label>두 소리의 진동수 차이 <span data-tex="\Delta f = f_2 - f_1">Δf = f₂ − f₁</span></label>
         <div class="line">
           <input type="range" id="dfr" min="0" max="20" step="0.1" value="2">
           <input type="number" id="dfn" min="0" max="20" step="0.1" value="2"> Hz
@@ -109,7 +114,7 @@ ul { margin: 6px 0; padding-left: 20px; }
         </div>
       </div>
       <div class="ctl">
-        <label><span class="dot" style="background:var(--c2)"></span>소리 2의 진동수 f₂</label>
+        <label><span class="dot" style="background:var(--c2)"></span>소리 2의 진동수 <span data-tex="f_2">f₂</span></label>
         <div class="stat" style="padding:6px 12px"><span class="v" id="f2v">442.0 Hz</span></div>
       </div>
       <div class="ctl">
@@ -129,9 +134,9 @@ ul { margin: 6px 0; padding-left: 20px; }
 
   <section class="card">
     <div class="stats">
-      <div class="stat"><div class="k">맥놀이 진동수 f<sub>b</sub> = |f₁ − f₂|</div><div class="v" id="fb">2.0 Hz</div></div>
-      <div class="stat"><div class="k">맥놀이 주기 T<sub>b</sub> = 1 / f<sub>b</sub></div><div class="v" id="tb">0.50 초</div></div>
-      <div class="stat"><div class="k">들리는 소리의 높이 (f₁ + f₂) / 2</div><div class="v" id="fc">441.0 Hz</div></div>
+      <div class="stat"><div class="k">맥놀이 진동수 <span data-tex="f_b = |f_1 - f_2|">f<sub>b</sub> = |f₁ − f₂|</span></div><div class="v" id="fb">2.0 Hz</div></div>
+      <div class="stat"><div class="k">맥놀이 주기 <span data-tex="T_b = \dfrac{1}{f_b}">T<sub>b</sub> = 1 / f<sub>b</sub></span></div><div class="v" id="tb">0.50 초</div></div>
+      <div class="stat"><div class="k">들리는 소리의 높이 <span data-tex="\dfrac{f_1 + f_2}{2}">(f₁ + f₂) / 2</span></div><div class="v" id="fc">441.0 Hz</div></div>
       <div class="stat"><div class="k">한마디로</div><div class="v" id="say" style="font-size:1.05rem">1초에 2번 커졌다 작아져요</div></div>
     </div>
   </section>
@@ -183,16 +188,16 @@ ul { margin: 6px 0; padding-left: 20px; }
 
   <section class="card">
     <h2>원리</h2>
-    <p>진폭이 같은 두 소리 y₁ = A sin(2πf₁t), y₂ = A sin(2πf₂t)를 더하면</p>
-    <div class="formula">y = y₁ + y₂ = <b style="color:var(--env)">2A cos(2π · (f₁ − f₂)/2 · t)</b> · sin(2π · (f₁ + f₂)/2 · t)</div>
+    <p>진폭이 같은 두 소리 <span data-tex="y_1 = A\sin(2\pi f_1 t)">y₁ = A sin(2πf₁t)</span>, <span data-tex="y_2 = A\sin(2\pi f_2 t)">y₂ = A sin(2πf₂t)</span>를 더하면</p>
+    <div class="formula" id="fxBeat">y = y₁ + y₂ = <b style="color:var(--env)">2A cos(2π · (f₁ − f₂)/2 · t)</b> · sin(2π · (f₁ + f₂)/2 · t)</div>
     <ul>
       <li>뒤쪽 sin 부분: 우리가 듣는 소리의 높이 (두 진동수의 평균).</li>
       <li>앞쪽 <b style="color:var(--env)">빨간 부분</b>: 천천히 변하는 진폭(포락선). 그래프의 빨간 점선입니다.</li>
       <li>두 파동의 마루가 겹치면(같은 위상) 보강 간섭으로 소리가 커지고, 마루와 골이 겹치면(반대 위상) 상쇄 간섭으로 작아집니다.</li>
-      <li>소리의 크기는 진폭의 크기로 느끼므로, 1초에 <b>|f₁ − f₂|</b>번 커졌다 작아집니다. 이것이 맥놀이 진동수입니다.</li>
-      <li>Δf = 0 이면 맥놀이가 없고, Δf가 15 Hz 이상으로 커지면 너무 빨라 "웅웅"이 아니라 거친 소리로 들립니다.</li>
+      <li>소리의 크기는 진폭의 크기로 느끼므로, 1초에 <span data-tex="|f_1 - f_2|"><b>|f₁ − f₂|</b></span>번 커졌다 작아집니다. 이것이 맥놀이 진동수입니다.</li>
+      <li><span data-tex="\Delta f = 0">Δf = 0</span> 이면 맥놀이가 없고, <span data-tex="\Delta f">Δf</span>가 15 Hz 이상으로 커지면 너무 빨라 "웅웅"이 아니라 거친 소리로 들립니다.</li>
     </ul>
-    <p class="hint">휴대폰이 무음(진동) 모드이면 소리가 나지 않을 수 있어요. 노트북 스피커는 낮은 소리를 잘 못 내므로 f₁은 300 Hz 이상을 권합니다.</p>
+    <p class="hint">휴대폰이 무음(진동) 모드이면 소리가 나지 않을 수 있어요. 노트북 스피커는 낮은 소리를 잘 못 내므로 <span data-tex="f_1">f₁</span>은 300 Hz 이상을 권합니다.</p>
   </section>
 </main>
 
@@ -200,6 +205,21 @@ ul { margin: 6px 0; padding-left: 20px; }
 (() => {
   const $ = id => document.getElementById(id);
   const TAU = Math.PI * 2;
+
+  // 수식(KaTeX). 불러오지 못하면 원래 적힌 글자를 그대로 둔다
+  function renderTex(root) {
+    if (!window.katex) return;
+    root.querySelectorAll('[data-tex]').forEach(el => katex.render(el.dataset.tex, el, { throwOnError: false }));
+  }
+  function renderBeatFormula() {
+    if (!window.katex) return;
+    const env = getComputedStyle(document.documentElement).getPropertyValue('--env').trim() || '#d43d5c';
+    katex.render('y = y_1 + y_2 = {\\color{' + env + '}2A\\cos\\!\\left(2\\pi\\,\\frac{f_1 - f_2}{2}\\,t\\right)}\\,\\sin\\!\\left(2\\pi\\,\\frac{f_1 + f_2}{2}\\,t\\right)',
+      $('fxBeat'), { displayMode: true, throwOnError: false });
+  }
+  renderTex(document);
+  renderBeatFormula();
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderBeatFormula);
   const TONE_GAIN = 0.4;
   // 느리게 보기: 그림 속 소리 1은 1초에 PIC_F번만 떨리고, 화면에는 그림 속 시간 PIC_WIN초를 보여 준다.
   // 두 파동의 진동수 차이(Δf)는 실제와 같게 두어, 맥놀이 박자는 진짜 소리와 같은 규칙을 따른다.
@@ -387,7 +407,8 @@ ul { margin: 6px 0; padding-left: 20px; }
       : '화면 전체를 <b>' + Math.round(1 / state.speed) + '배 느리게</b> 움직여서, 그림 속 맥놀이는 실제 소리보다 ' +
         Math.round(1 / state.speed) + '배 천천히 커졌다 작아져요.';
     n.innerHTML = '실제 소리는 1초에 ' + Math.round(state.f1) + '번 떨려서 눈으로 볼 수 없어요. ' +
-      '그래서 그림에서는 파동이 훨씬 천천히 떨리도록 그렸어요(두 소리의 진동수 차이 Δf는 그대로). ' + slowTxt;
+      '그래서 그림에서는 파동이 훨씬 천천히 떨리도록 그렸어요(두 소리의 진동수 차이 <span data-tex="\\Delta f">Δf</span>는 그대로). ' + slowTxt;
+    renderTex(n);
   }
 
   function bindPair(rangeId, numId, key, min, max) {
