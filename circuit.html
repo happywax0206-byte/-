@@ -1,0 +1,955 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>회로 만들기 실험실</title>
+<style>
+:root {
+  --bg: #f4f6fa; --card: #ffffff; --ink: #1d2433; --muted: #5d6678; --line: #e1e5ee;
+  --accent: #2f6fde; --accent-ink: #fff; --grid: #eef1f6; --dot: #c9d0dd; --wire: #3a4357;
+  --plus: #d43d5c; --warn: #d43d5c; --flow: #f0a020; --board: #fbfcfe;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151c; --card: #1b2029; --ink: #e8ebf2; --muted: #9aa3b5; --line: #2c3340;
+    --accent: #6ea1ff; --accent-ink: #0d1220; --grid: #232935; --dot: #343c4b; --wire: #c3cad8;
+    --plus: #ff6f8c; --warn: #ff6f8c; --flow: #ffc04d; --board: #161a22;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  line-height: 1.5;
+}
+main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 48px; }
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+.sub { color: var(--muted); margin: 0 0 16px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 16px; }
+.card h2 { font-size: 1.05rem; margin: 0 0 10px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+button {
+  font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  border-radius: 10px; padding: 7px 12px; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+button.danger { color: var(--warn); }
+select, input[type=number] { font: inherit; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+input[type=number] { width: 110px; }
+label.chk { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+label.chk input { accent-color: var(--accent); width: 16px; height: 16px; }
+.hint { color: var(--muted); font-size: .88rem; }
+.palette { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.pal {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 8px 5px;
+  min-width: 92px; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab;
+}
+.pal canvas { width: 76px; height: 38px; display: block; pointer-events: none; }
+.pal span { font-size: .9rem; font-weight: 600; pointer-events: none; }
+.layout { display: grid; grid-template-columns: 1fr 270px; gap: 16px; align-items: start; }
+.board { position: relative; }
+#cv { display: block; width: 100%; aspect-ratio: 1100 / 600; border-radius: 10px; background: var(--board); border: 1px solid var(--line); touch-action: none; }
+#graph { display: block; width: 100%; height: 260px; }
+.props h2 { margin-bottom: 6px; }
+.field { margin: 8px 0; }
+.field label { display: block; font-weight: 600; font-size: .92rem; margin-bottom: 2px; }
+.live { background: var(--grid); border-radius: 10px; padding: 8px 10px; margin-top: 10px; font-variant-numeric: tabular-nums; }
+.live div { display: flex; justify-content: space-between; gap: 8px; }
+.live b { font-weight: 700; }
+.howto { margin: 0; padding-left: 18px; font-size: .9rem; }
+.howto li { margin: 3px 0; }
+#warn { color: var(--warn); font-weight: 700; min-height: 1.5em; margin-top: 6px; }
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+  h1 { font-size: 1.35rem; }
+}
+</style>
+</head>
+<body>
+<main>
+  <h1>회로 만들기 실험실</h1>
+  <p class="sub">부품을 끌어다 놓고, 단자끼리 전선으로 이어 회로를 만들어 보세요. 전류계·전압계로 전류와 전압을 잴 수 있어요.</p>
+
+  <section class="card">
+    <div class="palette" id="palette"></div>
+    <div class="row">
+      <button id="run" class="primary">⏸ 멈춤</button>
+      <button id="reset">↺ 처음 상태로</button>
+      <label>시간 빠르기
+        <select id="speed">
+          <option value="10">10배 빠르게</option>
+          <option value="1" selected>실제 시간</option>
+          <option value="0.1">10배 느리게</option>
+          <option value="0.01">100배 느리게</option>
+          <option value="0.001">1000배 느리게</option>
+        </select>
+      </label>
+      <label class="chk"><input type="checkbox" id="flow" checked> 전류 흐름 보기</label>
+      <label>예제 회로
+        <select id="example">
+          <option value="">— 골라서 불러오기 —</option>
+          <option value="series">저항의 직렬 연결</option>
+          <option value="parallel">전구의 병렬 연결</option>
+          <option value="rc">축전기 충전 (RC 회로)</option>
+          <option value="rl">코일과 저항 (RL 회로)</option>
+          <option value="lc">전기 진동 (LC 회로)</option>
+        </select>
+      </label>
+      <button id="clear" class="danger">모두 지우기</button>
+    </div>
+  </section>
+
+  <div class="layout">
+    <section class="card board">
+      <canvas id="cv"></canvas>
+      <div id="warn"></div>
+    </section>
+
+    <aside>
+      <section class="card props">
+        <h2 id="pTitle">선택한 것 없음</h2>
+        <div id="pBody" class="hint">부품이나 전선을 누르면 여기에서 값을 바꿀 수 있어요.</div>
+        <div id="pLive" class="live" hidden></div>
+      </section>
+      <section class="card">
+        <h2>사용 방법</h2>
+        <ul class="howto">
+          <li><b>부품 놓기:</b> 위의 부품을 회로판으로 끌어 놓아요(눌러도 놓여요).</li>
+          <li><b>옮기기:</b> 부품을 끌어요. <b>돌리기:</b> 부품을 두 번 누르거나 R 키.</li>
+          <li><b>전선 잇기:</b> 부품 끝의 작은 동그라미(단자)에서 다른 단자까지 끌어요. 전선 위나 빈 곳에 놓으면 <b>연결점</b>이 생겨 가지를 칠 수 있어요.</li>
+          <li><b>전선 모양 바꾸기:</b> 전선을 끌면 꺾이는 점이 생기고, 그 점을 끌어 모양을 바꿔요. 꺾인 점을 두 번 누르면 없어져요.</li>
+          <li><b>스위치:</b> 눌러서 켜고 꺼요.</li>
+          <li><b>지우기:</b> 고른 뒤 「삭제」 또는 Delete 키.</li>
+          <li>전류계·전압계는 <span style="color:var(--plus);font-weight:700">+ 단자(빨강)</span> 쪽으로 전류가 들어가거나 전위가 높으면 + 값이 나와요.</li>
+        </ul>
+      </section>
+    </aside>
+  </div>
+
+  <section class="card">
+    <h2>시간에 따른 측정값</h2>
+    <canvas id="graph"></canvas>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const WW = 1100, WH = 600, GRID = 20;
+  // 계산용 값: 전선·전류계는 아주 작은 저항, 전압계는 아주 큰 저항으로 본다
+  const RW = 1e-4, RA = 1e-3, RV = 1e7, RMIN = 1e-3, GMIN = 1e-9, SUB = 60;
+
+  const TYPES = {
+    battery:   { name: '전지', props: [{ k: 'E', label: '전압 (기전력)', unit: 'V', def: 6 }, { k: 'r', label: '내부 저항', unit: 'Ω', def: 0, min: 0 }] },
+    resistor:  { name: '저항', props: [{ k: 'R', label: '저항', unit: 'Ω', def: 100, min: 0.001 }] },
+    bulb:      { name: '전구', props: [{ k: 'R', label: '저항', unit: 'Ω', def: 50, min: 0.001 }] },
+    capacitor: { name: '축전기', props: [{ k: 'C', label: '전기 용량', unit: 'μF', def: 1000, min: 0.001 }, { k: 'v0', label: '처음 충전 전압', unit: 'V', def: 0 }] },
+    inductor:  { name: '유도기(코일)', props: [{ k: 'L', label: '자체 유도 계수', unit: 'H', def: 10, min: 0.0001 }] },
+    switch:    { name: '스위치', props: [] },
+    ammeter:   { name: '전류계', props: [] },
+    voltmeter: { name: '전압계', props: [] },
+    node:      { name: '연결점', props: [] },
+  };
+  const PALETTE = ['battery', 'resistor', 'bulb', 'capacitor', 'inductor', 'switch', 'ammeter', 'voltmeter'];
+
+  let comps = [], wires = [], nextId = 1;
+  let sel = null;          // { kind: 'comp' | 'wire', obj }
+  let drag = null, hoverTerm = null;
+  const sim = { running: true, speed: 1, t: 0, owe: 0, built: null, Iref: 0, warn: '' };
+  let samples = [];
+
+  // ---------- 모양 ----------
+  const snap = v => Math.round(v / GRID) * GRID;
+  const snapPt = p => ({ x: clamp(snap(p.x), GRID, WW - GRID), y: clamp(snap(p.y), GRID, WH - GRID) });
+  function clamp(v, a, b) { return Math.min(b, Math.max(a, v)); }
+  function toWorld(c, lx, ly) { for (let k = 0; k < c.rot; k++) [lx, ly] = [-ly, lx]; return { x: c.x + lx, y: c.y + ly }; }
+  function toLocal(c, p) { let dx = p.x - c.x, dy = p.y - c.y; for (let k = 0; k < c.rot; k++) [dx, dy] = [dy, -dx]; return { x: dx, y: dy }; }
+  const nTerms = c => c.type === 'node' ? 1 : 2;
+  const termPos = (c, t) => c.type === 'node' ? { x: c.x, y: c.y } : toWorld(c, t ? 40 : -40, 0);
+  const byId = id => comps.find(c => c.id === id);
+  const endPos = e => termPos(byId(e.c), e.t);
+  const wirePoly = w => [endPos(w.a), ...w.pts, endPos(w.b)];
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  function segDist(p, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy;
+    const u = L2 ? clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / L2, 0, 1) : 0;
+    const q = { x: a.x + u * dx, y: a.y + u * dy };
+    return { d: dist(p, q), q };
+  }
+
+  function addComp(type, x, y, rot = 0, props = {}) {
+    const c = { id: nextId++, type, x, y, rot };
+    TYPES[type].props.forEach(pr => c[pr.k] = pr.def);
+    if (type === 'switch') c.closed = false;
+    if (type === 'ammeter' || type === 'voltmeter') c.num = 1 + Math.max(0, ...comps.filter(o => o.type === type).map(o => o.num || 0));
+    Object.assign(c, props);
+    initState(c);
+    comps.push(c);
+    return c;
+  }
+  function initState(c) {
+    c.I = 0; c.V = 0;
+    if (c.type === 'capacitor') { c.v1 = c.v2 = Number(c.v0) || 0; c.V = c.v1; }
+    if (c.type === 'inductor') { c.i1 = c.i2 = 0; }
+  }
+  function addWire(a, b, pts) {
+    const w = { id: nextId++, a, b, pts: pts || [], I: 0, ph: 0 };
+    wires.push(w);
+    return w;
+  }
+  function autoRoute(a, b) {
+    const pa = endPos(a), pb = endPos(b);
+    if (pa.x === pb.x || pa.y === pb.y) return [];
+    const ca = byId(a.c);
+    const vertical = ca.type !== 'node' && ca.rot % 2 === 1;
+    return [vertical ? { x: pa.x, y: pb.y } : { x: pb.x, y: pa.y }];
+  }
+
+  // ---------- 회로 계산 (마디 해석 + BDF2) ----------
+  function markDirty() { sim.built = null; sim.Iref = 0; save(); }
+  function dtNow() { return sim.speed / 60 / SUB; }
+
+  function build() {
+    const dt = dtNow();
+    const idx = new Map();
+    let n = 0;
+    comps.forEach(c => { for (let t = 0; t < nTerms(c); t++) idx.set(c.id + ':' + t, n++); });
+    const A = new Float64Array(n * n);
+    const G = (a, b, g) => { A[a * n + a] += g; A[b * n + b] += g; A[a * n + b] -= g; A[b * n + a] -= g; };
+    for (let i = 0; i < n; i++) A[i * n + i] += GMIN;
+    wires.forEach(w => G(idx.get(w.a.c + ':' + w.a.t), idx.get(w.b.c + ':' + w.b.t), 1 / RW));
+    comps.forEach(c => {
+      if (c.type === 'node') return;
+      const p = idx.get(c.id + ':0'), q = idx.get(c.id + ':1');
+      c.g = condOf(c, dt);
+      if (c.g) G(p, q, c.g);
+    });
+    const perm = luFactor(A, n);
+    return { n, idx, A, perm, dt };
+  }
+  function condOf(c, dt) {
+    switch (c.type) {
+      case 'resistor': case 'bulb': return 1 / Math.max(c.R, 1e-6);
+      case 'battery': return 1 / Math.max(c.r, RMIN);
+      case 'capacitor': return 3 * c.C * 1e-6 / (2 * dt);
+      case 'inductor': return 2 * dt / (3 * c.L);
+      case 'ammeter': return 1 / RA;
+      case 'voltmeter': return 1 / RV;
+      case 'switch': return c.closed ? 1 / RW : 0;
+    }
+    return 0;
+  }
+  function luFactor(A, n) {
+    const perm = new Int32Array(n);
+    for (let i = 0; i < n; i++) perm[i] = i;
+    for (let k = 0; k < n; k++) {
+      let piv = k, best = Math.abs(A[k * n + k]);
+      for (let i = k + 1; i < n; i++) { const v = Math.abs(A[i * n + k]); if (v > best) { best = v; piv = i; } }
+      if (piv !== k) {
+        for (let j = 0; j < n; j++) { const t = A[k * n + j]; A[k * n + j] = A[piv * n + j]; A[piv * n + j] = t; }
+        const t = perm[k]; perm[k] = perm[piv]; perm[piv] = t;
+      }
+      const d = A[k * n + k];
+      for (let i = k + 1; i < n; i++) {
+        const f = (A[i * n + k] /= d);
+        if (f) for (let j = k + 1; j < n; j++) A[i * n + j] -= f * A[k * n + j];
+      }
+    }
+    return perm;
+  }
+  function luSolve(B, b) {
+    const { n, A, perm } = B, x = new Float64Array(n);
+    for (let i = 0; i < n; i++) { let s = b[perm[i]]; for (let j = 0; j < i; j++) s -= A[i * n + j] * x[j]; x[i] = s; }
+    for (let i = n - 1; i >= 0; i--) { let s = x[i]; for (let j = i + 1; j < n; j++) s -= A[i * n + j] * x[j]; x[i] = s / A[i * n + i]; }
+    return x;
+  }
+
+  // 한 걸음(dt) 진행. commit=false면 지금 상태의 전류·전압만 다시 계산한다.
+  function step(commit) {
+    if (!sim.built) sim.built = build();
+    const B = sim.built, { n, idx, dt } = B;
+    if (!n) return;
+    const rhs = new Float64Array(n);
+    const P = c => idx.get(c.id + ':0'), Q = c => idx.get(c.id + ':1');
+    comps.forEach(c => {
+      if (c.type === 'battery') { const I = c.V0src = c.E * c.g; rhs[P(c)] += I; rhs[Q(c)] -= I; }
+      else if (c.type === 'capacitor') { c.ieq = c.C * 1e-6 * (4 * c.v1 - c.v2) / (2 * dt); rhs[P(c)] += c.ieq; rhs[Q(c)] -= c.ieq; }
+      else if (c.type === 'inductor') { c.i0 = (4 * c.i1 - c.i2) / 3; rhs[P(c)] -= c.i0; rhs[Q(c)] += c.i0; }
+    });
+    const x = luSolve(B, rhs);
+    let shortI = 0;
+    comps.forEach(c => {
+      if (c.type === 'node') return;
+      const v = x[P(c)] - x[Q(c)];
+      c.V = v;
+      switch (c.type) {
+        case 'battery': c.I = c.V0src - c.g * v; shortI = Math.max(shortI, Math.abs(c.I) * (c.r < RMIN ? 1 : 0)); break;
+        case 'capacitor': c.I = c.g * v - c.ieq; if (commit) { c.v2 = c.v1; c.v1 = v; } break;
+        case 'inductor': c.I = c.g * v + c.i0; if (commit) { c.i2 = c.i1; c.i1 = c.I; } break;
+        default: c.I = c.g * v;
+      }
+    });
+    wires.forEach(w => { w.I = (x[idx.get(w.a.c + ':' + w.a.t)] - x[idx.get(w.b.c + ':' + w.b.t)]) / RW; });
+    sim.warn = shortI > 100 ? '⚠ 단락! 전지의 두 끝이 저항 없이 전선(또는 전류계)으로 바로 이어졌어요. 실제라면 아주 큰 전류가 흘러 위험해요.' : '';
+    if (commit) sim.t += dt;
+  }
+
+  function resetSim() {
+    sim.t = 0; sim.owe = 0; sim.Iref = 0; samples = [];
+    comps.forEach(initState);
+    wires.forEach(w => { w.I = 0; });
+    step(false);
+  }
+
+  // ---------- 저장 (이 브라우저에만) ----------
+  const KEY = 'circuit-lab-v1';
+  function save() {
+    try {
+      const strip = c => { const o = { id: c.id, type: c.type, x: c.x, y: c.y, rot: c.rot };
+        TYPES[c.type].props.forEach(p => o[p.k] = c[p.k]);
+        if (c.type === 'switch') o.closed = c.closed;
+        if (c.num) o.num = c.num;
+        return o; };
+      localStorage.setItem(KEY, JSON.stringify({ comps: comps.map(strip), wires: wires.map(w => ({ id: w.id, a: w.a, b: w.b, pts: w.pts })) }));
+    } catch (e) { /* 저장 못 해도 괜찮다 */ }
+  }
+  function load() {
+    try {
+      const d = JSON.parse(localStorage.getItem(KEY));
+      if (!d || !Array.isArray(d.comps)) return false;
+      comps = d.comps.filter(c => TYPES[c.type]).map(c => { initState(c); return c; });
+      const ids = new Set(comps.map(c => c.id));
+      wires = d.wires.filter(w => ids.has(w.a.c) && ids.has(w.b.c)).map(w => ({ ...w, I: 0, ph: 0 }));
+      nextId = 1 + Math.max(0, ...comps.map(c => c.id), ...wires.map(w => w.id));
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // ---------- 예제 ----------
+  const EXAMPLES = {
+    series: [[
+      ['battery', 200, 300, 1, { E: 6 }], ['resistor', 400, 160, 0, { R: 100 }], ['resistor', 640, 160, 0, { R: 200 }],
+      ['ammeter', 860, 300, 1], ['voltmeter', 640, 60, 0],
+    ], [[0, 0, 1, 0, [[200, 160]]], [1, 1, 2, 0], [2, 1, 3, 0, [[860, 160]]], [3, 1, 0, 1, [[860, 440], [200, 440]]], [4, 0, 2, 0], [4, 1, 2, 1]]],
+    parallel: [[
+      ['battery', 200, 300, 1, { E: 6 }], ['ammeter', 400, 160, 0], ['node', 640, 160, 0], ['bulb', 640, 300, 1, { R: 50 }],
+      ['bulb', 840, 300, 1, { R: 100 }], ['node', 640, 440, 0], ['voltmeter', 980, 300, 1], ['ammeter', 740, 160, 0],
+    ], [[0, 0, 1, 0, [[200, 160]]], [1, 1, 2, 0], [2, 0, 3, 0], [2, 0, 7, 0], [7, 1, 4, 0, [[840, 160]]], [3, 1, 5, 0],
+      [4, 1, 5, 0, [[840, 440]]], [5, 0, 0, 1, [[200, 440]]], [6, 0, 4, 0], [6, 1, 4, 1]]],
+    rc: [[
+      ['battery', 200, 300, 1, { E: 6 }], ['switch', 340, 160, 0], ['resistor', 520, 160, 0, { R: 1000 }], ['ammeter', 700, 160, 0],
+      ['capacitor', 840, 300, 1, { C: 1000, v0: 0 }], ['voltmeter', 980, 300, 1],
+    ], [[0, 0, 1, 0, [[200, 160]]], [1, 1, 2, 0], [2, 1, 3, 0], [3, 1, 4, 0, [[840, 160]]], [4, 1, 0, 1, [[840, 440], [200, 440]]], [5, 0, 4, 0], [5, 1, 4, 1]]],
+    rl: [[
+      ['battery', 200, 300, 1, { E: 6 }], ['switch', 340, 160, 0], ['resistor', 520, 160, 0, { R: 10 }], ['ammeter', 700, 160, 0],
+      ['inductor', 840, 300, 1, { L: 10 }], ['voltmeter', 980, 300, 1],
+    ], [[0, 0, 1, 0, [[200, 160]]], [1, 1, 2, 0], [2, 1, 3, 0], [3, 1, 4, 0, [[840, 160]]], [4, 1, 0, 1, [[840, 440], [200, 440]]], [5, 0, 4, 0], [5, 1, 4, 1]]],
+    lc: [[
+      ['capacitor', 300, 300, 1, { C: 1000, v0: 6 }], ['switch', 460, 160, 0], ['ammeter', 640, 160, 0], ['inductor', 840, 300, 1, { L: 10 }],
+      ['voltmeter', 160, 300, 1],
+    ], [[0, 0, 1, 0, [[300, 160]]], [1, 1, 2, 0], [2, 1, 3, 0, [[840, 160]]], [3, 1, 0, 1, [[840, 440], [300, 440]]], [4, 0, 0, 0], [4, 1, 0, 1]]],
+  };
+  function loadExample(key) {
+    const [cl, wl] = EXAMPLES[key];
+    comps = []; wires = []; nextId = 1; sel = null;
+    const ids = cl.map(([type, x, y, rot, props]) => addComp(type, x, y, rot, props).id);
+    wl.forEach(([a, ta, b, tb, pts]) => addWire({ c: ids[a], t: ta }, { c: ids[b], t: tb }, (pts || []).map(([x, y]) => ({ x, y }))));
+    markDirty(); resetSim(); renderProps();
+  }
+
+  // ---------- 그리기 ----------
+  let col = {};
+  function readColors() {
+    const s = getComputedStyle(document.documentElement);
+    ['ink', 'muted', 'line', 'grid', 'dot', 'wire', 'plus', 'accent', 'flow', 'card', 'board'].forEach(k => col[k] = s.getPropertyValue('--' + k).trim());
+  }
+
+  function fmtSI(v, unit, zero = 1e-9) {
+    if (!isFinite(v)) return '—';
+    const a = Math.abs(v);
+    if (a < zero) return '0 ' + unit;
+    const P = [[1e9, 'G'], [1e6, 'M'], [1e3, 'k'], [1, ''], [1e-3, 'm'], [1e-6, 'μ'], [1e-9, 'n']];
+    const [f, pre] = P.find(([f]) => a >= f * 0.9995) || P[P.length - 1];
+    const x = a / f;
+    return (v < 0 ? '−' : '') + x.toFixed(x >= 100 ? 1 : x >= 10 ? 2 : 3) + ' ' + pre + unit;
+  }
+  const fmtA = v => fmtSI(v, 'A', 1e-7);
+  const fmtV = v => fmtSI(v, 'V', 1e-5);
+  const num = v => String(+Number(v).toPrecision(4));
+
+  function valueLabel(c) {
+    switch (c.type) {
+      case 'battery': return num(c.E) + ' V' + (c.r > 0 ? ' (r=' + num(c.r) + ' Ω)' : '');
+      case 'resistor': case 'bulb': return fmtSI(c.R, 'Ω').replace('.000', '').replace(/(\.\d*?)0+ /, '$1 ').replace('. ', ' ');
+      case 'capacitor': return num(c.C) + ' μF';
+      case 'inductor': return num(c.L) + ' H';
+      case 'switch': return c.closed ? '켜짐' : '꺼짐';
+    }
+    return '';
+  }
+
+  // 부품 하나를 그린다 (g: 이미 세계 좌표로 맞춘 그리기 도구)
+  function drawComp(g, c, opts = {}) {
+    const lw = 2.5;
+    g.save();
+    g.translate(c.x, c.y);
+    g.rotate(c.rot * Math.PI / 2);
+    g.strokeStyle = col.ink; g.fillStyle = col.ink; g.lineWidth = lw; g.lineCap = 'round'; g.lineJoin = 'round';
+    const lead = (a) => { g.beginPath(); g.moveTo(-40, 0); g.lineTo(-a, 0); g.moveTo(a, 0); g.lineTo(40, 0); g.stroke(); };
+    switch (c.type) {
+      case 'resistor': {
+        lead(24);
+        g.beginPath(); g.moveTo(-24, 0);
+        for (let k = 0; k < 6; k++) g.lineTo(-20 + k * 8, k % 2 ? 9 : -9);
+        g.lineTo(24, 0); g.stroke();
+        break;
+      }
+      case 'bulb': {
+        lead(16);
+        const P = Math.abs(c.V * c.I), b = Math.min(1, Math.sqrt(P / 1));
+        if (b > 0.01) {
+          const gr = g.createRadialGradient(0, 0, 4, 0, 0, 18 + 30 * b);
+          gr.addColorStop(0, 'rgba(255,214,70,' + (0.9 * b) + ')'); gr.addColorStop(1, 'rgba(255,214,70,0)');
+          g.fillStyle = gr; g.beginPath(); g.arc(0, 0, 18 + 30 * b, 0, Math.PI * 2); g.fill();
+          g.fillStyle = 'rgba(255,230,120,' + b + ')'; g.beginPath(); g.arc(0, 0, 16, 0, Math.PI * 2); g.fill();
+        }
+        g.beginPath(); g.arc(0, 0, 16, 0, Math.PI * 2); g.stroke();
+        g.beginPath(); g.moveTo(-11, -11); g.lineTo(11, 11); g.moveTo(11, -11); g.lineTo(-11, 11); g.stroke();
+        break;
+      }
+      case 'capacitor': {
+        lead(6);
+        g.lineWidth = 3.5;
+        g.beginPath(); g.moveTo(-6, -17); g.lineTo(-6, 17); g.moveTo(6, -17); g.lineTo(6, 17); g.stroke();
+        break;
+      }
+      case 'inductor': {
+        lead(24);
+        g.beginPath(); g.moveTo(-24, 0);
+        for (let k = 0; k < 4; k++) g.arc(-18 + 12 * k, 0, 6, Math.PI, 0, false);
+        g.stroke();
+        break;
+      }
+      case 'battery': {
+        lead(5);
+        g.beginPath(); g.moveTo(-5, -18); g.lineTo(-5, 18); g.stroke();
+        g.lineWidth = 6; g.beginPath(); g.moveTo(5, -9); g.lineTo(5, 9); g.stroke();
+        break;
+      }
+      case 'switch': {
+        lead(20);
+        g.beginPath(); g.arc(-20, 0, 3.5, 0, Math.PI * 2); g.arc(20, 0, 3.5, 0, Math.PI * 2); g.fill();
+        g.beginPath(); g.moveTo(-20, 0);
+        if (c.closed) g.lineTo(20, 0); else g.lineTo(13, -20);
+        g.stroke();
+        break;
+      }
+      case 'ammeter': case 'voltmeter': {
+        lead(18);
+        g.fillStyle = col.card; g.beginPath(); g.arc(0, 0, 18, 0, Math.PI * 2); g.fill(); g.stroke();
+        break;
+      }
+      case 'node': {
+        g.beginPath(); g.arc(0, 0, 5, 0, Math.PI * 2); g.fill();
+        break;
+      }
+    }
+    if (c.type !== 'node' && !opts.icon) {
+      g.fillStyle = col.board; g.strokeStyle = col.muted; g.lineWidth = 1.5;
+      [-40, 40].forEach(x => { g.beginPath(); g.arc(x, 0, 4, 0, Math.PI * 2); g.fill(); g.stroke(); });
+    }
+    g.restore();
+
+    // 글자는 돌리지 않고 쓴다
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    if (c.type === 'ammeter' || c.type === 'voltmeter') {
+      g.fillStyle = col.ink; g.font = '700 17px system-ui, sans-serif';
+      g.fillText(c.type === 'ammeter' ? 'A' : 'V', c.x, c.y + 1);
+    }
+    if (c.type === 'battery' || c.type === 'ammeter' || c.type === 'voltmeter') {
+      g.font = '700 15px system-ui, sans-serif';
+      const pp = toWorld(c, -30, -13), pm = toWorld(c, 30, -13);
+      g.fillStyle = col.plus; g.fillText('+', pp.x, pp.y);
+      g.fillStyle = col.ink; g.fillText('−', pm.x, pm.y);
+    }
+    if (opts.icon) return;
+    if (c.type === 'capacitor' && Math.abs(c.V) > 0.01) {
+      g.font = '700 14px system-ui, sans-serif';
+      const a = toWorld(c, -15, -16), b = toWorld(c, 15, -16);
+      g.fillStyle = col.plus; g.fillText(c.V > 0 ? '+' : '−', a.x, a.y);
+      g.fillStyle = col.ink; g.fillText(c.V > 0 ? '−' : '+', b.x, b.y);
+    }
+    const vertical = c.rot % 2 === 1;
+    if (c.type === 'ammeter' || c.type === 'voltmeter') {
+      const txt = c.type === 'ammeter' ? fmtA(c.I) : fmtV(c.V);
+      const tag = (c.type === 'ammeter' ? 'A' : 'V') + c.num;
+      g.font = '700 14px system-ui, sans-serif';
+      const w = g.measureText(txt).width + 46, h = 24;
+      const bx = vertical ? c.x + 28 : c.x - w / 2, by = vertical ? c.y - h / 2 : c.y - 32 - h;
+      g.fillStyle = col.card; g.strokeStyle = meterColor(c); g.lineWidth = 2;
+      roundRect(g, bx, by, w, h, 7); g.fill(); g.stroke();
+      g.textAlign = 'left';
+      g.fillStyle = meterColor(c); g.fillText(tag, bx + 8, by + h / 2 + 1);
+      g.fillStyle = col.ink; g.fillText(txt, bx + 38, by + h / 2 + 1);
+    } else if (c.type !== 'node') {
+      const txt = valueLabel(c);
+      g.font = '600 13px system-ui, sans-serif'; g.fillStyle = col.muted;
+      if (vertical) { g.textAlign = 'left'; g.fillText(txt, c.x + 26, c.y); }
+      else g.fillText(txt, c.x, c.y - 30);
+    }
+    g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  }
+  function roundRect(g, x, y, w, h, r) {
+    g.beginPath();
+    g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+  }
+  const A_COLORS = ['#2f6fde', '#1f9d6b', '#7a52e0', '#0f9fb5'];
+  const V_COLORS = ['#e0782b', '#d43d5c', '#b8860b', '#c2449b'];
+  const meterColor = c => (c.type === 'ammeter' ? A_COLORS : V_COLORS)[(c.num - 1) % 4];
+
+  const cv = $('cv'), ctx = cv.getContext('2d');
+  let scale = 1;
+  function resize() {
+    const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    scale = r.width / WW;
+    cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.width * WH / WW * dpr);
+  }
+
+  function draw() {
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0);
+    ctx.clearRect(0, 0, WW, WH);
+    // 모눈 점
+    ctx.fillStyle = col.dot;
+    for (let x = GRID; x < WW; x += GRID) for (let y = GRID; y < WH; y += GRID) ctx.fillRect(x - 1, y - 1, 2, 2);
+
+    // 전선
+    const flow = $('flow').checked;
+    wires.forEach(w => {
+      const pl = wirePoly(w), isSel = sel && sel.obj === w;
+      ctx.strokeStyle = isSel ? col.accent : col.wire; ctx.lineWidth = isSel ? 4 : 3; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.beginPath(); pl.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.stroke();
+      if (isSel || (hoverWire === w)) {
+        ctx.fillStyle = col.accent;
+        w.pts.forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI * 2); ctx.fill(); });
+      }
+      if (flow && Math.abs(w.I) > 1e-6 && sim.Iref > 0) drawDots(w, pl);
+    });
+
+    comps.forEach(c => {
+      drawComp(ctx, c);
+      if (sel && sel.obj === c) {
+        ctx.strokeStyle = col.accent; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
+        const r = c.type === 'node' ? 12 : 0;
+        if (r) { ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.stroke(); }
+        else {
+          const a = toWorld(c, -48, -26), b = toWorld(c, 48, 26);
+          ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+        }
+        ctx.setLineDash([]);
+      }
+    });
+
+    // 단자 강조 · 그리는 중인 전선
+    const ht = drag && drag.kind === 'wire' ? drag.target : hoverTerm;
+    if (ht) {
+      const p = endPos(ht);
+      ctx.strokeStyle = col.accent; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, Math.PI * 2); ctx.stroke();
+    }
+    if (drag && drag.kind === 'wire') {
+      const a = endPos(drag.from), b = drag.target ? endPos(drag.target) : drag.p;
+      ctx.strokeStyle = col.accent; ctx.lineWidth = 3; ctx.setLineDash([8, 6]);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.setLineDash([]);
+    }
+
+    ctx.fillStyle = col.muted; ctx.font = '600 14px system-ui, sans-serif';
+    ctx.fillText('t = ' + fmtT(sim.t), 14, 22);
+    $('warn').textContent = sim.warn;
+  }
+  function fmtT(t) { return t < 10 ? t.toFixed(3) + ' s' : t.toFixed(1) + ' s'; }
+
+  // 전선 위의 점: 전류(+에서 −로 흐르는 방향)를 따라 움직인다. 빠르기는 회로 안 가장 큰 전류에 맞춘 비율
+  function drawDots(w, pl) {
+    const segs = [];
+    let total = 0;
+    for (let i = 0; i + 1 < pl.length; i++) { const L = dist(pl[i], pl[i + 1]); segs.push(L); total += L; }
+    const SP = 22;
+    ctx.fillStyle = col.flow;
+    for (let s = ((w.ph % SP) + SP) % SP; s < total; s += SP) {
+      let r = s, i = 0;
+      while (i < segs.length && r > segs[i]) { r -= segs[i]; i++; }
+      if (i >= segs.length) break;
+      const u = segs[i] ? r / segs[i] : 0;
+      const x = pl[i].x + (pl[i + 1].x - pl[i].x) * u, y = pl[i].y + (pl[i + 1].y - pl[i].y) * u;
+      ctx.beginPath(); ctx.arc(x, y, 3.2, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  function updateFlow(fdt) {
+    let m = 0;
+    wires.forEach(w => { m = Math.max(m, Math.abs(w.I)); });
+    sim.Iref = Math.max(sim.Iref, m);
+    if (sim.Iref < 1e-6) return;
+    wires.forEach(w => { w.ph += 90 * (w.I / sim.Iref) * fdt; });
+  }
+
+  // ---------- 그래프 ----------
+  const gcv = $('graph'), gctx = gcv.getContext('2d');
+  function recordSample() {
+    const vals = {};
+    comps.forEach(c => { if (c.type === 'ammeter') vals[c.id] = c.I; else if (c.type === 'voltmeter') vals[c.id] = c.V; });
+    samples.push({ t: sim.t, vals });
+    const win = 10 * sim.speed;
+    let k = 0;
+    while (k < samples.length && samples[k].t < sim.t - win * 1.05) k++;
+    if (k) samples.splice(0, k);
+  }
+  function drawGraph() {
+    const dpr = window.devicePixelRatio || 1, W = gcv.clientWidth, H = gcv.clientHeight;
+    if (gcv.width !== Math.round(W * dpr)) { gcv.width = Math.round(W * dpr); gcv.height = Math.round(H * dpr); }
+    const g = gctx;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    const kinds = [['ammeter', '전류', fmtA], ['voltmeter', '전압', fmtV]].filter(([k]) => comps.some(c => c.type === k));
+    g.font = '13px system-ui, sans-serif';
+    if (!kinds.length) {
+      g.fillStyle = col.muted; g.textAlign = 'center';
+      g.fillText('전류계나 전압계를 놓으면 시간에 따른 값이 여기에 그려져요.', W / 2, H / 2);
+      g.textAlign = 'left';
+      return;
+    }
+    const win = 10 * sim.speed, t1 = Math.max(sim.t, win), t0 = t1 - win;
+    const left = 78, right = W - 12, ph = (H - 26) / kinds.length;
+    const X = t => left + (t - t0) / win * (right - left);
+    kinds.forEach(([kind, name, f], pi) => {
+      const top = pi * ph + 14, bottom = top + ph - 22;
+      const meters = comps.filter(c => c.type === kind);
+      let lo = 0, hi = 0;
+      samples.forEach(s => meters.forEach(m => { const v = s.vals[m.id]; if (v !== undefined) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }));
+      if (hi - lo < 1e-9) { hi = 1e-3; lo = Math.min(lo, 0); }
+      const pad = (hi - lo) * 0.1; hi += pad; if (lo < 0) lo -= pad;
+      const Y = v => bottom - (v - lo) / (hi - lo) * (bottom - top);
+      g.strokeStyle = col.line; g.lineWidth = 1;
+      g.strokeRect(left, top, right - left, bottom - top);
+      g.fillStyle = col.muted; g.textAlign = 'right';
+      [hi, (hi + lo) / 2, lo].forEach(v => g.fillText(f(v), left - 6, Y(v) + 4));
+      if (lo < 0) { g.strokeStyle = col.muted; g.setLineDash([3, 3]); g.beginPath(); g.moveTo(left, Y(0)); g.lineTo(right, Y(0)); g.stroke(); g.setLineDash([]); }
+      g.textAlign = 'left'; g.fillStyle = col.ink; g.font = '700 13px system-ui, sans-serif';
+      g.fillText(name, 8, top + 12);
+      g.font = '13px system-ui, sans-serif';
+      let lx = left + 8;
+      meters.forEach(m => {
+        g.strokeStyle = g.fillStyle = meterColor(m); g.lineWidth = 2.2; g.beginPath();
+        let started = false;
+        samples.forEach(s => {
+          const v = s.vals[m.id]; if (v === undefined || s.t < t0) return;
+          const x = X(s.t), y = Y(v);
+          started ? g.lineTo(x, y) : g.moveTo(x, y); started = true;
+        });
+        g.stroke();
+        const tag = (kind === 'ammeter' ? 'A' : 'V') + m.num;
+        g.fillText(tag, lx, top + 14); lx += g.measureText(tag).width + 14;
+      });
+    });
+    g.fillStyle = col.muted; g.textAlign = 'left'; g.fillText(fmtT(t0), left, H - 4);
+    g.textAlign = 'right'; g.fillText(fmtT(t1), right, H - 4); g.textAlign = 'left';
+  }
+
+  // ---------- 선택한 것의 값 ----------
+  function renderProps() {
+    const body = $('pBody'), live = $('pLive');
+    if (!sel) {
+      $('pTitle').textContent = '선택한 것 없음';
+      body.className = 'hint'; body.textContent = '부품이나 전선을 누르면 여기에서 값을 바꿀 수 있어요.';
+      live.hidden = true; return;
+    }
+    body.className = ''; body.innerHTML = ''; live.hidden = false;
+    const btnRow = document.createElement('div'); btnRow.className = 'row'; btnRow.style.marginTop = '10px';
+    const mkBtn = (txt, fn, cls) => { const b = document.createElement('button'); b.textContent = txt; if (cls) b.className = cls; b.onclick = fn; btnRow.appendChild(b); };
+    if (sel.kind === 'wire') {
+      $('pTitle').textContent = '전선';
+      mkBtn('곧게 펴기', () => { sel.obj.pts = autoRoute(sel.obj.a, sel.obj.b); save(); });
+      mkBtn('삭제', deleteSel, 'danger');
+      body.appendChild(btnRow);
+      return;
+    }
+    const c = sel.obj, T = TYPES[c.type];
+    $('pTitle').textContent = T.name + (c.num ? ' ' + (c.type === 'ammeter' ? 'A' : 'V') + c.num : '');
+    T.props.forEach(pr => {
+      const f = document.createElement('div'); f.className = 'field';
+      f.innerHTML = '<label></label><input type="number" step="any"> ' + pr.unit;
+      f.querySelector('label').textContent = pr.label;
+      const inp = f.querySelector('input'); inp.value = c[pr.k];
+      inp.onchange = () => {
+        let v = Number(inp.value);
+        if (!isFinite(v) || (pr.min !== undefined && v < pr.min)) { inp.value = c[pr.k]; return; }
+        c[pr.k] = v;
+        if (pr.k === 'v0') { c.v1 = c.v2 = v; }
+        markDirty(); if (!sim.running) step(false);
+      };
+      body.appendChild(f);
+    });
+    if (c.type === 'capacitor') {
+      const h = document.createElement('div'); h.className = 'hint';
+      h.textContent = '「처음 충전 전압」은 바꾸는 즉시, 그리고 ↺ 처음 상태로를 누를 때 축전기에 채워져요.';
+      body.appendChild(h);
+    }
+    if (c.type === 'switch') mkBtn(c.closed ? '스위치 끄기' : '스위치 켜기', () => { toggleSwitch(c); renderProps(); }, 'primary');
+    if (c.type !== 'node') mkBtn('⟳ 돌리기', () => { c.rot = (c.rot + 1) % 4; save(); });
+    mkBtn('삭제', deleteSel, 'danger');
+    body.appendChild(btnRow);
+  }
+  function updateLive() {
+    if (!sel) return;
+    const live = $('pLive');
+    const rows = [];
+    if (sel.kind === 'wire') rows.push(['전류', fmtA(Math.abs(sel.obj.I))]);
+    else {
+      const c = sel.obj, aV = Math.abs(c.V), aI = Math.abs(c.I);
+      switch (c.type) {
+        case 'battery': rows.push(['단자 전압', fmtV(c.V)], ['흘려보내는 전류', fmtA(c.I)]); break;
+        case 'resistor': case 'bulb': rows.push(['양 끝 전압', fmtV(aV)], ['전류', fmtA(aI)], ['소비 전력', fmtSI(aV * aI, 'W', 1e-9)]); break;
+        case 'capacitor': rows.push(['양 끝 전압', fmtV(c.V)], ['저장된 전하량', fmtSI(c.C * 1e-6 * c.V, 'C', 1e-12)], ['전류', fmtA(aI)]); break;
+        case 'inductor': rows.push(['양 끝 전압', fmtV(c.V)], ['전류', fmtA(c.I)]); break;
+        case 'switch': rows.push(['전류', fmtA(aI)]); break;
+        case 'ammeter': rows.push(['측정한 전류', fmtA(c.I)]); break;
+        case 'voltmeter': rows.push(['측정한 전압', fmtV(c.V)]); break;
+        case 'node': rows.push(['연결된 전선', wires.filter(w => w.a.c === c.id || w.b.c === c.id).length + '개']); break;
+      }
+    }
+    live.innerHTML = rows.map(([k, v]) => '<div><span>' + k + '</span><b>' + v + '</b></div>').join('');
+  }
+  function select(kind, obj) { sel = obj ? { kind, obj } : null; renderProps(); }
+  function deleteSel() {
+    if (!sel) return;
+    if (sel.kind === 'wire') wires = wires.filter(w => w !== sel.obj);
+    else {
+      const c = sel.obj;
+      comps = comps.filter(o => o !== c);
+      wires = wires.filter(w => w.a.c !== c.id && w.b.c !== c.id);
+    }
+    sel = null; renderProps(); markDirty(); if (!sim.running) step(false);
+  }
+  function toggleSwitch(c) { c.closed = !c.closed; markDirty(); if (!sim.running) step(false); }
+
+  // ---------- 마우스 · 손가락 ----------
+  let hoverWire = null;
+  function worldPt(e) {
+    const r = cv.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * WW / r.width, y: (e.clientY - r.top) * WW / r.width };
+  }
+  const tolOf = e => (e.pointerType === 'touch' ? 18 : 11);
+  function hitTerminal(p, tol, withNodes, except) {
+    let best = null, bd = tol;
+    comps.forEach(c => {
+      if (c.type === 'node' && !withNodes) return;
+      for (let t = 0; t < nTerms(c); t++) {
+        if (except && except.c === c.id && except.t === t) continue;
+        const d = dist(p, termPos(c, t));
+        if (d < bd) { bd = d; best = { c: c.id, t }; }
+      }
+    });
+    return best;
+  }
+  function hitBend(p, tol) {
+    for (const w of wires) for (let i = 0; i < w.pts.length; i++) if (dist(p, w.pts[i]) < tol * 0.8) return { w, i };
+    return null;
+  }
+  function hitComp(p, tol) {
+    for (let k = comps.length - 1; k >= 0; k--) {
+      const c = comps[k];
+      if (c.type === 'node') { if (dist(p, c) < tol) return c; continue; }
+      const l = toLocal(c, p);
+      if (Math.abs(l.x) <= 34 && Math.abs(l.y) <= 22) return c;
+    }
+    return null;
+  }
+  function hitWireSeg(p, tol) {
+    let best = null, bd = tol * 0.8;
+    wires.forEach(w => {
+      const pl = wirePoly(w);
+      for (let i = 0; i + 1 < pl.length; i++) { const r = segDist(p, pl[i], pl[i + 1]); if (r.d < bd) { bd = r.d; best = { w, i, q: r.q }; } }
+    });
+    return best;
+  }
+  function sameEnd(a, b) { return a.c === b.c && a.t === b.t; }
+
+  cv.addEventListener('pointerdown', e => {
+    const p = worldPt(e), tol = tolOf(e);
+    cv.setPointerCapture(e.pointerId);
+    const term = hitTerminal(p, tol, false);
+    if (term) { drag = { kind: 'wire', from: term, p, start: p, target: null }; return; }
+    const bp = hitBend(p, tol);
+    if (bp) { drag = { kind: 'bend', w: bp.w, i: bp.i, start: p, moved: false }; select('wire', bp.w); return; }
+    const c = hitComp(p, tol);
+    if (c) { drag = { kind: 'move', c, ox: c.x, oy: c.y, start: p, moved: false }; return; }
+    const ws = hitWireSeg(p, tol);
+    if (ws) {
+      ws.w.pts.splice(ws.i, 0, snapPt(ws.q));
+      drag = { kind: 'bend', w: ws.w, i: ws.i, start: p, moved: false, inserted: true };
+      select('wire', ws.w);
+      return;
+    }
+    select(null);
+  });
+  cv.addEventListener('pointermove', e => {
+    const p = worldPt(e), tol = tolOf(e);
+    if (!drag) {
+      hoverTerm = hitTerminal(p, tol, false);
+      hoverWire = hoverTerm ? null : (hitBend(p, tol) || hitWireSeg(p, tol) || {}).w || null;
+      cv.style.cursor = hoverTerm ? 'crosshair' : hitComp(p, tol) ? 'move' : hoverWire ? 'pointer' : 'default';
+      return;
+    }
+    const far = dist(p, drag.start) > 5;
+    if (drag.kind === 'wire') { drag.p = p; drag.target = hitTerminal(p, tol, true, drag.from); }
+    else if (drag.kind === 'bend') { if (far) drag.moved = true; if (drag.moved) drag.w.pts[drag.i] = snapPt(p); }
+    else if (drag.kind === 'move') {
+      if (far) drag.moved = true;
+      if (drag.moved) { drag.c.x = clamp(snap(drag.ox + p.x - drag.start.x), GRID * 2, WW - GRID * 2); drag.c.y = clamp(snap(drag.oy + p.y - drag.start.y), GRID * 2, WH - GRID * 2); }
+    }
+  });
+  function endDrag(e) {
+    if (!drag) return;
+    const d = drag; drag = null;
+    const p = worldPt(e), tol = tolOf(e);
+    if (d.kind === 'wire') {
+      const target = hitTerminal(p, tol, true, d.from);
+      if (target) {
+        if (sameEnd(target, d.from)) return;
+        if (wires.some(w => (sameEnd(w.a, d.from) && sameEnd(w.b, target)) || (sameEnd(w.b, d.from) && sameEnd(w.a, target)))) return;
+        select('wire', addWire(d.from, target, autoRoute(d.from, target)));
+      } else if (dist(p, d.start) > 14) {
+        const ws = hitWireSeg(p, tol);
+        let node;
+        if (ws) {
+          const q = snapPt(ws.q);
+          node = addComp('node', q.x, q.y);
+          const w = ws.w, end = { c: node.id, t: 0 };
+          wires = wires.filter(o => o !== w);
+          addWire(w.a, end, w.pts.slice(0, ws.i));
+          addWire(end, w.b, w.pts.slice(ws.i));
+        } else {
+          const q = snapPt(p);
+          node = addComp('node', q.x, q.y);
+        }
+        const end = { c: node.id, t: 0 };
+        addWire(d.from, end, autoRoute(d.from, end));
+        select('comp', node);
+      } else return;
+      markDirty(); if (!sim.running) step(false);
+    } else if (d.kind === 'bend') {
+      if (!d.moved && d.inserted) d.w.pts.splice(d.i, 1);
+      // 이웃과 겹친 꺾인 점은 없앤다
+      const pl = wirePoly(d.w);
+      d.w.pts = d.w.pts.filter((q, i) => dist(q, pl[i]) > 1 && dist(q, pl[i + 2]) > 1);
+      save();
+    } else if (d.kind === 'move') {
+      if (!d.moved) {
+        if (d.c.type === 'switch') toggleSwitch(d.c);
+        select('comp', d.c);
+      } else { save(); if (sel && sel.obj === d.c) renderProps(); }
+    }
+  }
+  cv.addEventListener('pointerup', endDrag);
+  cv.addEventListener('pointercancel', () => { drag = null; });
+  cv.addEventListener('dblclick', e => {
+    const p = worldPt(e), tol = tolOf(e);
+    const bp = hitBend(p, tol);
+    if (bp) { bp.w.pts.splice(bp.i, 1); save(); return; }
+    const c = hitComp(p, tol);
+    if (c && c.type !== 'node') {
+      c.rot = (c.rot + 1) % 4; select('comp', c); save();
+    }
+  });
+  window.addEventListener('keydown', e => {
+    if (/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+    if ((e.key === 'Delete' || e.key === 'Backspace') && sel) { e.preventDefault(); deleteSel(); }
+    if ((e.key === 'r' || e.key === 'R') && sel && sel.kind === 'comp' && sel.obj.type !== 'node') { sel.obj.rot = (sel.obj.rot + 1) % 4; save(); }
+  });
+
+  // ---------- 부품 상자 (끌어 놓기) ----------
+  const pal = $('palette');
+  PALETTE.forEach(type => {
+    const b = document.createElement('button');
+    b.className = 'pal'; b.type = 'button';
+    b.innerHTML = '<canvas width="152" height="76"></canvas><span>' + TYPES[type].name + '</span>';
+    b.dataset.type = type;
+    pal.appendChild(b);
+    b.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      b.setPointerCapture(e.pointerId);
+      drag = { kind: 'new', type, sx: e.clientX, sy: e.clientY, comp: null };
+    });
+    b.addEventListener('pointermove', e => {
+      if (!drag || drag.kind !== 'new') return;
+      const r = cv.getBoundingClientRect();
+      const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      if (!inside) return;
+      const q = snapPt(worldPt(e));
+      if (!drag.comp) { drag.comp = addComp(type, q.x, q.y); markDirty(); }
+      drag.comp.x = clamp(q.x, GRID * 2, WW - GRID * 2); drag.comp.y = clamp(q.y, GRID * 2, WH - GRID * 2);
+    });
+    b.addEventListener('pointerup', e => {
+      if (!drag || drag.kind !== 'new') return;
+      const d = drag; drag = null;
+      let c = d.comp;
+      if (!c && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 8) {
+        // 그냥 누르면 빈자리를 찾아 놓는다
+        let k = 0, x, y;
+        do { x = 160 + (k % 8) * 120; y = 100 + Math.floor(k / 8) * 100; k++; } while (k < 40 && comps.some(o => Math.abs(o.x - x) < 90 && Math.abs(o.y - y) < 60));
+        c = addComp(type, x, y);
+      }
+      if (c) { select('comp', c); markDirty(); if (!sim.running) step(false); }
+    });
+  });
+  function drawIcons() {
+    pal.querySelectorAll('canvas').forEach(icv => {
+      const g = icv.getContext('2d'), type = icv.parentElement.dataset.type;
+      g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, icv.width, icv.height);
+      g.setTransform(1.7, 0, 0, 1.7, 0, 0);
+      const c = { type, x: 44.7, y: 24, rot: 0, I: 0, V: 0, closed: false };
+      drawComp(g, c, { icon: true });
+    });
+  }
+
+  // ---------- 버튼 ----------
+  $('run').onclick = () => { sim.running = !sim.running; $('run').textContent = sim.running ? '⏸ 멈춤' : '▶ 다시 움직이기'; };
+  $('reset').onclick = () => { resetSim(); };
+  $('speed').onchange = e => { sim.speed = Number(e.target.value); sim.built = null; samples = []; };
+  $('example').onchange = e => { if (e.target.value) loadExample(e.target.value); e.target.value = ''; };
+  $('clear').onclick = () => {
+    if (!comps.length || confirm('회로판의 부품과 전선을 모두 지울까요?')) { comps = []; wires = []; sel = null; renderProps(); markDirty(); resetSim(); }
+  };
+
+  // ---------- 시작 ----------
+  let last = performance.now();
+  function frame(now) {
+    const fdt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (sim.running && comps.length) {
+      if (!sim.built) sim.built = build();
+      sim.owe += fdt * sim.speed;
+      let n = Math.floor(sim.owe / sim.built.dt + 1e-9);
+      if (n > SUB * 3) { n = SUB * 3; sim.owe = 0; } else sim.owe -= n * sim.built.dt;
+      for (let k = 0; k < n; k++) step(true);
+      if (n > 0) recordSample();
+      updateFlow(fdt);
+    } else if (!comps.length) sim.warn = '';
+    draw(); drawGraph(); updateLive();
+    requestAnimationFrame(frame);
+  }
+
+  readColors();
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { readColors(); drawIcons(); });
+  window.addEventListener('resize', resize);
+  resize();
+  drawIcons();
+  if (!load()) loadExample('series');
+  resetSim();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
