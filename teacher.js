@@ -589,16 +589,47 @@ function simEditor() {
         h("button", { class: "primary", type: "button", onclick: saveSim }, "저장"))));
 }
 
+// 「어디에 보일까요?」: 슬라이드 쪽 아래(시작~끝 쪽) / 언제든. 질문·설문과 설명 카드가 함께 쓴다
+function placeControls(e, redraw) {
+  if (!lesson.slide_count) return null;
+  const pageIn = h("input", { type: "number", min: 1, max: Math.max(lesson.slide_count, 1), value: e.page ?? lesson.page, class: "num", "aria-label": "시작 쪽", oninput() { e.page = parseInt(pageIn.value, 10) || 1; } });
+  // 여러 쪽에 걸쳐 같은 활동을 띄울 때 끝 쪽. 비우면 시작 쪽 한 쪽에만 보인다
+  const pageToIn = h("input", { type: "number", min: 1, max: Math.max(lesson.slide_count, 1), value: e.page_to > e.page ? e.page_to : "", placeholder: "(한 쪽만)", class: "num", "aria-label": "끝 쪽", oninput() { e.page_to = parseInt(pageToIn.value, 10) || null; } });
+  const placeSel = h("select", {
+    onchange() { e.page = placeSel.value === "page" ? (parseInt(pageIn.value, 10) || 1) : null; redraw(); },
+  }, h("option", { value: "page", selected: e.page != null }, "슬라이드 쪽 아래"), h("option", { value: "any", selected: e.page == null }, "언제든 (모든 쪽 아래 목록)"));
+  const on = e.page != null;
+  return h("label", {}, "어디에 보일까요?", h("div", { class: "row" }, placeSel, on ? pageIn : null, on ? h("span", {}, "쪽부터") : null,
+    on ? pageToIn : null, on ? h("span", {}, "쪽까지") : null));
+}
+
+// 저장할 줄에 끝 쪽을 넣는다. page_to 칸이 없는 예전 데이터베이스에서 여러 쪽을 고르면 안내하고 false
+function putPageTo(row, e, msg) {
+  // 끝 쪽: 시작 쪽보다 뒤일 때만 쓴다
+  const to = e.page != null && e.page_to > e.page ? Math.min(e.page_to, Math.max(lesson.slide_count, e.page)) : null;
+  // 데이터베이스에 page_to 칸이 있을 때만(불러온 활동에 그 칸이 보일 때만) 보낸다
+  const hasPageTo = activities.some((x) => "page_to" in x);
+  if (to != null && activities.length && !hasPageTo) {
+    msg.textContent = "여러 쪽에 걸친 활동을 쓰려면 먼저 Supabase에서 setup.sql을 한 번 실행해야 합니다. 끝 쪽 칸을 비우면 지금도 저장할 수 있습니다.";
+    return false;
+  }
+  if (to != null || hasPageTo) row.page_to = to;
+  return true;
+}
+
 function editor() {
   const e = editing;
   if (e.kind === "sim") return simEditor();
+  const redraw = () => { const y = scrollY; drawBuild(); scrollTo(0, y); };
   if (isInfoActivity(e)) {
     const msg = h("p", { class: "error" });
     const title = h("input", { type: "text", maxlength: 100, value: e.title, placeholder: "예: 활동 안내", oninput() { e.title = title.value; } });
     const body = h("textarea", { rows: 10, maxlength: 5000, placeholder: "설명과 링크를 입력하세요. https:// 주소는 학생 화면에서 클릭할 수 있습니다.", oninput() { e.questions[0].text = body.value; } }, e.questions[0].text || "");
     return h("section", { class: "card stack editor" },
       h("h2", {}, e.id ? "설명 카드 고치기" : "설명 카드 만들기"),
-      h("label", {}, "제목", title), h("label", {}, "설명문", body),
+      h("label", {}, "제목", title), placeControls(e, redraw),
+      lesson.slide_count && e.page != null ? h("p", { class: "muted small" }, "끝 쪽을 적으면 그 사이 쪽마다 같은 카드가 보입니다.") : null,
+      h("label", {}, "설명문", body),
       h("p", { class: "muted small" }, "학생은 이 카드에 답을 입력하지 않습니다."), msg,
       h("div", { class: "row between" },
         e.id ? h("button", { class: "ghost danger", type: "button", async onclick() {
@@ -612,7 +643,8 @@ function editor() {
           h("button", { class: "primary", type: "button", async onclick() {
             e.title = e.title.trim(); e.questions[0].text = e.questions[0].text.trim();
             if (!e.title || !e.questions[0].text) { msg.textContent = "제목과 설명문을 입력하세요."; return; }
-            const row = { kind: "survey", title: e.title, page: e.page, show_answer: false, named: false, questions: e.questions };
+            const row = { kind: "survey", title: e.title, page: lesson.slide_count ? e.page : null, show_answer: false, named: false, questions: e.questions };
+            if (!putPageTo(row, e, msg)) return;
             if (!e.id) { row.lesson_id = lesson.id; row.sort = activities.length; }
             const saved = await save("activities", row, e.id);
             if (!saved) return;
@@ -623,16 +655,9 @@ function editor() {
   if (e.description === undefined) e.description = activityDescription(e);
   const hasResponses = e.id && responses.some((r) => r.activity_id === e.id);
   const msg = h("p", { class: "error" });
-  const redraw = () => { const y = scrollY; drawBuild(); scrollTo(0, y); };
 
   const title = h("input", { type: "text", maxlength: 100, value: e.title, placeholder: "예: 예상해 보기", oninput() { e.title = title.value; } });
   const description = h("textarea", { rows: 5, maxlength: 2000, placeholder: "설문 전체에 대한 설명을 입력하세요. 웹 주소는 학생 화면에서 링크가 됩니다.", oninput() { e.description = description.value; } }, e.description || "");
-  const pageIn = h("input", { type: "number", min: 1, max: Math.max(lesson.slide_count, 1), value: e.page ?? lesson.page, class: "num", "aria-label": "시작 쪽", oninput() { e.page = parseInt(pageIn.value, 10) || 1; } });
-  // 여러 쪽에 걸쳐 같은 질문을 띄울 때 끝 쪽. 비우면 시작 쪽 한 쪽에만 보인다
-  const pageToIn = h("input", { type: "number", min: 1, max: Math.max(lesson.slide_count, 1), value: e.page_to > e.page ? e.page_to : "", placeholder: "(한 쪽만)", class: "num", "aria-label": "끝 쪽", oninput() { e.page_to = parseInt(pageToIn.value, 10) || null; } });
-  const placeSel = h("select", {
-    onchange() { e.page = placeSel.value === "page" ? (parseInt(pageIn.value, 10) || 1) : null; redraw(); },
-  }, h("option", { value: "page", selected: e.page != null }, "슬라이드 쪽 아래"), h("option", { value: "any", selected: e.page == null }, "언제든 (모든 쪽 아래 목록)"));
 
   const qs = e.questions.map((q, i) => {
     const typeSel = h("select", {
@@ -702,15 +727,7 @@ function editor() {
     }
     if (e.questions.length && e.description.trim()) e.questions[0].intro = e.description.trim();
     const row = { kind: e.kind, title: e.title, page: e.page, show_answer: e.show_answer, named: e.named, questions: e.questions };
-    // 끝 쪽: 시작 쪽보다 뒤일 때만 쓴다. (page_to 칸이 없는 예전 데이터베이스에서도 한 쪽짜리는 저장되도록 필요할 때만 보낸다)
-    const to = e.page != null && e.page_to > e.page ? Math.min(e.page_to, Math.max(lesson.slide_count, e.page)) : null;
-    // 데이터베이스에 page_to 칸이 있을 때만(불러온 활동에 그 칸이 보일 때만) 보낸다
-    const hasPageTo = activities.some((x) => "page_to" in x);
-    if (to != null && activities.length && !hasPageTo) {
-      msg.textContent = "여러 쪽에 걸친 질문을 쓰려면 먼저 Supabase에서 setup.sql을 한 번 실행해야 합니다. 끝 쪽 칸을 비우면 지금도 저장할 수 있습니다.";
-      return;
-    }
-    if (to != null || hasPageTo) row.page_to = to;
+    if (!putPageTo(row, e, msg)) return;
     if (!e.id) { row.lesson_id = lesson.id; row.sort = activities.length; }
     const saved = await save("activities", row, e.id);
     if (!saved) return;
@@ -736,8 +753,7 @@ function editor() {
     hasResponses ? h("p", { class: "banner" }, "이미 학생 응답이 있습니다. 질문이나 보기를 바꾸면 기존 응답과 맞지 않을 수 있습니다.") : null,
     h("div", { class: "row wrap" },
       h("label", { class: "grow" }, "제목", title),
-      lesson.slide_count ? h("label", {}, "어디에 보일까요?", h("div", { class: "row" }, placeSel, e.page != null ? pageIn : null, e.page != null ? h("span", {}, "쪽부터") : null,
-        e.page != null ? pageToIn : null, e.page != null ? h("span", {}, "쪽까지") : null)) : null),
+      placeControls(e, redraw)),
       lesson.slide_count && e.page != null ? h("p", { class: "muted small grow" }, "끝 쪽을 적으면 그 사이 쪽마다 같은 질문이 보이고, 학생이 쓴 답도 이어서 보입니다.") : null,
     h("label", {}, "설문 설명문 (선택)", description),
     h("div", { class: "row wrap" },
