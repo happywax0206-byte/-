@@ -59,6 +59,30 @@ function showLogin() {
     h("p", { class: "muted small center" }, "교사 계정은 Supabase 대시보드 → Authentication → Users 에서 만듭니다.")));
 }
 
+// 로그인한 교사의 비밀번호 바꾸기
+function changePassword() {
+  const pw = h("input", { type: "password", autocomplete: "new-password", required: true, minlength: 8 });
+  const again = h("input", { type: "password", autocomplete: "new-password", required: true });
+  const msg = h("p", { class: "msg" });
+  const btn = h("button", { class: "primary", type: "submit" }, "바꾸기");
+  const close = openModal("비밀번호 바꾸기", h("form", {
+    class: "stack",
+    async onsubmit(e) {
+      e.preventDefault();
+      if (pw.value.length < 8) { msg.textContent = "8자 이상으로 정하세요."; return; }
+      if (pw.value !== again.value) { msg.textContent = "두 칸의 비밀번호가 다릅니다."; return; }
+      btn.disabled = true;
+      msg.textContent = "바꾸는 중…";
+      const { error } = await sb.auth.updateUser({ password: pw.value });
+      btn.disabled = false;
+      if (error) { msg.textContent = "바꾸지 못했습니다: " + error.message; return; }
+      close();
+      alert("비밀번호를 바꿨습니다. 다음 로그인부터 새 비밀번호를 쓰세요.");
+    },
+  }, h("label", {}, "새 비밀번호 (8자 이상)", pw), h("label", {}, "새 비밀번호 한 번 더", again), btn, msg));
+  pw.focus();
+}
+
 // ---------- 데이터 ----------
 async function loadLessons(selectId) {
   const { data, error } = await sb.from("lessons").select("*").order("created_at");
@@ -189,6 +213,7 @@ function draw() {
           draw();
         },
       }, label))),
+      h("button", { class: "link", type: "button", onclick: changePassword }, "비밀번호 바꾸기"),
       h("button", { class: "link", type: "button", async onclick() { await sb.auth.signOut(); location.reload(); } }, "로그아웃")),
     main);
   if (!lesson) tab = "settings";
