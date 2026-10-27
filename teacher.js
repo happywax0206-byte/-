@@ -971,23 +971,36 @@ function slidesCard() {
     pvPage = 2;
     pvBtn.textContent = "처음으로 ↺";
   } }, "미리보기 ▶");
+  // 쪽마다 정한 효과를 모두 지워 모든 쪽이 위의 효과 하나로 넘어가게 한다
+  const pageSels = [];
+  const allBtn = h("button", { class: "ghost", type: "button", onclick() {
+    const n = Object.keys(fx.pages).length;
+    if (n && !confirm("쪽마다 따로 정한 효과 " + n + "개를 지우고, 모든 쪽을 「" + TRANSITIONS[fx.type] + "」(으)로 넘길까요?")) return;
+    fx.pages = {};
+    pageSels.forEach((s) => { s.value = ""; });
+    saveTransition(fx, fxMsg);
+  } }, "모든 쪽에 같게 적용");
   const fxCard = lesson.slide_count ? h("div", { class: "stack" },
     h("h3", {}, "화면 넘김 효과"),
-    h("div", { class: "row wrap" }, h("label", {}, "효과", fxSel), h("label", {}, "빠르기", fxSpeed), pvBtn),
+    h("div", { class: "row wrap" }, h("label", {}, "효과", fxSel), h("label", {}, "빠르기", fxSpeed), pvBtn, allBtn),
     h("div", { class: "fx-preview" }, pv), fxMsg,
-    h("p", { class: "muted small" }, "교사 화면·학생 화면 모두 이 효과로 넘어갑니다. 앞 쪽으로 돌아갈 때는 거꾸로 움직입니다. 쪽마다 다르게 하려면 아래 미리보기 밑의 칸에서 고르세요.")) : null;
-  const pageFx = (i) => h("select", { class: "thumb-fx", "aria-label": i + "쪽으로 넘어갈 때", title: i + "쪽으로 넘어갈 때 효과", draggable: "false",
-    onmousedown(ev) { ev.stopPropagation(); },
-    onchange(ev) {
-      const v = ev.target.value;
-      if (v) fx.pages[i] = v; else delete fx.pages[i];
-      saveTransition(fx, fxMsg);
-    } },
-    h("option", { value: "", selected: !fx.pages[i] }, "넘김: 기본"),
-    Object.entries(TRANSITIONS).map(([k, v]) => h("option", { value: k, selected: fx.pages[i] === k }, "넘김: " + v)));
+    h("p", { class: "muted small" }, "교사 화면·학생 화면 모두 이 효과로 넘어갑니다. 앞 쪽으로 돌아갈 때는 거꾸로 움직입니다. 쪽마다 다르게 하려면 아래 미리보기 밑의 칸에서 고르고, 다시 모두 같게 하려면 「모든 쪽에 같게 적용」을 누르세요.")) : null;
+  const pageFx = (i) => {
+    const sel = h("select", { class: "thumb-fx", "aria-label": i + "쪽으로 넘어갈 때", title: i + "쪽으로 넘어갈 때 효과", draggable: "false",
+      onmousedown(ev) { ev.stopPropagation(); },
+      onchange(ev) {
+        const v = ev.target.value;
+        if (v) fx.pages[i] = v; else delete fx.pages[i];
+        saveTransition(fx, fxMsg);
+      } },
+      h("option", { value: "", selected: !fx.pages[i] }, "넘김: 기본"),
+      Object.entries(TRANSITIONS).map(([k, v]) => h("option", { value: k, selected: fx.pages[i] === k }, "넘김: " + v)));
+    pageSels.push(sel);
+    return sel;
+  };
 
   // 애니메이션(html)이 슬라이드 자리에 뜨는 쪽
-  const htmlOn =(i) => activities.find((a) => a.kind === "sim" && a.sim_full && a.page === i && !(a.page_to > i));
+  const htmlOn = (i) => activities.find((a) => a.kind === "sim" && a.sim_full && a.page === i && !(a.page_to > i));
 
   // 미리보기를 끌어 순서를 바꾼다. 그림의 왼쪽 반에 놓으면 그 앞, 오른쪽 반이면 그 뒤로 간다.
   const thumbs = h("div", { class: "thumbs" });

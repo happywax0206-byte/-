@@ -151,7 +151,7 @@ function slideSrc(lesson, n) {
 
 // ---------- 화면 넘김 효과 ----------
 // lesson.transition = { type, ms, pages: { "쪽 번호": type } }. 그 쪽으로 들어갈 때의 효과이고, 앞 쪽으로 돌아갈 때는 거꾸로 움직인다.
-const TRANSITIONS = { none: "없음 (바로 바뀜)", fade: "서서히 바뀌기", push: "밀어내기", cover: "덮기", wipe: "닦아내기", zoom: "확대", flip: "뒤집기", up: "위로 밀기" };
+const TRANSITIONS = { none: "없음 (바로 바뀜)", fade: "서서히 바뀌기", push: "밀어내기", cover: "덮기", wipe: "닦아내기", zoom: "확대", flip: "뒤집기", up: "위로 밀기", book: "책장 넘기기" };
 const TRANSITION_SPEED = { 300: "빠르게", 600: "보통", 1000: "느리게" };
 
 function transitionFor(lesson, n) {
@@ -174,6 +174,15 @@ function transitionFrames(type, dir) {
       [{ transform: "none", opacity: 1 }, { transform: "scale(" + (dir > 0 ? 1.3 : 0.5) + ")", opacity: 0 }], false];
     case "flip": return [[{ transform: rot(dir * 90) }, { transform: rot(dir * 90), offset: 0.5 }, { transform: rot(0) }],
       [{ transform: rot(0) }, { transform: rot(-dir * 90), offset: 0.5, opacity: 1 }, { transform: rot(-dir * 90), opacity: 0 }], false];
+    case "book": {
+      // 왼쪽 끝을 책등으로 삼아 종이 한 장이 넘어간다. 다음 쪽: 지금 쪽이 들려 왼쪽으로 넘어가고 아래에서 새 쪽이 드러난다.
+      // 앞 쪽: 넘겼던 쪽이 왼쪽에서 되넘어와 덮는다. 넘어가는 종이에는 그림자, 밑에 깔린 쪽은 어두웠다가 밝아진다.
+      const page = (deg, shadow) => ({ transform: "perspective(2200px) rotateY(" + deg + "deg)", transformOrigin: "left center", backfaceVisibility: "hidden",
+        boxShadow: shadow ? "18px 0 40px rgba(0,0,0,.35)" : "0 0 0 rgba(0,0,0,0)" });
+      const turn = (from, to) => [page(from, false), { ...page((from + to) / 2, true), offset: 0.5 }, page(to, false)];
+      const under = (a, b) => [{ filter: "brightness(" + a + ")" }, { filter: "brightness(" + b + ")" }];
+      return dir > 0 ? [under(0.55, 1), turn(0, -90), false] : [turn(-90, 0), under(1, 0.55), true];
+    }
   }
   return [null, null, false];
 }
