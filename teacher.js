@@ -201,8 +201,14 @@ function drawRun() {
 function refreshRun() {
   if (!run) return;
   const L = lesson;
+  const shown = activities.filter((a) => L.slide_count === 0 || onPage(a, L.page) || a.page == null);
+  // 「슬라이드 자리에 띄우기」 시뮬레이션: 교사 화면에서도 슬라이드 대신 띄운다(다시 그릴 때마다 새로 띄우지 않게 key로 확인)
+  const stageSim = L.slide_count > 0 ? shown.find((a) => a.kind === "sim" && a.sim_full && onPage(a, L.page)) : null;
   if (L.slide_count > 0) {
-    run.img.src = slideSrc(L, L.page);
+    // 화면 넘김 효과: 앞으로 가면 그 쪽의 효과, 뒤로 가면 떠나는 쪽의 효과를 거꾸로
+    const dir = run.shownPage && L.page < run.shownPage ? -1 : 1;
+    changeSlide(run.img, slideSrc(L, L.page), stageSim || run.shownPage === L.page ? null : transitionFor(L, dir > 0 ? L.page : run.shownPage), dir, [run.simLayer]);
+    run.shownPage = L.page;
     run.img.alt = "슬라이드 " + L.page;
     run.where.textContent = L.page + " / " + L.slide_count;
     run.prev.disabled = L.page <= 1;
@@ -214,9 +220,6 @@ function refreshRun() {
   run.openBtn.className = L.open ? "ghost" : "primary";
   run.openBtn.textContent = L.open ? "제출 마감" : "제출 열기";
 
-  const shown = activities.filter((a) => L.slide_count === 0 || onPage(a, L.page) || a.page == null);
-  // 「슬라이드 자리에 띄우기」 시뮬레이션: 교사 화면에서도 슬라이드 대신 띄운다(다시 그릴 때마다 새로 띄우지 않게 key로 확인)
-  const stageSim = L.slide_count > 0 ? shown.find((a) => a.kind === "sim" && a.sim_full && onPage(a, L.page)) : null;
   const simKey = stageSim ? stageSim.id + ":" + (stageSim.html || "").length + ":" + stageSim.title : "";
   run.img.hidden = !!stageSim;
   run.simStage.hidden = !stageSim;
@@ -870,7 +873,8 @@ function drawSettings() {
     const { data: copy, error } = await sb.rpc("create_lesson", { p_title: (lesson.title + " (복사)").slice(0, 100), p_kind: lesson.kind });
     if (error) return alert("복제하지 못했습니다: " + error.message);
     // 슬라이드 그림은 같은 것을 함께 쓴다(원래 수업을 지워도 다른 수업이 쓰는 그림은 남긴다)
-    await sb.from("lessons").update({ slide_dir: lesson.slide_dir, slide_count: lesson.slide_count }).eq("id", copy.id);
+    await sb.from("lessons").update({ slide_dir: lesson.slide_dir, slide_count: lesson.slide_count,
+      ...("transition" in lesson && lesson.transition ? { transition: lesson.transition } : {}) }).eq("id", copy.id);
     if (activities.length) {
       const r = await sb.from("activities").insert(activities.map((a) => ({
         lesson_id: copy.id, kind: a.kind, title: a.title, page: a.page, show_answer: a.show_answer, named: a.named, questions: a.questions, sort: a.sort,
@@ -950,8 +954,40 @@ function slidesCard() {
   });
   if (addBtn) addBtn.addEventListener("click", () => doUpload(file, appendSlides, (n) => "슬라이드 " + n + "장을 끝에 붙였습니다."));
   htmlBtn.addEventListener("click", () => doUpload(htmlFile, addHtmlSlides, (n) => "애니메이션 슬라이드 " + n + "장을 끝에 붙였습니다."));
+  // 화면 넘김 효과: 수업 전체 기본값 + 쪽마다 다르게(미리보기 아래 칸)
+  const fx = transitionSetting();
+  const fxMsg = h("p", { class: "msg" });
+  const fxSel = h("select", { "aria-label": "넘김 효과", onchange() { fx.type = fxSel.value; saveTransition(fx, fxMsg); } },
+    Object.entries(TRANSITIONS).map(([k, v]) => h("option", { value: k, selected: fx.type === k }, v)));
+  const fxSpeed = h("select", { "aria-label": "넘김 빠르기", onchange() { fx.ms = +fxSpeed.value; saveTransition(fx, fxMsg); } },
+    Object.entries(TRANSITION_SPEED).map(([k, v]) => h("option", { value: k, selected: fx.ms === +k }, v)));
+  const pv = h("img", { alt: "넘김 미리보기", src: lesson.slide_count ? slideSrc(lesson, 1) : "" });
+  let pvPage = 1, pvCount = 0;
+  const pvBtn = h("button", { class: "ghost", type: "button", onclick() {
+    // 1쪽 → 2쪽으로 넘기는 모습을 보여 주고, 다시 누르면 1쪽으로 돌아간다(# 은 같은 그림이라도 바뀐 것으로 보게)
+    if (pvPage !== 1) { changeSlide(pv, slideSrc(lesson, 1) + "#" + ++pvCount, null, 1); pvPage = 1; pvBtn.textContent = "미리보기 ▶"; return; }
+    const to = Math.min(2, lesson.slide_count);
+    changeSlide(pv, slideSrc(lesson, to) + "#" + ++pvCount, transitionFor({ transition: fx }, to), 1);
+    pvPage = 2;
+    pvBtn.textContent = "처음으로 ↺";
+  } }, "미리보기 ▶");
+  const fxCard = lesson.slide_count ? h("div", { class: "stack" },
+    h("h3", {}, "화면 넘김 효과"),
+    h("div", { class: "row wrap" }, h("label", {}, "효과", fxSel), h("label", {}, "빠르기", fxSpeed), pvBtn),
+    h("div", { class: "fx-preview" }, pv), fxMsg,
+    h("p", { class: "muted small" }, "교사 화면·학생 화면 모두 이 효과로 넘어갑니다. 앞 쪽으로 돌아갈 때는 거꾸로 움직입니다. 쪽마다 다르게 하려면 아래 미리보기 밑의 칸에서 고르세요.")) : null;
+  const pageFx = (i) => h("select", { class: "thumb-fx", "aria-label": i + "쪽으로 넘어갈 때", title: i + "쪽으로 넘어갈 때 효과", draggable: "false",
+    onmousedown(ev) { ev.stopPropagation(); },
+    onchange(ev) {
+      const v = ev.target.value;
+      if (v) fx.pages[i] = v; else delete fx.pages[i];
+      saveTransition(fx, fxMsg);
+    } },
+    h("option", { value: "", selected: !fx.pages[i] }, "넘김: 기본"),
+    Object.entries(TRANSITIONS).map(([k, v]) => h("option", { value: k, selected: fx.pages[i] === k }, "넘김: " + v)));
+
   // 애니메이션(html)이 슬라이드 자리에 뜨는 쪽
-  const htmlOn = (i) => activities.find((a) => a.kind === "sim" && a.sim_full && a.page === i && !(a.page_to > i));
+  const htmlOn =(i) => activities.find((a) => a.kind === "sim" && a.sim_full && a.page === i && !(a.page_to > i));
 
   // 미리보기를 끌어 순서를 바꾼다. 그림의 왼쪽 반에 놓으면 그 앞, 오른쪽 반이면 그 뒤로 간다.
   const thumbs = h("div", { class: "thumbs" });
@@ -987,7 +1023,8 @@ function slidesCard() {
     },
       h("img", { src: slideSrc(lesson, i), alt: i + "쪽", loading: "lazy", draggable: "false" }),
       h("figcaption", {}, h("span", { title: htmlOn(i) ? htmlOn(i).title : null }, i + "쪽" + (htmlOn(i) ? " · 애니메이션" : "")),
-        h("button", { class: "link danger", type: "button", "aria-label": i + "쪽 삭제", onclick() { deleteSlide(i, status); } }, "삭제"))));
+        h("button", { class: "link danger", type: "button", "aria-label": i + "쪽 삭제", onclick() { deleteSlide(i, status); } }, "삭제")),
+      pageFx(i)));
   }
   return h("section", { class: "card stack" },
     h("h2", {}, "슬라이드 " + (lesson.slide_count ? lesson.slide_count + "장" : "없음")),
@@ -996,6 +1033,7 @@ function slidesCard() {
     h("p", { class: "muted small" }, "애니메이션이 들어간 html 파일은 아래에서 올립니다. 끝에 「▶ 애니메이션」 쪽이 생기고, 수업할 때 그 쪽에서는 교사·학생 화면 모두 슬라이드 대신 애니메이션이 움직입니다. 파일 하나로 된 html(최대 50만 자)만 됩니다."),
     h("div", { class: "row wrap" }, htmlFile, htmlBtn),
     bar, status,
+    fxCard,
     lesson.slide_count ? h("div", { class: "row slide-tools" },
       h("span", { class: "muted small grow" }, "미리보기를 끌어서 순서를 바꿉니다(붙어 있는 질문도 따라갑니다). 빈 칸이 있거나 쪽 수가 맞지 않으면 →"),
       h("button", { class: "ghost", type: "button", onclick() { deleteSlide(null, status); } }, "번호 다시 맞추기")) : null,
@@ -1087,6 +1125,34 @@ async function slideNums(folder) {
   return (listed.data || []).map((o) => /^(\d+)\.jpg$/.exec(o.name)).filter(Boolean).map((m) => +m[1]).sort((x, y) => x - y);
 }
 
+// 이 수업의 화면 넘김 설정(고쳐도 lesson에는 저장할 때 반영)
+function transitionSetting() {
+  const t = lesson.transition && typeof lesson.transition === "object" ? lesson.transition : {};
+  const pages = {};
+  for (const [p, v] of Object.entries(t.pages || {})) if (TRANSITIONS[v] && +p >= 1 && +p <= lesson.slide_count) pages[p] = v;
+  return { type: TRANSITIONS[t.type] ? t.type : "none", ms: TRANSITION_SPEED[t.ms] ? +t.ms : 600, pages };
+}
+
+async function saveTransition(t, msg) {
+  // transition 칸은 setup.sql을 다시 실행해야 생긴다(불러온 수업에 그 칸이 보일 때만 저장)
+  if (!("transition" in lesson)) { msg.textContent = "화면 넘김 효과를 쓰려면 먼저 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요."; return; }
+  const value = JSON.parse(JSON.stringify(t));
+  const { error } = await sb.from("lessons").update({ transition: value }).eq("id", lesson.id);
+  if (error) { msg.textContent = "저장하지 못했습니다: " + error.message; return; }
+  lesson.transition = value;
+  msg.textContent = "";
+  flash("화면 넘김 효과를 저장했습니다.");
+}
+
+// 슬라이드 번호가 바뀔 때 쪽마다 정한 효과도 따라가게 한다. map(옛 번호) → 새 번호(없애면 0). 바꿀 것이 없으면 {}
+function transitionChange(map) {
+  const t = lesson.transition;
+  if (!t || typeof t !== "object" || !t.pages || !Object.keys(t.pages).length) return {};
+  const pages = {};
+  for (const [p, v] of Object.entries(t.pages)) { const n = map(+p); if (n) pages[n] = v; }
+  return { transition: { ...t, pages } };
+}
+
 async function checkSlideNums(folder) {
   const nums = await slideNums(folder);
   if (nums.length !== lesson.slide_count || nums.some((n, i) => n !== i + 1)) {
@@ -1142,7 +1208,7 @@ async function moveSlide(from, to, status) {
       if (u.error) throw u.error;
     }
     const dir = lesson.slide_dir.split("?")[0] + "?v=" + Date.now();   // 이름이 바뀐 그림을 브라우저가 예전 것으로 보이지 않게
-    const u = await sb.from("lessons").update({ slide_dir: dir, page: newPos(lesson.page) }).eq("id", lesson.id);
+    const u = await sb.from("lessons").update({ slide_dir: dir, page: newPos(lesson.page), ...transitionChange(newPos) }).eq("id", lesson.id);
     if (u.error) throw u.error;
     flash(from + "쪽을 " + to + "쪽으로 옮겼습니다.");
     slideBusy = false;
@@ -1209,7 +1275,8 @@ async function deleteSlide(k, status) {
     }
     const pageNow = k && lesson.page > k ? lesson.page - 1 : lesson.page;
     const dir = base + "?v=" + Date.now();   // 이름이 바뀐 그림을 브라우저가 예전 것으로 보이지 않게
-    const u = await sb.from("lessons").update({ slide_dir: left ? dir : "", slide_count: left, page: Math.min(Math.max(pageNow, 1), Math.max(left, 1)) }).eq("id", lesson.id);
+    const u = await sb.from("lessons").update({ slide_dir: left ? dir : "", slide_count: left, page: Math.min(Math.max(pageNow, 1), Math.max(left, 1)),
+      ...(k ? transitionChange((p) => (p === k ? 0 : p > k ? p - 1 : p)) : {}) }).eq("id", lesson.id);
     if (u.error) throw u.error;
     flash(k ? k + "쪽을 지웠습니다." : "슬라이드 번호를 맞췄습니다 (" + left + "장).");
     slideBusy = false;
@@ -1236,7 +1303,8 @@ async function uploadSlides(files, progress) {
   const extra = (old || []).map((o) => o.name).filter((n) => parseInt(n, 10) > images.length).map((n) => folder + n);
   if (extra.length) await sb.storage.from("slides").remove(extra);
   const dir = SB_URL + "/storage/v1/object/public/slides/" + folder + "{n}.jpg?v=" + Date.now();
-  const { error } = await sb.from("lessons").update({ slide_dir: dir, slide_count: images.length, page: 1 }).eq("id", lesson.id);
+  // 슬라이드를 모두 바꾸면 쪽마다 정한 넘김 효과는 지운다(수업 전체 효과는 그대로)
+  const { error } = await sb.from("lessons").update({ slide_dir: dir, slide_count: images.length, page: 1, ...transitionChange(() => 0) }).eq("id", lesson.id);
   if (error) throw error;
   return images.length;
 }

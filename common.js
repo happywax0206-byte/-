@@ -149,6 +149,89 @@ function slideSrc(lesson, n) {
   return encodeURI(dir.includes("{n}") ? dir.split("{n}").join(n) : dir.replace(/\/+$/, "") + "/" + n + ".png");
 }
 
+// ---------- 화면 넘김 효과 ----------
+// lesson.transition = { type, ms, pages: { "쪽 번호": type } }. 그 쪽으로 들어갈 때의 효과이고, 앞 쪽으로 돌아갈 때는 거꾸로 움직인다.
+const TRANSITIONS = { none: "없음 (바로 바뀜)", fade: "서서히 바뀌기", push: "밀어내기", cover: "덮기", wipe: "닦아내기", zoom: "확대", flip: "뒤집기", up: "위로 밀기" };
+const TRANSITION_SPEED = { 300: "빠르게", 600: "보통", 1000: "느리게" };
+
+function transitionFor(lesson, n) {
+  const t = lesson.transition && typeof lesson.transition === "object" ? lesson.transition : {};
+  const type = (t.pages && t.pages[n]) || t.type || "none";
+  return { type: TRANSITIONS[type] ? type : "none", ms: Math.min(Math.max(+t.ms || 600, 100), 3000) };
+}
+
+// [새 그림 움직임, 예전 그림 움직임, 새 그림이 위에 오는지]. dir: 1 = 다음 쪽으로, -1 = 앞 쪽으로
+function transitionFrames(type, dir) {
+  const x = (k) => "translateX(" + k * 100 + "%)", y = (k) => "translateY(" + k * 100 + "%)";
+  const rot = (d) => "perspective(1600px) rotateY(" + d + "deg)";
+  switch (type) {
+    case "fade": return [[{ opacity: 0 }, { opacity: 1 }], [{ opacity: 1 }, { opacity: 0 }], false];
+    case "push": return [[{ transform: x(dir) }, { transform: "none" }], [{ transform: "none" }, { transform: x(-dir) }], false];
+    case "up": return [[{ transform: y(dir) }, { transform: "none" }], [{ transform: "none" }, { transform: y(-dir) }], false];
+    case "cover": return [[{ transform: x(dir) }, { transform: "none" }], null, true];
+    case "wipe": return [[{ clipPath: dir > 0 ? "inset(0 100% 0 0)" : "inset(0 0 0 100%)" }, { clipPath: "inset(0 0 0 0)" }], null, true];
+    case "zoom": return [[{ transform: "scale(" + (dir > 0 ? 0.5 : 1.3) + ")", opacity: 0 }, { transform: "none", opacity: 1 }],
+      [{ transform: "none", opacity: 1 }, { transform: "scale(" + (dir > 0 ? 1.3 : 0.5) + ")", opacity: 0 }], false];
+    case "flip": return [[{ transform: rot(dir * 90) }, { transform: rot(dir * 90), offset: 0.5 }, { transform: rot(0) }],
+      [{ transform: rot(0) }, { transform: rot(-dir * 90), offset: 0.5, opacity: 1 }, { transform: rot(-dir * 90), opacity: 0 }], false];
+  }
+  return [null, null, false];
+}
+
+// 슬라이드 그림(img)을 src로 바꾸며 넘김 효과를 준다. 예전 그림의 복사본을 같은 자리에 겹쳐 두고,
+// 새 그림을 다 불러오면 둘을 함께 움직인다. also: 함께 서서히 나타날 요소(슬라이드 위 시뮬레이션 층)
+function changeSlide(img, src, fx, dir, also) {
+  if (img.getAttribute("src") === src) return;
+  if (img._fx) img._fx();   // 아직 끝나지 않은 효과는 바로 끝낸다
+  const old = img.getAttribute("src");
+  const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const [inK, outK, newOnTop] = transitionFrames(fx && fx.type, dir);
+  if (!inK || !old || img.hidden || !img.animate || !img.naturalWidth || !img.offsetWidth || reduce) { img.src = src; return; }
+  const parent = img.parentNode;
+  const ghost = img.cloneNode(false);
+  ghost.removeAttribute("id");
+  ghost.alt = "";
+  ghost.setAttribute("aria-hidden", "true");
+  Object.assign(ghost.style, { position: "absolute", left: img.offsetLeft + "px", top: img.offsetTop + "px", width: img.offsetWidth + "px", height: img.offsetHeight + "px",
+    margin: "0", maxWidth: "none", maxHeight: "none", pointerEvents: "none" });
+  // 둘 다 위치를 가진 요소로 두면 문서 순서대로 겹친다(시뮬레이션 층은 그 뒤에 있어 늘 위에 보인다)
+  img.style.position = "relative";
+  if (newOnTop) img.before(ghost); else img.after(ghost);
+  parent.classList.add("slide-fx");
+  img.style.opacity = "0";
+  const anims = [];
+  let done = false, started = false, timer = 0;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    img._fx = null;
+    img.removeEventListener("load", start);
+    img.removeEventListener("error", start);
+    anims.forEach((a) => a.cancel());
+    ghost.remove();
+    img.style.opacity = "";
+    img.style.position = "";
+    parent.classList.remove("slide-fx");
+  };
+  function start() {
+    if (done || started) return;
+    started = true;
+    clearTimeout(timer);
+    img.style.opacity = "";
+    const opt = { duration: fx.ms, easing: "ease-in-out" };
+    anims.push(img.animate(inK, opt));
+    if (outK) anims.push(ghost.animate(outK, { ...opt, fill: "forwards" }));
+    for (const el of also || []) if (el && !el.hidden) anims.push(el.animate([{ opacity: 0 }, { opacity: 0, offset: 0.6 }, { opacity: 1 }], opt));
+    anims[0].finished.then(finish, finish);
+  }
+  img._fx = finish;
+  img.addEventListener("load", start);
+  img.addEventListener("error", start);
+  timer = setTimeout(start, 4000);   // 그림이 늦게 오면 기다리지 않고 움직인다
+  img.src = src;
+}
+
 function fmtTime(t) {
   if (!t) return "—";
   const d = new Date(t);

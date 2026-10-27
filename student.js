@@ -261,8 +261,13 @@ function render(pageChanged) {
   shell.slideBox.hidden = !hasSlides;
   if (hasSlides) {
     const src = slideSrc(L, viewing);
-    if (shell.img.getAttribute("src") !== src) shell.img.src = src;
-    if (shell.zoom && shell.zoom.getAttribute("src") !== src) shell.zoom.src = src;
+    // 화면 넘김 효과: 앞으로 가면 그 쪽의 효과, 뒤로 가면 떠나는 쪽의 효과를 거꾸로. 애니메이션 쪽으로 갈 때는 바로 바꾼다
+    const dir = shell.shownPage && viewing < shell.shownPage ? -1 : 1;
+    const fullHere = state.activities.some((a) => a.kind === "sim" && a.sim_full && onPage(a, viewing));
+    const fx = fullHere || shell.shownPage === viewing ? null : transitionFor(L, dir > 0 ? viewing : shell.shownPage);
+    changeSlide(shell.img, src, fx, dir, [shell.simLayer]);
+    if (shell.zoom) changeSlide(shell.zoom, src, fx, dir);
+    shell.shownPage = viewing;
     shell.img.alt = "슬라이드 " + viewing;
     shell.where.textContent = viewing + " / " + L.slide_count;
     shell.prev.disabled = viewing <= 1;

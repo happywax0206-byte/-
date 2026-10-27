@@ -261,3 +261,8 @@ main.lesson.split .sim-stage .sim-frame { max-height: calc(100vh - 9.5rem); }
 .sim-full-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .5rem 1rem; border-bottom: 1px solid var(--line); }
 .sim-full .sim-frame { flex: 1; border: 0; border-radius: 0; aspect-ratio: auto; height: auto; min-height: 0; }
 textarea.mono { font-family: ui-monospace, Consolas, monospace; font-size: .85rem; }
+/* 화면 넘김 효과가 움직이는 동안 슬라이드 칸 밖으로 그림이 보이지 않게 */
+.slide-fx { overflow: hidden; }
+.thumb-fx { width: 100%; min-height: 30px; font-size: .78rem; padding: 0 .2rem; }
+.fx-preview { position: relative; width: min(100%, 320px); background: #fff; border: 1px solid var(--line); border-radius: 8px; }
+.fx-preview img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; }

@@ -25,6 +25,10 @@ create table if not exists lessons (
 );
 -- 나중에 더한 칸: 수업 종류(슬라이드 수업 / 설문만)
 alter table lessons add column if not exists kind text not null default 'lesson' check (kind in ('lesson', 'survey'));
+-- 나중에 더한 칸: 화면 넘김 효과 {type, ms, pages: {"쪽 번호": type}}
+alter table lessons add column if not exists transition jsonb;
+alter table lessons drop constraint if exists lessons_transition_size;
+alter table lessons add constraint lessons_transition_size check (transition is null or (jsonb_typeof(transition) = 'object' and octet_length(transition::text) <= 8000));
 create unique index if not exists lessons_code_key on lessons (code);
 create index if not exists lessons_owner on lessons (owner);
 
@@ -252,7 +256,7 @@ begin
   return jsonb_build_object(
     'me', jsonb_build_object('class_no', s.class_no, 'name', s.name),
     'lesson', jsonb_build_object('code', l.code, 'title', l.title, 'slide_dir', l.slide_dir,
-                                 'slide_count', l.slide_count, 'page', l.page, 'open', l.open, 'kind', l.kind),
+                                 'slide_count', l.slide_count, 'page', l.page, 'open', l.open, 'kind', l.kind, 'transition', l.transition),
     'activities', coalesce((
       select jsonb_agg(jsonb_build_object(
         'id', a.id, 'kind', a.kind, 'title', a.title, 'page', a.page, 'page_to', a.page_to, 'named', a.named, 'shared', a.shared,
