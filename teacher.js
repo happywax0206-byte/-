@@ -103,13 +103,14 @@ async function loadResponses() {
 
 function schedule() {
   clearTimeout(timer);
-  if (!lesson || (tab !== "run" && tab !== "students")) return;
+  if (!lesson || (tab !== "run" && tab !== "students" && tab !== "live")) return;
   timer = setTimeout(async () => {
     await loadResponses();
     if (tab === "run") refreshRun();
     if (tab === "students") drawStudents();
+    if (tab === "live") refreshLive();
     schedule();
-  }, POLL_MS);
+  }, tab === "live" ? 2000 : POLL_MS);
 }
 
 function fatal(error) {
@@ -148,7 +149,7 @@ function draw() {
     },
   }, lessons.map((l) => h("option", { value: l.id, selected: lesson && l.id === lesson.id }, (l.kind === "survey" ? "[설문] " : "") + l.title + " (" + l.code + ")")),
     h("option", { value: "new", selected: !lesson }, "+ 새 수업 만들기"));
-  const tabs = [["run", "수업 진행"], ["build", "질문·설문 만들기"], ["students", "학생 관리"], ["settings", "수업 설정"]];
+  const tabs = [["run", "수업 진행"], ["live", "학생 화면"], ["build", "질문·설문 만들기"], ["students", "학생 관리"], ["settings", "수업 설정"]];
   if (!tabs.some(([k]) => k === tab)) tab = "run";
   main = h("main", { class: "wide" });
   app.replaceChildren(
@@ -161,7 +162,7 @@ function draw() {
       h("button", { class: "link", type: "button", async onclick() { await sb.auth.signOut(); location.reload(); } }, "로그아웃")),
     main);
   if (!lesson) tab = "settings";
-  ({ run: drawRun, build: drawBuild, students: drawStudents, settings: drawSettings })[tab]();
+  ({ run: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings })[tab]();
   schedule();
 }
 
@@ -780,6 +781,82 @@ function flash(text) {
 }
 
 // ---------- 학생 관리 ----------
+// ---------- 학생 화면(실시간, 교사만) ----------
+// 학생 화면이 보내는 live = { page, following, hidden, focus, drafts: { 활동id: { 질문id: 쓰는 중인 답 } } }
+let live = null;   // { grid, note, tiles: Map(학생 id → { el, sig }), open: 크게 본 학생 id }
+
+function drawLive() {
+  live = { grid: h("div", { class: "live-grid" }), note: h("p", { class: "muted small" }), tiles: new Map(), open: live ? live.open : null };
+  main.replaceChildren(h("div", { class: "stack" },
+    h("section", { class: "card stack" },
+      h("h2", {}, "학생 화면 (실시간)"),
+      h("p", { class: "muted small" }, "학생마다 지금 보고 있는 쪽과, 저장하기 전에 쓰고 있는 답이 2초마다 바뀌어 보입니다. 이 화면은 선생님만 볼 수 있습니다. 학생을 누르면 크게 봅니다."),
+      live.note),
+    live.grid));
+  refreshLive();
+}
+
+function liveState(s) {
+  const L = s.live || {};
+  if (!s.last_seen || Date.now() - Date.parse(s.last_seen) > ONLINE_MS) return ["off", "나감"];
+  if (L.hidden) return ["away", "다른 앱·화면 꺼짐"];
+  return ["on", "보는 중"];
+}
+
+function liveAnswer(v) {
+  if (Array.isArray(v)) return v.map((x) => (x && typeof x === "object" ? "📎 " + x.name : x)).join(", ");
+  return String(v);
+}
+
+function liveTile(s) {
+  const L = s.live || {};
+  const [cls, label] = liveState(s);
+  const big = live.open === s.id;
+  const hasSlides = lesson.slide_count > 0 && L.page;
+  const where = !hasSlides ? null : L.page === lesson.page ? L.page + "쪽 · 선생님과 같은 쪽" : L.page < lesson.page ? L.page + "쪽 · 앞 쪽을 다시 보는 중" : L.page + "쪽";
+  // 지금 누르고 있는 활동을 맨 위에
+  const ids = Object.keys(L.drafts || {}).filter((id) => activities.some((a) => a.id === id))
+    .sort((x, y) => (y === L.focus) - (x === L.focus));
+  const drafts = ids.map((id) => {
+    const a = activities.find((x) => x.id === id);
+    const vals = L.drafts[id] || {};
+    const lines = a.questions.filter((q) => q.type !== "info" && !isEmptyAnswer(vals[q.id])).map((q) =>
+      h("p", { class: "live-answer" }, h("span", { class: "muted" }, q.text + " "), liveAnswer(vals[q.id])));
+    return lines.length ? h("div", { class: "live-draft" + (id === L.focus ? " focus" : "") },
+      h("strong", { class: "small" }, (id === L.focus ? "✏️ 쓰는 중 · " : "저장 전 · ") + a.title), lines) : null;
+  }).filter(Boolean);
+  const done = new Set(responses.filter((r) => r.student_id === s.id).map((r) => r.activity_id)).size;
+  return h("article", { class: "card live-tile " + cls + (big ? " big" : ""), title: big ? "누르면 작게" : "누르면 크게",
+    onclick() { live.open = big ? null : s.id; refreshLive(); } },
+    h("div", { class: "row between" }, h("strong", {}, nameOf(s)), h("span", { class: "live-dot " + cls }, label)),
+    hasSlides ? h("img", { class: "live-slide", src: slideSrc(lesson, L.page), alt: L.page + "쪽", loading: "lazy" }) : null,
+    where ? h("p", { class: "small muted" }, where) : null,
+    drafts.length ? drafts : h("p", { class: "small muted" }, cls === "off" ? "" : "쓰고 있는 답 없음"),
+    h("p", { class: "small muted" }, "제출한 활동 " + done + "개"));
+}
+
+function refreshLive() {
+  if (!live || !live.grid.isConnected) return;
+  if (students.length && !("live" in students[0])) {
+    live.note.textContent = "이 기능을 쓰려면 먼저 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요.";
+  } else if (!students.length) {
+    live.note.textContent = "아직 들어온 학생이 없습니다.";
+  } else {
+    const st = students.map(liveState);
+    const on = st.filter(([c]) => c === "on").length, away = st.filter(([c]) => c === "away").length;
+    const same = lesson.slide_count ? students.filter((s, i) => st[i][0] === "on" && s.live && s.live.page === lesson.page).length : null;
+    live.note.textContent = "보는 중 " + on + "명" + (same != null ? " (선생님과 같은 쪽 " + same + "명)" : "") + " · 다른 앱·화면 꺼짐 " + away + "명 · 나감 " + (students.length - on - away) + "명";
+  }
+  // 바뀐 학생 칸만 다시 그린다(그림이 깜빡이지 않게)
+  const els = students.map((s) => {
+    const sig = JSON.stringify([s.live, liveState(s), live.open === s.id, lesson.page, responses.filter((r) => r.student_id === s.id).length]);
+    let t = live.tiles.get(s.id);
+    if (!t || t.sig !== sig) { t = { el: liveTile(s), sig }; live.tiles.set(s.id, t); }
+    return t.el;
+  });
+  if (els.length !== live.grid.children.length || els.some((el, i) => live.grid.children[i] !== el)) live.grid.replaceChildren(...els);
+}
+
 function drawStudents() {
   const now = Date.now();
   const rows = students.map((s) => {

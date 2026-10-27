@@ -266,3 +266,18 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; font-size: .85re
 .thumb-fx { width: 100%; min-height: 30px; font-size: .78rem; padding: 0 .2rem; }
 .fx-preview { position: relative; width: min(100%, 320px); background: #fff; border: 1px solid var(--line); border-radius: 8px; }
 .fx-preview img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; }
+/* 학생 화면(실시간, 교사만) */
+.live-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: .75rem; align-items: start; }
+.live-tile { cursor: pointer; display: grid; gap: .4rem; padding: .8rem; max-height: 22rem; overflow: hidden; }
+.live-tile.big { grid-column: 1 / -1; max-height: none; cursor: zoom-out; }
+.live-tile.big .live-slide { max-width: 640px; }
+.live-tile.off { opacity: .55; }
+.live-tile.away { border-color: #e7b85a; }
+.live-dot { font-size: .78rem; padding: .1rem .5rem; border-radius: 999px; background: #eef0f4; color: var(--muted); white-space: nowrap; }
+.live-dot.on { background: var(--ok-soft); color: var(--ok); font-weight: 700; }
+.live-dot.away { background: #fff4dc; color: #8a5a00; font-weight: 700; }
+.live-slide { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 6px; }
+.live-draft { display: grid; gap: .2rem; padding: .4rem .6rem; border-left: 3px solid var(--line); background: #f7f8fb; border-radius: 4px; }
+.live-draft.focus { border-left-color: var(--accent); }
+.live-answer { margin: 0; font-size: .88rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.live-note { margin: 1rem 0 2rem; }

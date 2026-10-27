@@ -83,6 +83,11 @@ create table if not exists lesson_students (
   primary key (lesson_id, student_id)
 );
 create index if not exists lesson_students_student on lesson_students (student_id);
+-- 나중에 더한 칸: 교사만 보는 학생 실시간 화면 {page, following, hidden, focus, drafts: {활동id: {질문id: 쓰는 중인 답}}}
+alter table lesson_students add column if not exists live jsonb;
+alter table lesson_students add column if not exists live_at timestamptz;
+alter table lesson_students drop constraint if exists lesson_students_live_size;
+alter table lesson_students add constraint lesson_students_live_size check (live is null or (jsonb_typeof(live) = 'object' and octet_length(live::text) <= 20000));
 
 create table if not exists responses (
   student_id  uuid not null references students(id) on delete cascade,
@@ -360,9 +365,29 @@ begin
   return coalesce((
     select jsonb_agg(jsonb_build_object(
       'id', s.id, 'class_no', s.class_no, 'name', s.name, 'pin_set', s.pin_set, 'fails', s.fails,
-      'locked_until', s.locked_until, 'created_at', s.created_at, 'joined_at', m.joined_at, 'last_seen', m.last_seen))
+      'locked_until', s.locked_until, 'created_at', s.created_at, 'joined_at', m.joined_at, 'last_seen', m.last_seen,
+      'live', m.live, 'live_at', m.live_at))
     from lesson_students m join students s on s.id = m.student_id
     where m.lesson_id = p_lesson), '[]'::jsonb);
+end $$;
+
+-- 학생 화면: 지금 보는 쪽·쓰고 있는 답을 교사에게 알린다(교사만 teacher_students로 읽는다)
+create or replace function student_live(p_token text, p_code text, p_live jsonb)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+declare
+  s students;
+  l lessons;
+begin
+  select * into s from students where token = p_token and p_token is not null;
+  if not found then return jsonb_build_object('error', 'logged_out'); end if;
+  select * into l from lessons where code = upper(tidy(p_code));
+  if not found then return jsonb_build_object('error', 'no_lesson'); end if;
+  if p_live is null or jsonb_typeof(p_live) <> 'object' or octet_length(p_live::text) > 20000 then
+    return jsonb_build_object('error', 'too_big');
+  end if;
+  update lesson_students set live = p_live, live_at = now(), last_seen = now()
+    where lesson_id = l.id and student_id = s.id;
+  return jsonb_build_object('ok', true);
 end $$;
 
 revoke all on function student_enter(text, text, text, text, boolean) from public;
@@ -373,6 +398,8 @@ revoke all on function student_save(text, uuid, jsonb) from public;
 revoke all on function create_lesson(text, text) from public;
 grant execute on function student_enter(text, text, text, text, boolean) to anon, authenticated;
 grant execute on function student_state(text, text) to anon, authenticated;
+revoke all on function student_live(text, text, jsonb) from public;
+grant execute on function student_live(text, text, jsonb) to anon, authenticated;
 grant execute on function teacher_students(uuid) to authenticated;
 grant execute on function student_sim(text, uuid) to anon, authenticated;
 grant execute on function student_save(text, uuid, jsonb) to anon, authenticated;

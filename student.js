@@ -173,7 +173,51 @@ async function poll() {
   }
   timer = setTimeout(poll, document.hidden ? POLL_MS * 4 : POLL_MS);
 }
-document.addEventListener("visibilitychange", () => { if (!document.hidden && token && shell) poll(); });
+document.addEventListener("visibilitychange", () => {
+  if (token && shell) sendLive(true);
+  if (!document.hidden && token && shell) poll();
+});
+
+// ---------- 선생님에게 보이는 실시간 화면 ----------
+// 보고 있는 쪽, 다른 앱으로 나갔는지, 저장하기 전에 쓰고 있는 답을 바뀔 때만(2초에 한 번까지) 보낸다. 교사만 읽는다.
+const LIVE_MS = 2000;
+const liveDrafts = {};   // 활동 id → 지금 쓰고 있는 답
+let liveFocus = null;    // 지금 누르고 있는 활동
+let liveSent = "";
+let liveAt = 0;
+let liveTimer = null;
+
+function liveValue(v) {
+  if (typeof v === "string") return v.slice(0, 1500);
+  if (Array.isArray(v)) return v.slice(0, 20).map((x) => x && typeof x === "object" ? { name: String(x.name || "파일").slice(0, 100) } : String(x).slice(0, 200));
+  return v ?? null;
+}
+
+function liveNow(onlyFocus) {
+  const drafts = {};
+  for (const [id, values] of Object.entries(liveDrafts)) {
+    if (onlyFocus && id !== liveFocus) continue;
+    const d = {};
+    for (const [q, v] of Object.entries(values)) d[q] = liveValue(v);
+    drafts[id] = d;
+  }
+  return { page: state.lesson.slide_count ? viewing : null, following, hidden: document.hidden, focus: liveFocus, drafts };
+}
+
+function sendLive(now) {
+  clearTimeout(liveTimer);
+  if (!token || !state || !shell) return;
+  const wait = liveAt + LIVE_MS - Date.now();
+  if (wait > 0 && !now) { liveTimer = setTimeout(sendLive, wait); return; }
+  let live = liveNow(false);
+  // 서버는 20000바이트까지 받는다. 넘치면 지금 쓰고 있는 활동만 보낸다
+  if (new TextEncoder().encode(JSON.stringify(live)).length > 18000) live = liveNow(true);
+  const body = JSON.stringify(live);
+  if (body === liveSent) return;
+  liveSent = body;
+  liveAt = Date.now();
+  sb.rpc("student_live", { p_token: token, p_code: code, p_live: live }).then(() => {}, () => { liveSent = ""; });
+}
 
 function apply(data) {
   const before = state;
@@ -215,7 +259,8 @@ function buildShell() {
       h("div", { class: "row" },
         h("button", { class: "link", type: "button", onclick() { history.replaceState(null, "", location.pathname); showCodeOnly(); } }, "다른 수업"),
         h("button", { class: "link", type: "button", onclick() { logout("나갔습니다. 다시 들어오려면 입장하세요."); } }, "나가기"))),
-    h("main", { class: "lesson" }, conn, closed, slideBox, list));
+    h("main", { class: "lesson" }, conn, closed, slideBox, list),
+    h("p", { class: "muted small center live-note" }, "선생님은 수업 중에 내가 보고 있는 쪽과 저장하기 전에 쓰고 있는 답을 볼 수 있습니다."));
   const anytimeHead = h("h2", { class: "section-head" }, "언제든 할 수 있는 활동");
   const empty = h("p", { class: "muted center" });
   shell = { img, simStage, simLayer, prev, next, where, back, closed, conn, title, who, slideBox, list, anytimeHead, empty, stageSim: null, stageKey: "" };
@@ -299,6 +344,7 @@ function render(pageChanged) {
   if (pageChanged || shell.list.childElementCount !== els.flat().length || els.flat().some((el, i) => shell.list.children[i] !== el)) {
     shell.list.replaceChildren(...els.flat());
   }
+  sendLive();   // 바뀐 것이 없으면 보내지 않는다
 }
 
 // ---------- 시뮬레이션 ----------
@@ -469,6 +515,11 @@ function buildForm(c) {
   try { draft = JSON.parse(localStorage.getItem(draftKey(a)) || "null"); } catch (e) { draft = null; }
   if (draft && a.saved_at && draft.at < Date.parse(a.saved_at)) draft = null;
   const values = Object.assign({}, a.mine || {}, draft ? draft.values : {});
+  if (draft && !quizDone) { liveDrafts[a.id] = values; sendLive(); } else delete liveDrafts[a.id];
+  if (!c.liveHooked) {
+    c.liveHooked = true;
+    c.form.addEventListener("focusin", () => { if (liveFocus !== c.a.id) { liveFocus = c.a.id; sendLive(); } });
+  }
   const err = h("p", { class: "error" });
   const status = h("p", { class: "status" });
   const btn = h("button", { class: "primary big", type: "button" });
@@ -476,6 +527,9 @@ function buildForm(c) {
 
   const saveDraft = () => {
     localStorage.setItem(draftKey(a), JSON.stringify({ at: Date.now(), values }));
+    liveDrafts[a.id] = values;
+    liveFocus = a.id;
+    sendLive();
     err.textContent = "";
     c.refresh();
   };
@@ -534,6 +588,8 @@ function buildForm(c) {
     else if (data.error) err.textContent = "저장하지 못했습니다. (" + data.error + ")";
     else {
       localStorage.removeItem(draftKey(a));
+      delete liveDrafts[a.id];
+      sendLive();
       c.formSig = null;   // 저장한 내용으로 다시 그린다
       return poll();
     }
