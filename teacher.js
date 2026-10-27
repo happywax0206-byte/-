@@ -213,13 +213,113 @@ function draw() {
           draw();
         },
       }, label))),
+      lesson ? h("button", { class: "ghost present-btn", type: "button", title: "학생에게 보여 줄 슬라이드만 새 탭에 띄웁니다", onclick: openPresent }, "▣ 수업 화면 띄우기") : null,
       h("button", { class: "link", type: "button", onclick: changePassword }, "비밀번호 바꾸기"),
       h("button", { class: "link", type: "button", async onclick() { await sb.auth.signOut(); location.reload(); } }, "로그아웃")),
     main);
   if (!lesson) tab = "settings";
   ({ run: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings })[tab]();
   schedule();
+  sendPresent();
 }
+
+// ---------- 수업 화면(학생에게 보여 줄 새 탭) ----------
+// 「수업 화면 띄우기」로 연 present.html 탭에 지금 쪽·시뮬레이션·크게 띄운 것을 보낸다.
+// BroadcastChannel은 같은 컴퓨터·같은 브라우저의 탭끼리만 주고받으므로 서버 사용량이 늘지 않는다.
+const presentCh = window.BroadcastChannel ? new BroadcastChannel("cra-present") : null;
+let presentOn = false;     // 수업 화면 탭이 열려 있는지
+let presentShow = null;    // 수업 화면에 크게 띄운 것 { kind: "sim" | "view" | "link", title, html | url }
+let presentClose = null;   // 교사 화면에서 그것을 닫는 함수
+let presentSent = "";
+const presentBar = h("div", { class: "present-bar", hidden: true });
+document.body.append(presentBar);
+
+function openPresent() {
+  if (!presentCh) return alert("이 브라우저에서는 수업 화면을 쓸 수 없습니다. Chrome이나 Edge를 쓰세요.");
+  const win = window.open("present.html", "cra-present");
+  if (!win) alert("새 탭이 막혔습니다. 주소창 오른쪽의 팝업 차단 표시를 눌러 이 사이트를 허용하세요.");
+}
+
+function presentState() {
+  const L = lesson;
+  return {
+    lesson: L && { id: L.id, title: L.title, slide_dir: L.slide_dir, slide_count: L.slide_count, page: L.page, transition: L.transition },
+    sims: L ? activities.filter((a) => a.kind === "sim").map((a) => ({ id: a.id, title: a.title, html: a.html, html_ver: a.html_ver,
+      page: a.page, page_to: a.page_to, sim_full: a.sim_full, sim_box: a.sim_box })) : [],
+    show: presentShow,
+  };
+}
+
+// 바뀐 것이 있을 때만 보낸다
+function sendPresent(force) {
+  if (!presentCh) return;
+  const s = JSON.stringify(presentState());
+  if (!force && s === presentSent) return;
+  presentSent = s;
+  presentCh.postMessage({ type: "state", state: s });
+}
+
+if (presentCh) {
+  presentCh.onmessage = (e) => {
+    const m = e.data || {};
+    if (m.type === "hello") { presentOn = true; sendPresent(true); drawPresentBar(); }
+    if (m.type === "bye") { presentOn = false; drawPresentBar(); }
+    if (m.type === "closed") setPresentShow(null);   // 수업 화면에서 Esc로 닫음
+    if (m.type === "step" && lesson && lesson.slide_count) setPage(lesson.page + (m.step > 0 ? 1 : -1));   // 수업 화면에서 ← → 를 누름
+  };
+  presentCh.postMessage({ type: "who" });   // 이 탭을 새로 열었을 때 이미 열린 수업 화면이 있는지
+}
+
+function setPresentShow(show, close) {
+  presentShow = show;
+  presentClose = show ? close || null : null;
+  drawPresentBar();
+  sendPresent();
+}
+
+// 외부 링크는 교사 화면에 따로 띄운 것이 없으므로 아래쪽 막대로 알리고 닫게 한다
+function drawPresentBar() {
+  const s = presentShow;
+  presentBar.hidden = !presentOn || !s || s.kind !== "link";
+  if (presentBar.hidden) return presentBar.replaceChildren();
+  presentBar.replaceChildren(
+    h("span", {}, "수업 화면에 띄움: ", h("strong", {}, s.title)),
+    h("button", { class: "ghost", type: "button", onclick() { window.open(s.url, "_blank", "noopener"); } }, "여기서도 열기"),
+    h("button", { class: "primary", type: "button", onclick() { setPresentShow(null); } }, "수업 화면에서 닫기"));
+}
+
+// 크게 띄우기: 교사 화면에 띄우고 수업 화면에도 똑같이 띄운다. 교사 화면에서 닫으면 수업 화면에서도 닫힌다.
+function bigSim(a) {
+  const close = openSimFull(a.title, a.html, () => { if (presentShow && presentShow.kind === "sim") setPresentShow(null); });
+  setPresentShow({ kind: "sim", title: a.title, html: a.html }, close);
+}
+
+function bigView(title, body) {
+  const close = openModal(title, body, () => { if (presentShow && presentShow.kind === "view") setPresentShow(null); });
+  setPresentShow({ kind: "view", title, html: snapshotHtml(body) }, close);
+}
+
+// 보이는 그대로 옮겨 적는다(학생 글은 h()가 글자로만 넣었으므로 옮겨도 안전하다). QR은 그림으로 바꾸고 누르는 단추는 뺀다.
+function snapshotHtml(el) {
+  const copy = el.cloneNode(true);
+  const qrs = el.querySelectorAll(".qr");
+  copy.querySelectorAll(".qr").forEach((q, i) => {
+    const c = qrs[i].querySelector("canvas"), im = qrs[i].querySelector("img");
+    let src = "";
+    try { src = c ? c.toDataURL() : im ? im.src : ""; } catch (_) {}
+    q.replaceChildren(src ? h("img", { src, alt: "QR" }) : "");
+  });
+  copy.querySelectorAll("button:not(.file-link)").forEach((b) => b.remove());
+  return copy.outerHTML;
+}
+
+// 수업 진행 탭의 외부 링크: 수업 화면이 열려 있으면 그쪽에 띄운다
+document.addEventListener("click", (e) => {
+  const a = e.target.closest && e.target.closest("a[href]");
+  if (!a || !presentOn || tab !== "run" || !main || !main.contains(a) || !/^https?:/i.test(a.href)) return;
+  e.preventDefault();
+  setPresentShow({ kind: "link", title: a.textContent || a.href, url: a.href });
+});
 
 // ---------- 수업 진행 ----------
 let run = null;
@@ -241,11 +341,12 @@ function drawRun() {
     h("div", { class: "run-left stack" },
       hasSlides ? stage : h("p", { class: "card muted" }, lesson.kind === "survey" ? "설문 전용입니다. 학생 화면에는 모든 설문이 보입니다." : "슬라이드가 없는 수업입니다. 학생 화면에는 모든 활동이 보입니다."),
       hasSlides ? h("nav", { class: "pager" }, prev, where, next, h("span", { class: "spacer" }),
-        h("button", { class: "ghost", type: "button", onclick() { if (stage.requestFullscreen) stage.requestFullscreen(); } }, "전체 화면")) : null,
+        h("button", { class: "ghost", type: "button", onclick() { if (stage.requestFullscreen) stage.requestFullscreen(); } }, "전체 화면"),
+        h("button", { class: "ghost", type: "button", onclick: openPresent }, "수업 화면 띄우기")) : null,
       h("div", { class: "row" },
         h("button", { class: "ghost", type: "button", onclick: showJoin }, "학생 접속 주소·QR"),
         h("button", { class: "ghost", type: "button", onclick() { downloadCSV(activities, lesson.code + "_전체응답"); } }, "전체 응답 CSV")),
-      hasSlides ? h("p", { class: "muted small" }, "학생 화면은 여기서 띄운 쪽을 따라갑니다. 키보드 ← → 로도 넘길 수 있습니다.") : null),
+      hasSlides ? h("p", { class: "muted small" }, "학생 화면은 여기서 띄운 쪽을 따라갑니다. 키보드 ← → 로도 넘길 수 있습니다. 「수업 화면 띄우기」는 슬라이드만 새 탭에 띄웁니다(그 탭을 프로젝터 화면으로 옮겨 쓰세요). 여기서 시뮬레이션이나 결과를 크게 띄우거나 링크를 누르면 수업 화면에도 바로 보입니다.") : null),
     h("aside", { class: "run-right stack" },
       h("section", { class: "card row between" }, openText, openBtn),
       roster,
@@ -285,10 +386,11 @@ function refreshRun() {
   }
   // 슬라이드 위 정한 자리에 얹는 시뮬레이션
   const boxed = L.slide_count > 0 && !stageSim ? shown.filter((a) => a.kind === "sim" && !a.sim_full && validSimBox(a.sim_box) && onPage(a, L.page)) : [];
-  showSimBoxes(run.simLayer, boxed, (a) => a.html, (a) => openSimFull(a.title, a.html));
+  showSimBoxes(run.simLayer, boxed, (a) => a.html, bigSim);
   drawRoster(shown.filter((a) => a.kind !== "sim"));
   run.panel.replaceChildren(...(shown.length ? shown.map(runBlock)
     : [h("p", { class: "card muted" }, L.page + "쪽에는 활동이 없습니다. 「질문·설문 만들기」에서 추가하세요.")]));
+  sendPresent();
 }
 
 // 접속한 학생: 초록 = 지금 화면을 열어 둔 학생(20초 안에 서버에 물어봄), ✓ = 이 쪽 활동에 답함
@@ -309,7 +411,7 @@ function drawRoster(shown) {
   run.roster.replaceChildren(
     h("div", { class: "row between" },
       h("h2", {}, "접속 중 " + online + "명", h("span", { class: "muted small" }, " · 입장 " + students.length + "명")),
-      h("button", { class: "ghost", type: "button", onclick() { openModal("입장한 학생", rosterChips(shown, true)); } }, "크게 보기")),
+      h("button", { class: "ghost", type: "button", onclick() { bigView("입장한 학생", rosterChips(shown, true)); } }, "크게 보기")),
     students.length ? rosterChips(shown) : h("p", { class: "muted small" }, "아직 입장한 학생이 없습니다."),
     students.length ? h("p", { class: "muted small" }, "초록색: 지금 접속 중 · ✓: " + (lesson.slide_count ? "이 쪽" : "") + " 활동에 답함") : h("span", {}));
 }
@@ -318,7 +420,7 @@ function runBlock(a) {
   if (a.kind === "sim") return h("section", { class: "card stack" },
     h("div", { class: "row between" },
       h("div", {}, h("p", { class: "muted small" }, "시뮬레이션 · " + whereText(a)), h("h2", {}, a.title)),
-      h("button", { class: "primary", type: "button", onclick() { openSimFull(a.title, a.html); } }, "크게 실행")),
+      h("button", { class: "primary", type: "button", onclick() { bigSim(a); } }, "크게 실행")),
     h("p", { class: "pill" }, !lesson.slide_count ? "학생 화면: 카드로 보임"
       : a.sim_full ? "학생 화면: 슬라이드 대신 크게 보임"
       : validSimBox(a.sim_box) ? "학생 화면: 슬라이드 위 정한 자리에 보임" : "학생 화면: 슬라이드 아래 카드로 보임"));
@@ -344,7 +446,7 @@ function runBlock(a) {
     h("p", { class: "muted small" }, "응답 " + docs.length + " / " + students.length + "명" + (avg ? " · 평균 " + avg : "")),
     summaryView(a.questions, docs, { openFile }),
     h("div", { class: "row" },
-      h("button", { class: "ghost", type: "button", onclick() { openModal(a.title, h("div", { class: "big-view" }, summaryView(a.questions, docsOf(a), { openFile }))); } }, "크게 보기"),
+      h("button", { class: "ghost", type: "button", onclick() { bigView(a.title, h("div", { class: "big-view" }, summaryView(a.questions, docsOf(a), { openFile }))); } }, "크게 보기"),
       h("button", { class: "ghost", type: "button", onclick() { openModal(a.title + " · 학생별", responseTable(a)); } }, "학생별 표"),
       h("button", { class: "ghost", type: "button", onclick() { downloadCSV([a], lesson.code + "_" + a.title); } }, "CSV")));
 }
@@ -389,13 +491,14 @@ function joinUrl(l) {
 function showJoin() {
   const url = joinUrl(lesson);
   const qr = h("div", { class: "qr" });
-  openModal("학생 접속", h("div", { class: "join" }, qr,
+  const body = h("div", { class: "join" }, qr,
     h("div", { class: "stack" },
       h("p", { class: "join-code" }, "수업 코드 ", h("strong", {}, lesson.code)),
       h("p", { class: "join-url" }, url),
-      h("button", { class: "ghost", type: "button", onclick(e) { navigator.clipboard.writeText(url).then(() => { e.target.textContent = "복사했습니다"; }); } }, "주소 복사"))));
+      h("button", { class: "ghost", type: "button", onclick(e) { navigator.clipboard.writeText(url).then(() => { e.target.textContent = "복사했습니다"; }); } }, "주소 복사")));
   if (window.QRCode) new QRCode(qr, { text: url, width: 320, height: 320 });
   else qr.textContent = "QR을 만들지 못했습니다(인터넷 연결 확인).";
+  bigView("학생 접속", body);
 }
 
 // ---------- 질문·설문 만들기 ----------

@@ -164,8 +164,14 @@ main.lesson .slide { cursor: zoom-in; }
 
 /* 교사: 탭 */
 .tabs { display: flex; flex-wrap: wrap; gap: .25rem; }
-.tab { background: none; border: 0; color: var(--ink); }
+.tab { position: relative; background: none; border: 0; color: var(--ink); }
 .tab.on { background: var(--accent); color: #fff; font-weight: 700; }
+/* 위쪽 단추: 마우스를 올리면 아래 막대가 가운데서부터 양옆으로 퍼진다 */
+.tab::after, .top .link::after, .present-btn::after { content: ""; position: absolute; left: .7rem; right: .7rem; bottom: 5px; height: 3px; border-radius: 2px; background: var(--accent); transform: scaleX(0); transform-origin: center; transition: transform .25s ease; pointer-events: none; }
+.tab.on::after { background: #fff; }
+.tab:hover:not(:disabled)::after, .tab:focus-visible::after, .top .link:hover::after, .top .link:focus-visible::after, .present-btn:hover::after, .present-btn:focus-visible::after { transform: scaleX(1); }
+.top .link, .present-btn { position: relative; }
+@media (prefers-reduced-motion: reduce) { .tab::after, .top .link::after, .present-btn::after { transition: none; } }
 .teacher .top-title select { min-height: 40px; padding: .3rem .6rem; font-weight: 700; max-width: 70vw; }
 
 /* 교사: 수업 진행 */
@@ -281,3 +287,22 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; font-size: .85re
 .live-draft.focus { border-left-color: var(--accent); }
 .live-answer { margin: 0; font-size: .88rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 .live-note { margin: 1rem 0 2rem; }
+/* 교사: 수업 화면에 띄운 외부 링크 알림 */
+.present-bar { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 60; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; max-width: calc(100vw - 32px);
+  padding: .5rem .75rem; background: #fff; border: 2px solid var(--accent); border-radius: 14px; box-shadow: 0 4px 18px rgba(0, 0, 0, .2); overflow-wrap: anywhere; }
+/* 수업 화면(present.html): 학생에게 보여 줄 슬라이드만 화면 가득 */
+body.present { background: #000; overflow: hidden; }
+body.present .credit { display: none; }
+.present-stage { position: fixed; inset: 0; }
+.present-slide { display: block; width: 100%; height: 100%; object-fit: contain; }
+.present-stage .sim-stage { position: absolute; inset: 0; background: #fff; }
+.present-stage .sim-stage .sim-frame { width: 100%; height: 100%; aspect-ratio: auto; min-height: 0; border: 0; border-radius: 0; }
+.present-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 2rem; color: #cfd6e4; font-size: 2rem; font-weight: 700; text-align: center; }
+.present-hint { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 40; padding: .4rem 1rem; border-radius: 999px; background: rgba(15, 20, 30, .75); color: #fff; font-size: .9rem; pointer-events: none; }
+.present-show { position: fixed; inset: 0; z-index: 30; background: #fff; display: flex; flex-direction: column; }
+.present-show-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .3rem 1rem; border-bottom: 1px solid var(--line); }
+.present-show-head a { color: var(--accent-ink); font-size: .9rem; }
+.present-show-head button { min-height: 34px; }
+.present-show .sim-frame, .present-link { flex: 1; width: 100%; height: auto; border: 0; border-radius: 0; aspect-ratio: auto; min-height: 0; }
+.present-view { flex: 1; overflow: auto; padding: 2rem 3rem; }
+.present-show .present-empty { position: static; flex: 1; color: var(--muted); }

@@ -4,7 +4,7 @@
 const SB_URL = String(SUPABASE_URL).trim().replace(/\/(rest|auth|storage)\/v1.*$/, "").replace(/\/+$/, "");
 const configured = (/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(SB_URL) || /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(SB_URL))
   && !/여기에/.test(SUPABASE_KEY) && String(SUPABASE_KEY).trim() !== "";
-const sb = configured ? supabase.createClient(SB_URL, String(SUPABASE_KEY).trim()) : null;
+const sb = configured && window.supabase ? supabase.createClient(SB_URL, String(SUPABASE_KEY).trim()) : null;
 
 // 만든 사람 표시. 고쳐 쓰거나 나눌 때도 지우지 말아 주세요(LICENSE.md).
 const CREDIT = { name: "이효송", year: 2026 };
@@ -132,9 +132,13 @@ function showSimBoxes(layer, list, getHtml, full) {
   layer.relayout();
 }
 
-// 시뮬레이션을 화면 가득 띄운다. 닫기 버튼이나 Esc로 닫는다.
-function openSimFull(title, html) {
-  const close = () => { box.remove(); document.removeEventListener("keydown", esc); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); };
+// 시뮬레이션을 화면 가득 띄운다. 닫기 버튼이나 Esc로 닫는다. onclose: 닫힐 때 부를 함수. 닫는 함수를 돌려준다.
+function openSimFull(title, html, onclose) {
+  const close = () => {
+    if (!box.isConnected) return;
+    box.remove(); document.removeEventListener("keydown", esc); if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    if (onclose) onclose();
+  };
   const esc = (e) => { if (e.key === "Escape") close(); };
   const box = h("div", { class: "sim-full" },
     h("div", { class: "sim-full-head" }, h("strong", {}, title || "시뮬레이션"), h("button", { class: "ghost", type: "button", onclick: close }, "닫기")),
@@ -142,6 +146,7 @@ function openSimFull(title, html) {
   document.addEventListener("keydown", esc);
   document.body.append(box);
   if (box.requestFullscreen) box.requestFullscreen().catch(() => {});
+  return close;
 }
 
 function slideSrc(lesson, n) {
@@ -323,8 +328,8 @@ function summaryView(questions, docs, opts) {
   });
 }
 
-function openModal(title, body) {
-  const close = () => box.remove();
+function openModal(title, body, onclose) {
+  const close = () => { if (!box.isConnected) return; box.remove(); if (onclose) onclose(); };
   const box = h("div", { class: "overlay", onclick(e) { if (e.target === box) close(); } },
     h("div", { class: "modal" },
       h("div", { class: "modal-head" }, h("h2", {}, title), h("button", { class: "ghost", type: "button", onclick: close }, "닫기")),
