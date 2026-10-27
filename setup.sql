@@ -236,13 +236,17 @@ end $$;
 
 -- 학생 화면에 필요한 것 전부: 이 수업의 상태, 활동, 내 응답, 공개된 친구들 응답.
 -- 이미 입장한 학생(열쇠가 있는 기기)이 새 수업 코드로 오면 비밀번호 없이 그 수업에 참여시킨다.
+-- 학생은 3초마다 묻는다. 지난번과 똑같으면(p_hash가 같으면) 내용 없이 same만 돌려줘 전송량을 줄인다.
 drop function if exists student_state(text);
-create or replace function student_state(p_token text, p_code text)
+drop function if exists student_state(text, text);
+create or replace function student_state(p_token text, p_code text, p_hash text default null)
 returns jsonb language plpgsql volatile security definer set search_path = public as $$
 declare
   s students;
   l lessons;
   m lesson_students;
+  v jsonb;
+  hsh text;
 begin
   select * into s from students where token = p_token and p_token is not null;
   if not found then return jsonb_build_object('error', 'logged_out'); end if;
@@ -258,7 +262,7 @@ begin
     update lesson_students set last_seen = now() where lesson_id = l.id and student_id = s.id;
   end if;
 
-  return jsonb_build_object(
+  v := jsonb_build_object(
     'me', jsonb_build_object('class_no', s.class_no, 'name', s.name),
     'lesson', jsonb_build_object('code', l.code, 'title', l.title, 'slide_dir', l.slide_dir,
                                  'slide_count', l.slide_count, 'page', l.page, 'open', l.open, 'kind', l.kind, 'transition', l.transition),
@@ -282,6 +286,9 @@ begin
       left join responses r on r.activity_id = a.id and r.student_id = s.id
       where a.lesson_id = l.id), '[]'::jsonb)
   );
+  hsh := md5(v::text);
+  if p_hash = hsh then return jsonb_build_object('same', true); end if;
+  return v || jsonb_build_object('hash', hsh);
 end $$;
 
 -- 학생 응답 저장. 그 수업에 참여한 학생만, 제출이 열려 있을 때만. 퀴즈는 한 번만 제출하고 서버에서 채점한다.
@@ -358,7 +365,9 @@ begin
 end $$;
 
 -- 교사 화면: 이 수업에 들어온 학생 목록(비밀번호 대신 '정해졌는지'만)
-create or replace function teacher_students(p_lesson uuid)
+-- p_live = false: 「학생 화면」 탭이 아닐 때는 쓰고 있는 답(live)을 빼고 받아 전송량을 줄인다
+drop function if exists teacher_students(uuid);
+create or replace function teacher_students(p_lesson uuid, p_live boolean default true)
 returns jsonb language plpgsql stable security definer set search_path = public as $$
 begin
   if not is_teacher() then raise exception 'not a teacher'; end if;
@@ -366,7 +375,7 @@ begin
     select jsonb_agg(jsonb_build_object(
       'id', s.id, 'class_no', s.class_no, 'name', s.name, 'pin_set', s.pin_set, 'fails', s.fails,
       'locked_until', s.locked_until, 'created_at', s.created_at, 'joined_at', m.joined_at, 'last_seen', m.last_seen,
-      'live', m.live, 'live_at', m.live_at))
+      'live', case when p_live then m.live end, 'live_at', m.live_at))
     from lesson_students m join students s on s.id = m.student_id
     where m.lesson_id = p_lesson), '[]'::jsonb);
 end $$;
@@ -391,16 +400,16 @@ begin
 end $$;
 
 revoke all on function student_enter(text, text, text, text, boolean) from public;
-revoke all on function student_state(text, text) from public;
-revoke all on function teacher_students(uuid) from public;
+revoke all on function student_state(text, text, text) from public;
+revoke all on function teacher_students(uuid, boolean) from public;
 revoke all on function student_sim(text, uuid) from public;
 revoke all on function student_save(text, uuid, jsonb) from public;
 revoke all on function create_lesson(text, text) from public;
 grant execute on function student_enter(text, text, text, text, boolean) to anon, authenticated;
-grant execute on function student_state(text, text) to anon, authenticated;
+grant execute on function student_state(text, text, text) to anon, authenticated;
 revoke all on function student_live(text, text, jsonb) from public;
 grant execute on function student_live(text, text, jsonb) to anon, authenticated;
-grant execute on function teacher_students(uuid) to authenticated;
+grant execute on function teacher_students(uuid, boolean) to authenticated;
 grant execute on function student_sim(text, uuid) to anon, authenticated;
 grant execute on function student_save(text, uuid, jsonb) to anon, authenticated;
 grant execute on function create_lesson(text, text) to authenticated;

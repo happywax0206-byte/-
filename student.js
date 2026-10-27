@@ -157,10 +157,25 @@ function stopPolling() {
   timer = null;
 }
 
+let oldState = false;   // setup.sql을 아직 다시 실행하지 않았으면 예전 방식으로 부른다
+
 async function poll() {
   clearTimeout(timer);
-  const { data, error } = await sb.rpc("student_state", { p_token: token, p_code: code });
+  // 지난번에 받은 것의 hash를 보내면, 바뀐 것이 없을 때 서버가 내용 없이 same만 돌려준다
+  const args = { p_token: token, p_code: code };
+  if (!oldState && state && state.hash) args.p_hash = state.hash;
+  let { data, error } = await sb.rpc("student_state", args);
+  if (error && args.p_hash && /p_hash|function/i.test(error.message || "")) {
+    oldState = true;
+    ({ data, error } = await sb.rpc("student_state", { p_token: token, p_code: code }));
+  }
   if (!token) return;
+  if (!error && data.same) {
+    if (!state) return poll();   // 그사이 다른 수업으로 바뀐 경우: hash 없이 다시 받는다
+    if (shell) shell.conn.hidden = true;
+    timer = setTimeout(poll, document.hidden ? POLL_MS * 4 : POLL_MS);
+    return;
+  }
   if (!error && data.error === "no_lesson") return showCodeOnly("수업 코드를 찾지 못했습니다. 선생님께 받은 코드를 확인하세요.");
   if (!error && data.error === "full") return showCodeOnly("이 수업은 인원이 가득 찼습니다. 선생님께 알려 주세요.");
   if (error) {

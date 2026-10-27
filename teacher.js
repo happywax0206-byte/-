@@ -80,6 +80,7 @@ async function loadLesson() {
     if (error) return fatal(error);
     activities = sortActivities(data);
     await loadResponses();
+    removeOrphanFiles().catch(() => {});
   }
   draw();
 }
@@ -88,24 +89,48 @@ function sortActivities(list) {
   return list.slice().sort((x, y) => (x.page ?? 1e9) - (y.page ?? 1e9) || x.sort - y.sort || x.created_at.localeCompare(y.created_at));
 }
 
-async function loadResponses() {
+// 전송량 줄이기: 몇 초마다 묻는 것(full=false)은 최근에 바뀐 응답만 받고, 30초마다·직접 부를 때는 전부 받는다.
+// 쓰고 있는 답(live)은 「학생 화면」 탭에서만 받는다.
+let respLesson = null;
+let respFullAt = 0;
+let respSince = 0;
+let oldTeacherStudents = false;   // setup.sql을 아직 다시 실행하지 않았으면 예전 방식으로 부른다
+
+async function loadResponses(full = true) {
   if (!lesson) return;
   // 이 수업에 들어온 학생(학생 계정은 웹앱 전체에 하나, 수업마다 참여 기록이 따로 있다)
-  const st = await sb.rpc("teacher_students", { p_lesson: lesson.id });
+  let st = await sb.rpc("teacher_students", oldTeacherStudents ? { p_lesson: lesson.id } : { p_lesson: lesson.id, p_live: tab === "live" });
+  if (st.error && !oldTeacherStudents && /p_live|function/i.test(st.error.message || "")) {
+    oldTeacherStudents = true;
+    st = await sb.rpc("teacher_students", { p_lesson: lesson.id });
+  }
   if (st.error) return fatal(st.error);
   students = (st.data || []).sort((x, y) => x.class_no.localeCompare(y.class_no, "ko", { numeric: true }) || x.name.localeCompare(y.name, "ko"));
   const ids = activities.map((a) => a.id);
   if (!ids.length) { responses = []; return; }
-  const rs = await sb.from("responses").select("*").in("activity_id", ids);
-  if (rs.error) return fatal(rs.error);
-  responses = rs.data;
+  if (full || respLesson !== lesson.id || Date.now() - respFullAt > 30000) {
+    const rs = await sb.from("responses").select("*").in("activity_id", ids);
+    if (rs.error) return fatal(rs.error);
+    responses = rs.data;
+    respLesson = lesson.id;
+    respFullAt = Date.now();
+  } else {
+    // 늦게 저장이 끝난 것도 놓치지 않게 10초 앞부터 다시 받는다
+    const since = new Date(Math.max(0, respSince - 10000)).toISOString();
+    const rs = await sb.from("responses").select("*").in("activity_id", ids).gte("updated_at", since);
+    if (rs.error) return fatal(rs.error);
+    const key = (r) => r.student_id + " " + r.activity_id;
+    const got = new Map(rs.data.map((r) => [key(r), r]));
+    responses = responses.filter((r) => !got.has(key(r)) && ids.includes(r.activity_id)).concat(rs.data);
+  }
+  respSince = responses.reduce((m, r) => Math.max(m, Date.parse(r.updated_at) || 0), 0);
 }
 
 function schedule() {
   clearTimeout(timer);
   if (!lesson || (tab !== "run" && tab !== "students" && tab !== "live")) return;
   timer = setTimeout(async () => {
-    await loadResponses();
+    await loadResponses(false);
     if (tab === "run") refreshRun();
     if (tab === "students") drawStudents();
     if (tab === "live") refreshLive();
@@ -157,7 +182,12 @@ function draw() {
       h("div", { class: "top-title" }, h("span", { class: "eyebrow" }, "교사용"), pick),
       h("nav", { class: "tabs" }, tabs.map(([k, label]) => h("button", {
         type: "button", class: tab === k ? "tab on" : "tab", disabled: !lesson && k !== "settings",
-        onclick() { tab = k; localStorage.setItem("cra-tab", k); draw(); },
+        async onclick() {
+          const needLive = k === "live" && tab !== "live";
+          tab = k; localStorage.setItem("cra-tab", k);
+          if (needLive) await loadResponses();   // 다른 탭에서는 쓰고 있는 답을 받지 않았으므로 먼저 받는다
+          draw();
+        },
       }, label))),
       h("button", { class: "link", type: "button", async onclick() { await sb.auth.signOut(); location.reload(); } }, "로그아웃")),
     main);
@@ -1512,6 +1542,36 @@ async function removeSubmissionFiles(lessonId, activityId) {
     const r = await st.remove(names);
     if (r.error || data.length < 1000) return;
   }
+}
+
+// 학생이 올렸다가 「빼기」 하거나 저장하지 않은 파일은 아무 답에도 없이 저장소만 차지한다.
+// 수업을 열 때(한 번만) 올린 지 이틀이 지났는데 어느 답에도 없는 파일을 지운다.
+const cleanedLessons = new Set();
+async function removeOrphanFiles() {
+  if (!lesson || cleanedLessons.has(lesson.id)) return;
+  if (!activities.some((a) => (a.questions || []).some((q) => q.type === "file"))) return;
+  cleanedLessons.add(lesson.id);
+  const lessonId = lesson.id;
+  // 답 목록을 새로 받는다. 못 받으면 아무것도 지우지 않는다
+  const rs = await sb.from("responses").select("answers").in("activity_id", activities.map((a) => a.id));
+  if (rs.error || !rs.data) return;
+  const used = new Set();
+  for (const r of rs.data) for (const v of Object.values(r.answers || {})) {
+    if (Array.isArray(v)) v.forEach((x) => x && x.path && used.add(x.path));
+  }
+  const st = sb.storage.from("submissions");
+  const old = Date.now() - 2 * 24 * 3600 * 1000;
+  const gone = [];
+  for (let offset = 0; offset < 50000; offset += 1000) {
+    const { data, error } = await st.list(lessonId, { limit: 1000, offset });
+    if (error || !data) return;
+    for (const o of data) {
+      const path = lessonId + "/" + o.name;
+      if (o.id && !used.has(path) && Date.parse(o.created_at) < old) gone.push(path);
+    }
+    if (data.length < 1000) break;
+  }
+  for (let i = 0; i < gone.length; i += 100) await st.remove(gone.slice(i, i + 100));
 }
 
 // ---------- CSV ----------
