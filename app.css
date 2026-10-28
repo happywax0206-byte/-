@@ -379,10 +379,21 @@ body.present .credit { display: none; }
 /* 관리: 무료 용량 반원 막대 */
 .usage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .75rem; }
 .usage-grid > .banner { grid-column: 1 / -1; }
-.gauge { margin: 0; display: grid; gap: .3rem; justify-items: center; text-align: center; padding: 1rem; }
-.gauge figcaption { font-weight: 700; }
 .gauge-box { position: relative; width: 100%; max-width: 240px; }
 .gauge-arc { display: block; width: 100%; }
 .gauge-text { position: absolute; left: 0; right: 0; bottom: 2%; display: grid; line-height: 1.15; }
 .gauge-text strong { font-size: 1.7rem; }
 .gauge-text span { font-size: .85rem; color: var(--muted); }
+.gauge { margin: 0; display: grid; gap: .3rem; justify-items: center; align-content: start; text-align: center; padding: 1rem;
+  font: inherit; color: inherit; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.gauge:hover { border-color: var(--accent); }
+.gauge.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.gauge-title { font-weight: 700; }
+.usage-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+.usage-rows li { display: grid; gap: .25rem; }
+.usage-rows li.other { color: var(--muted); }
+.usage-num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.usage-bar { display: block; height: 8px; border-radius: 999px; background: #eef0f4; overflow: hidden; }
+.usage-bar > span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+.usage-rows li.other .usage-bar > span { background: #9aa4b5; }
+.usage-list { margin: 0; padding-left: 1.2rem; display: grid; gap: .2rem; }

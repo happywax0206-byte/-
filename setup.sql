@@ -578,20 +578,58 @@ begin
   return jsonb_build_object('ok', true);
 end $$;
 
--- 교사 화면 「관리」 탭: 무료 용량 중 쓴 만큼. 데이터베이스 크기, 저장소(버킷별) 크기, 교사 계정 수(이번 달 로그인). 교사만.
--- 전송량(egress)은 데이터베이스에서 알 수 없어 Supabase 대시보드에서만 보인다.
+-- 교사 화면 「관리」 탭: 무료 용량 중 쓴 만큼과, 무엇이 많이 쓰는지(큰 것부터). 교사만.
+-- 데이터베이스 크기: Supabase 문서와 같은 방법(모든 데이터베이스의 pg_database_size 합, 기본으로 40~60MB).
+-- 디스크: 데이터베이스 + WAL(읽을 수 있을 때만). 무료는 2GB, 95%가 차면 읽기 전용이 된다.
+-- 저장소: 파일 크기 합(버킷·수업별). 활성 사용자(MAU): 이번 달에 로그인했거나 로그인을 이어 간(토큰 새로 받기) 교사 계정.
+-- 전송량(egress)은 데이터베이스에서도, 토큰으로 부르는 Supabase API에서도 알 수 없어 대시보드에서만 보인다.
 create or replace function usage_stats() returns jsonb
 language plpgsql stable security definer set search_path = public as $$
+declare
+  admin boolean;
+  wal bigint;
+  since timestamptz := date_trunc('month', now());
 begin
   if not is_teacher() then raise exception 'not a teacher'; end if;
+  admin := exists (select 1 from teachers where email = my_email() and not invited);
+  begin
+    select sum(size) into wal from pg_ls_waldir();
+  exception when others then
+    wal := null;   -- 권한이 없으면 디스크는 데이터베이스 크기만으로 본다
+  end;
   return jsonb_build_object(
-    'db_bytes', pg_database_size(current_database()),
-    'storage', coalesce((
-      select jsonb_object_agg(bucket_id, jsonb_build_object('bytes', b, 'files', n))
-      from (select bucket_id, sum(coalesce((metadata ->> 'size')::bigint, 0)) b, count(*) n
-            from storage.objects group by bucket_id) x), '{}'::jsonb),
+    'db_bytes', (select sum(pg_database_size(datname)) from pg_database),
+    'wal_bytes', wal,
+    -- 이 데이터베이스의 표(색인 포함) 큰 것 40개. 나머지(기본 시스템 표·다른 데이터베이스)는 화면에서 「기본」으로 묶는다
+    'db_parts', coalesce((
+      select jsonb_agg(jsonb_build_object('name', x.nspname || '.' || x.relname, 'bytes', x.b) order by x.b desc)
+      from (select n.nspname, c.relname, pg_total_relation_size(c.oid) b
+            from pg_class c join pg_namespace n on n.oid = c.relnamespace
+            where c.relkind in ('r', 'm', 'p') and n.nspname not in ('pg_catalog', 'information_schema') and n.nspname not like 'pg\_%'
+            order by 3 desc limit 40) x), '[]'::jsonb),
+    -- 저장소 파일: 버킷과 수업 폴더별(슬라이드는 만든교사id/수업id/…, 예전에는 수업id/…; 학생 제출은 수업id/…)
+    'storage_parts', coalesce((
+      select jsonb_agg(jsonb_build_object('bucket', x.bucket_id, 'lesson', x.lid, 'bytes', x.b, 'files', x.n,
+               'title', case when x.lid is not null and can_lesson(x.lid) then (select title from lessons where id = x.lid) end,
+               'mine', x.lid is not null and can_lesson(x.lid)) order by x.b desc)
+      from (select o.bucket_id, coalesce(l1.id, l2.id) lid, sum(coalesce((o.metadata ->> 'size')::bigint, 0)) b, count(*) n
+            from storage.objects o
+            left join lessons l1 on l1.id::text = (storage.foldername(o.name))[1]
+            left join lessons l2 on l2.id::text = (storage.foldername(o.name))[2]
+            group by 1, 2) x), '[]'::jsonb),
     'users', (select count(*) from auth.users),
-    'mau', (select count(*) from auth.users where last_sign_in_at >= date_trunc('month', now())),
+    'mau', (select count(*) from auth.users u
+            where u.last_sign_in_at >= since
+               or exists (select 1 from auth.sessions s where s.user_id = u.id and s.updated_at >= since)
+               or exists (select 1 from auth.refresh_tokens r where r.user_id = u.id::text and r.updated_at >= since)),
+    -- 계정 목록(이메일)은 처음부터 있던 교사(초대받아 들어온 교사가 아닌)에게만
+    'mau_list', case when admin then coalesce((
+      select jsonb_agg(jsonb_build_object('email', x.email, 'at', x.at) order by x.at desc)
+      from (select u.email, greatest(u.last_sign_in_at,
+                     (select max(s.updated_at) from auth.sessions s where s.user_id = u.id),
+                     (select max(r.updated_at) from auth.refresh_tokens r where r.user_id = u.id::text)) at
+            from auth.users u) x
+      where x.at >= since), '[]'::jsonb) end,
     'students', (select count(*) from students),
     'lessons', (select count(*) from lessons));
 end $$;

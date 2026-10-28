@@ -115,10 +115,19 @@ function drawPeople() {
 }
 
 // ---------- 관리: 쓰고 있는 사이트의 무료 용량 ----------
-// 무료 플랜 한도(2026년 기준). 바뀌면 여기 숫자만 고친다.
-const FREE = { db: 500e6, storage: 1e9, egress: 5e9, mau: 50000, pages: 1e9 };
+// 무료 플랜 한도(2026년 10월 supabase.com/pricing, GitHub Pages 문서 기준). 바뀌면 여기 숫자만 고친다.
+const FREE = { db: 500e6, disk: 2e9, storage: 1e9, egress: 5e9, cached: 5e9, mau: 50000, pages: 1e9, builds: 10 };
 const GITHUB_REPO = location.hostname.endsWith(".github.io")
   ? location.hostname.split(".")[0] + "/" + (location.pathname.split("/")[1] || "") : "happywax0206-byte/-";
+// 자세히 볼 때: 큰 것부터 8개까지, 쓴 양의 2%보다 작은 것은 「기타」로 묶는다
+const DETAIL_MAX = 8, DETAIL_MIN = 0.02;
+const DB_NAMES = {
+  "public.responses": "학생 답", "public.activities": "질문·설문·시뮬레이션", "public.lesson_students": "수업 참여·실시간 화면",
+  "public.students": "학생 계정", "public.lessons": "수업", "public.upload_tickets": "파일 올리기 자리", "public.teachers": "교사 목록",
+  "public.lesson_members": "공동작업자", "storage.objects": "저장소 파일 목록",
+};
+let manageOpen = null;   // 펼쳐 본 칸
+let manageData = null;   // { gauges, grid, detail }
 
 function fmtBytes(b) {
   const num = (x, d) => String(+x.toFixed(d));   // 500.0 → 500
@@ -126,18 +135,21 @@ function fmtBytes(b) {
   if (b < 1e9) return num(b / 1e6, b < 1e7 ? 2 : 1) + " MB";
   return num(b / 1e9, 2) + " GB";
 }
+const fmtCount = (unit) => (x) => Math.round(x).toLocaleString("ko-KR") + unit;
+const pctText = (p) => (p > 0 && p < 0.1 ? "<0.1" : p < 10 ? String(+p.toFixed(1)) : String(Math.round(p))) + "%";
+const fmtWhen = (t) => new Date(t).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
-// 반원 막대: 찬 만큼 색이 칠해지고 가운데에 「쓴 양 / 전체」와 %를 띄운다. used가 null이면 이 앱에서는 읽을 수 없는 것
-function gauge(title, used, total, fmt, note) {
-  const known = used != null;
-  const pct = known ? used / total * 100 : 0;
+// 반원 막대: 찬 만큼 색이 칠해지고 가운데에 %와 「쓴 양 / 전체」를 띄운다. used가 null이면 이 앱에서는 읽을 수 없는 것
+function gauge(g, onOpen) {
+  const known = g.used != null;
+  const pct = known ? g.used / g.total * 100 : 0;
   const color = !known ? "#c9d1de" : pct >= 85 ? "var(--bad)" : pct >= 60 ? "#d97706" : "var(--ok)";
   const ns = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(ns, "svg");
   svg.setAttribute("viewBox", "0 0 120 66");
   svg.setAttribute("class", "gauge-arc");
   svg.setAttribute("aria-hidden", "true");
-  for (const [stroke, len] of [["#eef0f4", 100], [color, Math.min(100, Math.max(known && used > 0 ? 1 : 0, pct))]]) {
+  for (const [stroke, len] of [["#eef0f4", 100], [color, Math.min(100, Math.max(known && g.used > 0 ? 1 : 0, pct))]]) {
     if (!len) continue;
     const p = document.createElementNS(ns, "path");
     p.setAttribute("d", "M 10 60 A 50 50 0 0 1 110 60");
@@ -149,17 +161,52 @@ function gauge(title, used, total, fmt, note) {
     p.setAttribute("stroke-dasharray", len + " 100");
     svg.append(p);
   }
-  return h("figure", { class: "card gauge", role: "img", "aria-label": title + " " + (known ? fmt(used) + " / " + fmt(total) : "알 수 없음") },
-    h("figcaption", {}, title),
-    h("div", { class: "gauge-box" }, svg,
-      h("div", { class: "gauge-text" },
-        h("strong", {}, !known ? "?" : used > 0 && pct < 0.1 ? "<0.1%" : (pct < 10 ? +pct.toFixed(1) : Math.round(pct)) + "%"),
-        h("span", {}, (known ? fmt(used) : "?") + " / " + fmt(total)))),
-    note ? h("p", { class: "muted small" }, note) : null);
+  return h("button", { type: "button", class: "card gauge" + (manageOpen === g.key ? " on" : ""), "aria-expanded": String(manageOpen === g.key),
+    "aria-label": g.title + " " + (known ? g.fmt(g.used) + " / " + g.fmt(g.total) : "알 수 없음") + " · 누르면 자세히", onclick() { onOpen(g.key); } },
+    h("span", { class: "gauge-title" }, g.title),
+    h("span", { class: "gauge-box" }, svg,
+      h("span", { class: "gauge-text" },
+        h("strong", {}, known ? pctText(pct) : "?"),
+        h("span", {}, (known ? g.fmt(g.used) : "?") + " / " + g.fmt(g.total)))),
+    g.note ? h("span", { class: "muted small" }, g.note) : null);
+}
+
+// 큰 것부터 나열하고 작은 것은 「기타」로 묶는다. items: [{ label, value, sub }]
+function detailRows(items, base) {
+  const list = items.filter((x) => x.value > 0).sort((x, y) => y.value - x.value);
+  const sum = base || list.reduce((m, x) => m + x.value, 0) || 1;
+  const keep = [], rest = [];
+  for (const x of list) (keep.length < DETAIL_MAX && x.value / sum >= DETAIL_MIN ? keep : rest).push(x);
+  if (rest.length) keep.push({ label: "기타 " + rest.length + "개", other: true, value: rest.reduce((m, x) => m + x.value, 0),
+    sub: rest.slice(0, 5).map((x) => x.label).join(", ") + (rest.length > 5 ? " …" : "") });
+  return keep.map((x) => ({ ...x, share: x.value / sum * 100 }));
+}
+
+function detailPanel(g) {
+  const rows = g.items ? detailRows(g.items, g.used) : [];
+  return h("section", { class: "card stack usage-detail" },
+    h("div", { class: "row between wrap" }, h("h3", {}, g.title + (rows.length ? " — 많이 쓰는 것부터" : "")),
+      h("button", { class: "link", type: "button", onclick() { manageOpen = null; drawManageGrid(); } }, "닫기")),
+    rows.length ? h("ol", { class: "usage-rows" }, rows.map((x) => h("li", { class: x.other ? "other" : null },
+      h("div", { class: "row between" }, h("span", {}, h("strong", {}, x.label), x.sub ? h("span", { class: "muted small" }, " " + x.sub) : null),
+        h("span", { class: "usage-num" }, g.fmt(x.value) + " · " + pctText(x.share))),
+      h("span", { class: "usage-bar" }, h("span", { style: "width:" + Math.max(0.5, Math.min(100, x.share)) + "%" }))))) : null,
+    g.list || null,
+    g.how ? h("p", { class: "muted small" }, g.how) : null);
+}
+
+function drawManageGrid() {
+  if (!manageData || !manageData.grid.isConnected) return;
+  const open = (k) => { manageOpen = manageOpen === k ? null : k; drawManageGrid(); };
+  manageData.grid.replaceChildren(...manageData.gauges.map((g) => gauge(g, open)));
+  const g = manageData.gauges.find((x) => x.key === manageOpen);
+  manageData.detail.replaceChildren(...(g ? [detailPanel(g)] : []));
 }
 
 async function drawManage() {
   const grid = h("div", { class: "usage-grid" }, h("p", { class: "muted" }, "읽어 오는 중…"));
+  const detail = h("div");
+  const banner = h("div");
   const when = h("span", { class: "muted small" });
   const ref = (/^https:\/\/([a-z0-9-]+)\.supabase\.co$/.exec(SB_URL) || [])[1];
   const dash = ref ? "https://supabase.com/dashboard/project/" + ref : "https://supabase.com/dashboard";
@@ -167,38 +214,87 @@ async function drawManage() {
     h("section", { class: "card stack" },
       h("div", { class: "row between wrap" }, h("h2", {}, "무료 용량"),
         h("div", { class: "row" }, when, h("button", { class: "ghost", type: "button", onclick: drawManage }, "⟳ 다시 읽기"))),
-      h("p", { class: "muted small" }, "이 웹앱이 쓰는 사이트(Supabase: 데이터·파일, GitHub: 화면)의 무료 플랜 한도 중 얼마나 썼는지입니다. 60%를 넘으면 주황, 85%를 넘으면 빨강으로 바뀝니다. 한도는 2026년 무료 플랜 기준이라 바뀔 수 있습니다.")),
-    grid,
+      h("p", { class: "muted small" }, "이 웹앱이 쓰는 사이트(Supabase: 데이터·파일, GitHub: 화면)의 무료 한도 중 얼마나 썼는지입니다. 칸을 누르면 무엇이 많이 쓰는지 큰 것부터 보입니다. 60%를 넘으면 주황, 85%를 넘으면 빨강. 한도는 2026년 10월 무료 플랜 기준입니다.")),
+    banner, grid, detail,
     h("section", { class: "card stack" },
-      h("h3", {}, "직접 확인해야 하는 것"),
+      h("h3", {}, "알아 둘 것"),
       h("ul", { class: "small" },
-        h("li", {}, "전송량(egress, 한 달 5 GB)과 정확한 이번 달 사용자 수는 이 앱에서 읽을 수 없습니다. ",
-          h("a", { href: dash, target: "_blank", rel: "noopener" }, "Supabase 대시보드"), "에 로그인해 왼쪽 위 조직 이름 → Usage에서 보세요."),
-        h("li", {}, "Supabase 무료 프로젝트는 1주일 넘게 아무도 쓰지 않으면 잠시 멈춥니다(대시보드에서 Restore를 누르면 다시 켜짐)."),
-        h("li", {}, "GitHub Pages 전송량은 한 달 100 GB 정도까지 괜찮고(넘으면 안내 메일), 숫자를 보여 주는 곳은 없습니다.")))));
+        h("li", {}, "Supabase는 한도를 달력의 1일이 아니라 ", h("strong", {}, "결제 주기"), "(조직을 만든 날짜 기준)로 셉니다. 여기 「이번 달」은 1일부터라 대시보드와 며칠 어긋날 수 있습니다."),
+        h("li", {}, "전송량·캐시 전송량은 Supabase가 대시보드에서만 보여 줍니다(토큰으로 부르는 API와 로그에도 바이트 수가 없음). ",
+          h("a", { href: dash, target: "_blank", rel: "noopener" }, "Supabase 대시보드"), " → 왼쪽 위 조직 이름 → Usage."),
+        h("li", {}, "데이터베이스 크기는 결제 주기의 하루 평균으로 따지고, 넘으면 다음 주기까지 요청이 막힐 수 있습니다. 디스크가 95% 차면 읽기 전용이 됩니다."),
+        h("li", {}, "Supabase 무료 프로젝트는 1주일 넘게 아무도 쓰지 않으면 멈춥니다(대시보드에서 Restore)."),
+        h("li", {}, "이 앱이 쓰지 않아 늘 0인 무료 항목: Realtime(동시 연결 200·메시지 200만), Edge Functions(50만 회), 다른 서비스 로그인(제3자 MAU 5만). 「수업 화면 띄우기」 연결은 브라우저 안에서만 오가고, 학생 화면 보기 영상도 Supabase를 거치지 않습니다.")))));
+  manageData = { gauges: [], grid, detail };
 
-  const [st, gh] = await Promise.all([
-    sb.rpc("usage_stats"),
-    fetch("https://api.github.com/repos/" + GITHUB_REPO).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-  ]);
+  const ghGet = (path) => fetch("https://api.github.com/repos/" + GITHUB_REPO + path).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const [st, repo, runs] = await Promise.all([sb.rpc("usage_stats"), ghGet(""), ghGet("/actions/runs?per_page=30")]);
+  const tree = repo ? await ghGet("/git/trees/" + encodeURIComponent(repo.default_branch || "main") + "?recursive=1") : null;
   if (!grid.isConnected) return;
-  const u = st.data || null;
-  const files = u ? Object.values(u.storage || {}).reduce((m, b) => m + (+b.bytes || 0), 0) : null;
-  const fileCount = u ? Object.values(u.storage || {}).reduce((m, b) => m + (+b.files || 0), 0) : 0;
-  const bucket = (k) => (u && u.storage && u.storage[k] ? fmtBytes(+u.storage[k].bytes) : "0 KB");
-  const n = (x) => Math.round(x).toLocaleString("ko-KR") + "명";
-  grid.replaceChildren(
-    gauge("Supabase 데이터베이스", u ? +u.db_bytes : null, FREE.db, fmtBytes,
-      u ? "수업 " + u.lessons + "개 · 학생 " + u.students + "명 · 질문·답 등 글자 데이터" : null),
-    gauge("Supabase 파일 저장소", files, FREE.storage, fmtBytes,
-      u ? "파일 " + fileCount.toLocaleString("ko-KR") + "개 · 슬라이드 " + bucket("slides") + " · 학생 제출 " + bucket("submissions") : null),
-    gauge("Supabase 전송량 (이번 달)", null, FREE.egress, fmtBytes, "이 앱에서는 읽을 수 없음 · 아래 대시보드에서 확인"),
-    gauge("Supabase 로그인 (이번 달)", u ? +u.mau : null, FREE.mau, n,
-      u ? "전체 교사 계정 " + u.users + "개 · 학생은 계정이 아니라 세지 않음" : null),
-    gauge("GitHub 저장소 (화면 파일)", gh && gh.size != null ? gh.size * 1024 : null, FREE.pages, fmtBytes,
-      gh ? "github.com/" + GITHUB_REPO + " · Pages 사이트는 1 GB까지" : "GitHub에서 읽지 못함(잠시 뒤 다시)"));
-  if (st.error) grid.prepend(h("p", { class: "banner" }, /usage_stats|function/i.test(st.error.message || "")
+  const u = st.error ? null : st.data;
+  if (st.error) banner.replaceChildren(h("p", { class: "banner" }, /usage_stats|function/i.test(st.error.message || "")
     ? "Supabase 수치를 보려면 먼저 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요." : "Supabase 수치를 읽지 못했습니다: " + st.error.message));
+  else if (u && !u.db_parts) banner.replaceChildren(h("p", { class: "banner" }, "자세히 보기를 쓰려면 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요."));
+
+  const gauges = [];
+  if (u && u.db_parts) {
+    // 데이터베이스: 표(색인 포함)별. 목록에 없는 나머지는 Postgres·Supabase 기본(다른 데이터베이스 포함)
+    const db = +u.db_bytes;
+    const parts = u.db_parts.map((p) => {
+      const known = DB_NAMES[p.name];
+      const [schema, rel] = p.name.split(".");
+      return { label: known || (schema === "auth" ? "로그인 기록" : schema === "storage" ? "저장소 관리" : "시스템"), sub: known ? null : "(" + rel + ")", value: +p.bytes };
+    });
+    parts.push({ label: "Postgres·Supabase 기본", sub: "(새 프로젝트도 40~60MB, 줄일 수 없음)", value: Math.max(0, db - parts.reduce((m, p) => m + p.value, 0)) });
+    gauges.push({ key: "db", title: "Supabase 데이터베이스", used: db, total: FREE.db, fmt: fmtBytes, items: parts,
+      note: "수업 " + u.lessons + "개 · 학생 " + u.students + "명",
+      how: "글자로 된 모든 데이터(수업·질문·답·시뮬레이션 html)와 색인입니다. 많이 차면 오래된 수업이나 답을 지우세요." });
+    const wal = u.wal_bytes == null ? null : +u.wal_bytes;
+    gauges.push({ key: "disk", title: "Supabase 디스크", used: db + (wal || 0), total: FREE.disk, fmt: fmtBytes,
+      items: [{ label: "데이터베이스", value: db }].concat(wal != null ? [{ label: "WAL (변경 기록)", sub: "(저절로 정리됨)", value: wal }] : []),
+      note: wal == null ? "WAL을 읽지 못해 데이터베이스만 셈" : "95% 차면 읽기 전용",
+      how: "디스크에는 시스템 파일도 조금 더 있어 실제는 이보다 약간 큽니다. 무료는 2 GB로 고정이고 늘어나지 않으며, 95%가 차면 읽기 전용이 됩니다." });
+    const sp = u.storage_parts.map((p) => ({
+      label: (p.bucket === "slides" ? "슬라이드" : p.bucket === "submissions" ? "학생 제출" : p.bucket) + " · " +
+        (p.title || (p.lesson ? "다른 선생님 수업" : "수업 목록에 없는 폴더")),
+      sub: "(파일 " + (+p.files).toLocaleString("ko-KR") + "개)", value: +p.bytes }));
+    gauges.push({ key: "storage", title: "Supabase 파일 저장소", used: sp.reduce((m, p) => m + p.value, 0), total: FREE.storage, fmt: fmtBytes, items: sp,
+      note: "슬라이드 그림과 학생이 올린 파일",
+      how: "「수업 목록에 없는 폴더」는 지운 수업의 파일이거나, 복제한 수업이 함께 쓰는 원래 수업의 슬라이드일 수 있습니다." });
+  } else {
+    gauges.push({ key: "db", title: "Supabase 데이터베이스", used: null, total: FREE.db, fmt: fmtBytes });
+    gauges.push({ key: "storage", title: "Supabase 파일 저장소", used: null, total: FREE.storage, fmt: fmtBytes });
+  }
+  const egressHow = "정확한 숫자는 대시보드에서만 볼 수 있습니다. 이 앱에서 전송량을 쓰는 곳(구조상 많은 순서): ① 학생 화면이 3초마다 묻는 수업 상태(바뀐 것이 없으면 아주 짧음) ② 쪽을 넘길 때 받는 슬라이드 그림(같은 그림을 다시 받으면 캐시 전송량) ③ 교사 화면의 학생·답 목록 ④ 학생이 올린 파일 열기.";
+  gauges.push({ key: "egress", title: "Supabase 전송량", used: null, total: FREE.egress, fmt: fmtBytes, note: "대시보드에서만 볼 수 있음", how: egressHow });
+  gauges.push({ key: "cached", title: "Supabase 캐시 전송량", used: null, total: FREE.cached, fmt: fmtBytes, note: "CDN이 대신 보낸 슬라이드 그림 등", how: egressHow });
+  if (u && "mau_list" in u) {
+    gauges.push({ key: "mau", title: "Supabase 활성 사용자", used: +u.mau, total: FREE.mau, fmt: fmtCount("명"),
+      note: "이번 달 로그인한 교사 · 학생은 세지 않음",
+      list: u.mau_list && u.mau_list.length ? h("ol", { class: "usage-list small" }, u.mau_list.map((x) => h("li", {}, x.email, h("span", { class: "muted" }, " · 마지막 " + fmtWhen(x.at))))) : null,
+      how: "로그인하거나 로그인을 이어 간(자동 연장) 교사 계정 수입니다. 학생은 Supabase 계정이 아니라 이 앱의 학번·비밀번호로 들어오므로 세지 않습니다. 전체 교사 계정 " + u.users + "개." + (u.mau_list ? "" : " (계정 목록은 처음부터 있던 교사에게만 보입니다)") });
+  }
+  // GitHub Pages: 지금 파일 크기(사이트 한도 1 GB). 저장소 전체(예전 버전 포함)는 따로 적는다
+  const blobs = tree && tree.tree ? tree.tree.filter((x) => x.type === "blob") : null;
+  const byTop = new Map();
+  for (const b of blobs || []) {
+    const top = b.path.includes("/") ? b.path.split("/")[0] + "/" : b.path;
+    byTop.set(top, (byTop.get(top) || 0) + (b.size || 0));
+  }
+  gauges.push({ key: "pages", title: "GitHub Pages 사이트", used: blobs ? blobs.reduce((m, x) => m + (x.size || 0), 0) : null, total: FREE.pages, fmt: fmtBytes,
+    items: blobs ? [...byTop].map(([k, v]) => ({ label: k, value: v })) : null,
+    note: blobs ? "파일 " + blobs.length + "개" + (repo ? " · 저장소(압축, 예전 버전 포함) " + fmtBytes(repo.size * 1024) : "") : "GitHub에서 읽지 못함(잠시 뒤 다시)",
+    how: "github.com/" + GITHUB_REPO + " · 사이트 크기 한도 1 GB, 저장소는 1 GB 아래를 권장합니다. 사이트 전송량은 한 달 100 GB 정도(넘으면 안내 메일)이며 숫자를 볼 수 있는 곳은 없습니다." });
+  const hourAgo = Date.now() - 3600e3;
+  const builds = runs && runs.workflow_runs ? runs.workflow_runs.filter((r) => /pages/i.test(r.name || "") && Date.parse(r.created_at) > hourAgo) : null;
+  gauges.push({ key: "builds", title: "GitHub Pages 배포 (1시간)", used: builds ? builds.length : null, total: FREE.builds, fmt: fmtCount("번"),
+    note: "고쳐서 올릴 때마다 1번",
+    list: builds && builds.length ? h("ol", { class: "usage-list small" }, builds.map((r) => h("li", {}, fmtWhen(r.created_at) + " · " + (r.display_title || r.name),
+      h("span", { class: "muted" }, " · " + (r.conclusion === "success" ? "완료" : r.conclusion || "진행 중"))))) : null,
+    how: "GitHub Pages는 한 시간에 10번 정도까지 다시 만들어 줍니다(넘으면 반영이 조금 늦어짐)." });
+
+  manageData.gauges = gauges;
+  drawManageGrid();
   when.textContent = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) + " 기준";
 }
 
