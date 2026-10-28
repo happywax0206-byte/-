@@ -115,6 +115,7 @@ function simBoxEl(a, box, full) {
     full ? h("button", { class: "sim-box-full", type: "button", title: "크게 보기", "aria-label": a.title + " 크게 보기", onclick() { full(a); } }, "⤢") : null);
   el._box = box;
   el._frame = f;
+  el._id = a.id;
   return el;
 }
 
@@ -132,21 +133,54 @@ function showSimBoxes(layer, list, getHtml, full) {
   layer.relayout();
 }
 
-// 시뮬레이션을 화면 가득 띄운다. 닫기 버튼이나 Esc로 닫는다. onclose: 닫힐 때 부를 함수. 닫는 함수를 돌려준다.
-function openSimFull(title, html, onclose) {
+// content(시뮬레이션·링크 칸)를 화면 가득 띄운다. 닫기 버튼이나 Esc로 닫는다. onclose: 닫힐 때 부를 함수. extra: 제목 옆에 둘 것.
+// 닫는 함수를 돌려주고, close.body 는 content를 감싼 칸이다.
+function openFull(title, content, onclose, extra) {
   const close = () => {
     if (!box.isConnected) return;
     box.remove(); document.removeEventListener("keydown", esc); if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     if (onclose) onclose();
   };
   const esc = (e) => { if (e.key === "Escape") close(); };
+  const body = h("div", { class: "sim-full-body" }, content);
   const box = h("div", { class: "sim-full" },
-    h("div", { class: "sim-full-head" }, h("strong", {}, title || "시뮬레이션"), h("button", { class: "ghost", type: "button", onclick: close }, "닫기")),
-    simFrame(html, title));
+    h("div", { class: "sim-full-head" }, h("strong", {}, title || "시뮬레이션"),
+      h("span", { class: "row" }, extra, h("button", { class: "ghost", type: "button", onclick: close }, "닫기"))),
+    body);
   document.addEventListener("keydown", esc);
   document.body.append(box);
   if (box.requestFullscreen) box.requestFullscreen().catch(() => {});
+  close.body = body;
   return close;
+}
+
+function openSimFull(title, html, onclose) {
+  return openFull(title, simFrame(html, title), onclose);
+}
+
+// 외부 링크 칸. 유튜브 주소는 화면 안에서 재생되는 주소로 바꾼다. 다른 사이트 중에는 안에 띄우는 것을 막아 둔 곳도 있다.
+function linkFrame(url, title) {
+  if (!/^https?:\/\//i.test(url || "")) return h("p", { class: "muted" }, "열 수 없는 주소입니다.");
+  const f = h("iframe", { class: "sim-frame link-frame", src: embedUrl(url), title: title || "링크",
+    allow: "autoplay; fullscreen; encrypted-media; picture-in-picture; clipboard-write", allowfullscreen: true, referrerpolicy: "strict-origin-when-cross-origin" });
+  // 띄운 사이트가 이 탭을 다른 곳으로 옮기지 못하게
+  f.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-presentation allow-modals allow-downloads");
+  return f;
+}
+
+function embedUrl(u) {
+  try {
+    const x = new URL(u);
+    const host = x.hostname.replace(/^(www|m)\./, "");
+    const id = host === "youtu.be" ? x.pathname.slice(1)
+      : host === "youtube.com" && x.pathname === "/watch" ? x.searchParams.get("v")
+      : host === "youtube.com" && /^\/(shorts|live)\//.test(x.pathname) ? x.pathname.split("/")[2] : null;
+    if (id && /^[\w-]{6,20}$/.test(id)) {
+      const t = parseInt(x.searchParams.get("t") || x.searchParams.get("start") || "", 10);
+      return "https://www.youtube.com/embed/" + id + "?autoplay=1" + (t > 0 ? "&start=" + t : "");
+    }
+  } catch (_) {}
+  return u;
 }
 
 function slideSrc(lesson, n) {

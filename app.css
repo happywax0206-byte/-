@@ -287,9 +287,6 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; font-size: .85re
 .live-draft.focus { border-left-color: var(--accent); }
 .live-answer { margin: 0; font-size: .88rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 .live-note { margin: 1rem 0 2rem; }
-/* 교사: 수업 화면에 띄운 외부 링크 알림 */
-.present-bar { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 60; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; max-width: calc(100vw - 32px);
-  padding: .5rem .75rem; background: #fff; border: 2px solid var(--accent); border-radius: 14px; box-shadow: 0 4px 18px rgba(0, 0, 0, .2); overflow-wrap: anywhere; }
 /* 수업 화면(present.html): 학생에게 보여 줄 슬라이드만 화면 가득 */
 body.present { background: #000; overflow: hidden; }
 body.present .credit { display: none; }
@@ -303,6 +300,16 @@ body.present .credit { display: none; }
 .present-show-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .3rem 1rem; border-bottom: 1px solid var(--line); }
 .present-show-head a { color: var(--accent-ink); font-size: .9rem; }
 .present-show-head button { min-height: 34px; }
-.present-show .sim-frame, .present-link { flex: 1; width: 100%; height: auto; border: 0; border-radius: 0; aspect-ratio: auto; min-height: 0; }
+.present-show .sim-frame { flex: 1; width: 100%; height: auto; border: 0; border-radius: 0; aspect-ratio: auto; min-height: 0; }
 .present-view { flex: 1; overflow: auto; padding: 2rem 3rem; }
 .present-show .present-empty { position: static; flex: 1; color: var(--muted); }
+/* 교사 화면을 잘라 보내는 칸은 따로 그려지는 층(stacking context)이어야 한다(Element Capture) */
+.sim-full-body, .sim-box, .sim-stage, .stage { isolation: isolate; }
+.sim-full-body { flex: 1; display: flex; min-height: 0; }
+.mirror-status .pill { align-self: center; }
+/* 수업 화면: 교사 화면에서 넘겨받은 영상 */
+.present-video { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
+.present-video-wrap { flex: 1; min-height: 0; background: #000; }
+.present-all { position: absolute; inset: 0; z-index: 2; background: #000; }
+.sim-box.mirrored .sim-frame { visibility: hidden; }
+.sim-box.mirrored .present-video { position: absolute; inset: 0; background: #fff; }

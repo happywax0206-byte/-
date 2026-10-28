@@ -214,13 +214,14 @@ function draw() {
         },
       }, label))),
       lesson ? h("button", { class: "ghost present-btn", type: "button", title: "학생에게 보여 줄 슬라이드만 새 탭에 띄웁니다", onclick: openPresent }, "▣ 수업 화면 띄우기") : null,
+      lesson ? mirrorStatus : null,
       h("button", { class: "link", type: "button", onclick: changePassword }, "비밀번호 바꾸기"),
       h("button", { class: "link", type: "button", async onclick() { await sb.auth.signOut(); location.reload(); } }, "로그아웃")),
     main);
   if (!lesson) tab = "settings";
   ({ run: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings })[tab]();
   schedule();
-  sendPresent();
+  updateMirror();
 }
 
 // ---------- 수업 화면(학생에게 보여 줄 새 탭) ----------
@@ -228,16 +229,18 @@ function draw() {
 // BroadcastChannel은 같은 컴퓨터·같은 브라우저의 탭끼리만 주고받으므로 서버 사용량이 늘지 않는다.
 const presentCh = window.BroadcastChannel ? new BroadcastChannel("cra-present") : null;
 let presentOn = false;     // 수업 화면 탭이 열려 있는지
+let presentWin = null;     // 수업 화면 창(조작 화면을 직접 넘겨줄 때 씀)
 let presentShow = null;    // 수업 화면에 크게 띄운 것 { kind: "sim" | "view" | "link", title, html | url }
-let presentClose = null;   // 교사 화면에서 그것을 닫는 함수
+let presentShowEl = null;  // 교사 화면에서 그것이 보이는 칸(조작 화면을 잘라 보낼 곳)
 let presentSent = "";
-const presentBar = h("div", { class: "present-bar", hidden: true });
-document.body.append(presentBar);
+window.cra_attachPresent = (w) => { presentWin = w; };   // 수업 화면이 열리면 스스로 알려 온다
 
 function openPresent() {
   if (!presentCh) return alert("이 브라우저에서는 수업 화면을 쓸 수 없습니다. Chrome이나 Edge를 쓰세요.");
   const win = window.open("present.html", "cra-present");
-  if (!win) alert("새 탭이 막혔습니다. 주소창 오른쪽의 팝업 차단 표시를 눌러 이 사이트를 허용하세요.");
+  if (!win) return alert("새 탭이 막혔습니다. 주소창 오른쪽의 팝업 차단 표시를 눌러 이 사이트를 허용하세요.");
+  presentWin = win;
+  captureDenied = false;   // 전에 화면 공유를 거절했어도 다시 물어본다
 }
 
 function presentState() {
@@ -247,6 +250,8 @@ function presentState() {
     sims: L ? activities.filter((a) => a.kind === "sim").map((a) => ({ id: a.id, title: a.title, html: a.html, html_ver: a.html_ver,
       page: a.page, page_to: a.page_to, sim_full: a.sim_full, sim_box: a.sim_box })) : [],
     show: presentShow,
+    mirror: mirrorOn,
+    asking: !!captureAsking,
   };
 }
 
@@ -262,38 +267,35 @@ function sendPresent(force) {
 if (presentCh) {
   presentCh.onmessage = (e) => {
     const m = e.data || {};
-    if (m.type === "hello") { presentOn = true; sendPresent(true); drawPresentBar(); }
-    if (m.type === "bye") { presentOn = false; drawPresentBar(); }
-    if (m.type === "closed") setPresentShow(null);   // 수업 화면에서 Esc로 닫음
+    if (m.type === "hello") { presentOn = true; sendPresent(true); mirrorEl = null; updateMirror(); }   // 수업 화면을 새로 열었으면 조작 화면도 다시 넘긴다
+    if (m.type === "bye") { presentOn = false; updateMirror(); }
+    if (m.type === "closed" && presentClose) presentClose();   // 수업 화면에서 Esc·닫기를 누르면 교사 화면에서도 닫는다
     if (m.type === "step" && lesson && lesson.slide_count) setPage(lesson.page + (m.step > 0 ? 1 : -1));   // 수업 화면에서 ← → 를 누름
   };
   presentCh.postMessage({ type: "who" });   // 이 탭을 새로 열었을 때 이미 열린 수업 화면이 있는지
 }
 
-function setPresentShow(show, close) {
+let presentClose = null;
+function setPresentShow(show, close, el) {
   presentShow = show;
   presentClose = show ? close || null : null;
-  drawPresentBar();
-  sendPresent();
+  presentShowEl = show ? el || null : null;
+  updateMirror();
 }
 
-// 외부 링크는 교사 화면에 따로 띄운 것이 없으므로 아래쪽 막대로 알리고 닫게 한다
-function drawPresentBar() {
-  const s = presentShow;
-  presentBar.hidden = !presentOn || !s || s.kind !== "link";
-  if (presentBar.hidden) return presentBar.replaceChildren();
-  presentBar.replaceChildren(
-    h("span", {}, "수업 화면에 띄움: ", h("strong", {}, s.title)),
-    h("button", { class: "ghost", type: "button", onclick() { window.open(s.url, "_blank", "noopener"); } }, "여기서도 열기"),
-    h("button", { class: "primary", type: "button", onclick() { setPresentShow(null); } }, "수업 화면에서 닫기"));
-}
-
-// 크게 띄우기: 교사 화면에 띄우고 수업 화면에도 똑같이 띄운다. 교사 화면에서 닫으면 수업 화면에서도 닫힌다.
+// 크게 띄우기: 교사 화면에 띄우고 수업 화면에도 띄운다. 어느 쪽에서 닫아도 함께 닫힌다.
 function bigSim(a) {
   const close = openSimFull(a.title, a.html, () => { if (presentShow && presentShow.kind === "sim") setPresentShow(null); });
-  setPresentShow({ kind: "sim", title: a.title, html: a.html }, close);
+  setPresentShow({ kind: "sim", title: a.title, html: a.html }, close, close.body);
 }
 
+function bigLink(url, title) {
+  const close = openFull(title, linkFrame(url, title), () => { if (presentShow && presentShow.kind === "link") setPresentShow(null); },
+    h("a", { class: "ghost-link", href: url, target: "_blank", rel: "noopener noreferrer" }, "새 탭에서 열기"));
+  setPresentShow({ kind: "link", title, url }, close, close.body);
+}
+
+// 결과·학생·QR은 조작할 것이 없으므로 보이는 그대로 옮겨 적어 보낸다
 function bigView(title, body) {
   const close = openModal(title, body, () => { if (presentShow && presentShow.kind === "view") setPresentShow(null); });
   setPresentShow({ kind: "view", title, html: snapshotHtml(body) }, close);
@@ -313,13 +315,104 @@ function snapshotHtml(el) {
   return copy.outerHTML;
 }
 
-// 수업 진행 탭의 외부 링크: 수업 화면이 열려 있으면 그쪽에 띄운다
+// 수업 진행 탭의 외부 링크: 수업 화면이 열려 있으면 교사 화면에 크게 띄우고 수업 화면에도 보낸다
 document.addEventListener("click", (e) => {
   const a = e.target.closest && e.target.closest("a[href]");
   if (!a || !presentOn || tab !== "run" || !main || !main.contains(a) || !/^https?:/i.test(a.href)) return;
   e.preventDefault();
-  setPresentShow({ kind: "link", title: a.textContent || a.href, url: a.href });
+  bigLink(a.href, a.textContent || a.href);
 });
+
+// ---------- 조작한 그대로 보내기 ----------
+// 시뮬레이션·유튜브는 교사 화면과 수업 화면에 따로 떠 있어서 교사가 조작한 것이 수업 화면에 전해지지 않는다.
+// 그래서 이 탭의 화면을 잡아(화면 공유 → 「이 탭」) 시뮬레이션·링크 칸만 잘라 내어(Element Capture)
+// 수업 화면에 영상으로 넘긴다. 같은 컴퓨터의 창끼리 직접 넘기므로 인터넷으로 나가지 않는다. Chrome·Edge(컴퓨터)에서만 된다.
+let capture = null;        // 이 탭 화면(MediaStream)
+let captureAsking = null;  // 화면 공유를 묻는 중(Promise)
+let captureDenied = false; // 거절함 → 「조작도 보내기」를 누를 때까지 다시 묻지 않는다
+let mirrorEl = null;       // 지금 잘라 보내는 칸
+let mirrorOn = null;       // 수업 화면에 영상으로 보이는 것 { mode: "show" | "stage" | "box" | "all", id }
+let mirrorQueue = Promise.resolve();
+const canMirror = () => !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia && (window.RestrictionTarget || window.CropTarget));
+const captureTrack = () => { const t = capture && capture.getVideoTracks()[0]; return t && t.readyState === "live" ? t : null; };
+const mirrorStatus = h("span", { class: "mirror-status" });
+
+function ensureCapture() {
+  if (captureTrack()) return Promise.resolve(true);
+  if (!canMirror()) return Promise.resolve(false);
+  if (!captureAsking) {
+    captureAsking = navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 30 } }, audio: false,
+      preferCurrentTab: true, selfBrowserSurface: "include", surfaceSwitching: "exclude", monitorTypeSurfaces: "exclude" })
+      .then((s) => {
+        const t = s.getVideoTracks()[0];
+        if (!t || t.getSettings().displaySurface !== "browser") {
+          s.getTracks().forEach((x) => x.stop());
+          alert("「이 탭」을 골라야 합니다. 위쪽의 「조작도 보내기」를 눌러 다시 고르세요.");
+          captureDenied = true;
+          return false;
+        }
+        // 크롬 위쪽의 「공유 중지」를 누르면 수업 화면은 따로 띄운 사본으로 돌아간다
+        t.addEventListener("ended", () => { capture = null; mirrorEl = null; updateMirror(); });
+        capture = s;
+        return true;
+      }, () => { captureDenied = true; return false; })
+      .finally(() => { captureAsking = null; drawMirrorStatus(); });
+    drawMirrorStatus();
+  }
+  return captureAsking;
+}
+
+// 지금 잘라 보낼 칸: 크게 띄운 것 > 슬라이드 대신 크게 띄운 시뮬레이션 > 슬라이드 위 시뮬레이션(하나면 그 칸, 여럿이면 슬라이드 전체)
+function mirrorTarget() {
+  if (presentShowEl && presentShowEl.isConnected) return { el: presentShowEl, mode: "show" };
+  if (presentShow || tab !== "run" || !run || !lesson || !lesson.slide_count || !run.stage.isConnected) return null;
+  if (!run.simStage.hidden && run.simStage.firstChild) return { el: run.simStage, mode: "stage" };
+  const boxes = [...run.simLayer.children];
+  if (boxes.length === 1) return { el: boxes[0], mode: "box", id: boxes[0]._id };
+  if (boxes.length > 1) return { el: run.stage, mode: "all" };
+  return null;
+}
+
+// 무엇을 보낼지 다시 정하고 수업 화면에 알린다. 차례대로 하나씩 처리한다.
+function updateMirror() {
+  mirrorQueue = mirrorQueue.then(async () => {
+    const want = presentOn && presentWin && !presentWin.closed ? mirrorTarget() : null;
+    if (!want) { mirrorOn = null; return; }
+    if (!captureTrack()) {
+      mirrorOn = null;
+      if (captureDenied || !canMirror()) return;
+      sendPresent();   // 묻는 동안에도 쪽은 넘어가게 먼저 보낸다
+      if (await ensureCapture()) updateMirror();   // 허락을 받는 사이 칸이 바뀌었을 수 있으므로 이 차례가 끝난 뒤 처음부터 다시
+      return;
+    }
+    const t = captureTrack();
+    if (want.el !== mirrorEl) {
+      try {
+        if (window.RestrictionTarget) await t.restrictTo(await RestrictionTarget.fromElement(want.el));
+        else await t.cropTo(await CropTarget.fromElement(want.el));
+        mirrorEl = want.el;
+      } catch (err) {
+        console.warn("잘라 보내기 실패", err);
+        mirrorEl = null; mirrorOn = null;
+        return;
+      }
+    }
+    try { presentWin.cra_stream(capture); } catch (_) { mirrorOn = null; return; }
+    mirrorOn = { mode: want.mode, id: want.id || null };
+  }).catch((err) => { console.warn(err); mirrorOn = null; }).then(() => { sendPresent(); drawMirrorStatus(); });
+}
+
+// 위쪽 막대: 수업 화면이 열려 있을 때 조작을 보내는 중인지 보이고, 꺼져 있으면 켜는 단추
+function drawMirrorStatus() {
+  mirrorStatus.hidden = !presentOn || !canMirror();
+  if (mirrorStatus.hidden) return;
+  if (captureTrack()) mirrorStatus.replaceChildren(h("span", { class: "pill on", title: "시뮬레이션·링크에서 조작한 것이 수업 화면에 그대로 보입니다. 끄려면 크롬 위쪽의 「공유 중지」를 누르세요." }, "● 조작 보내는 중"));
+  else if (captureAsking) mirrorStatus.replaceChildren(h("span", { class: "pill" }, "화면 공유를 허용해 주세요…"));
+  else mirrorStatus.replaceChildren(h("button", { class: "ghost present-btn", type: "button",
+    title: "시뮬레이션·유튜브를 이 화면에서 조작한 그대로 수업 화면에 보냅니다. 「이 탭」 공유를 허용하세요.",
+    onclick() { captureDenied = false; ensureCapture().then(updateMirror); } }, "조작도 보내기"));
+}
+
 
 // ---------- 수업 진행 ----------
 let run = null;
@@ -346,12 +439,12 @@ function drawRun() {
       h("div", { class: "row" },
         h("button", { class: "ghost", type: "button", onclick: showJoin }, "학생 접속 주소·QR"),
         h("button", { class: "ghost", type: "button", onclick() { downloadCSV(activities, lesson.code + "_전체응답"); } }, "전체 응답 CSV")),
-      hasSlides ? h("p", { class: "muted small" }, "학생 화면은 여기서 띄운 쪽을 따라갑니다. 키보드 ← → 로도 넘길 수 있습니다. 「수업 화면 띄우기」는 슬라이드만 새 탭에 띄웁니다(그 탭을 프로젝터 화면으로 옮겨 쓰세요). 여기서 시뮬레이션이나 결과를 크게 띄우거나 링크를 누르면 수업 화면에도 바로 보입니다.") : null),
+      hasSlides ? h("p", { class: "muted small" }, "학생 화면은 여기서 띄운 쪽을 따라갑니다. 키보드 ← → 로도 넘길 수 있습니다. 「수업 화면 띄우기」는 슬라이드만 새 탭에 띄웁니다(그 탭을 프로젝터 화면으로 옮겨 쓰세요). 여기서 시뮬레이션이나 결과를 크게 띄우거나 링크를 누르면 수업 화면에도 바로 보입니다. 화면 공유(「이 탭」)를 허용하면 시뮬레이션·유튜브를 여기서 조작한 그대로 수업 화면에 보입니다.") : null),
     h("aside", { class: "run-right stack" },
       h("section", { class: "card row between" }, openText, openBtn),
       roster,
       panel)));
-  run = { img, simStage, simLayer, simKey: "", where, prev, next, openBtn, openText, panel, roster, blocks: new Map() };
+  run = { img, stage, simStage, simLayer, simKey: "", where, prev, next, openBtn, openText, panel, roster, blocks: new Map() };
   refreshRun();
 }
 
@@ -390,7 +483,7 @@ function refreshRun() {
   drawRoster(shown.filter((a) => a.kind !== "sim"));
   run.panel.replaceChildren(...(shown.length ? shown.map(runBlock)
     : [h("p", { class: "card muted" }, L.page + "쪽에는 활동이 없습니다. 「질문·설문 만들기」에서 추가하세요.")]));
-  sendPresent();
+  updateMirror();
 }
 
 // 접속한 학생: 초록 = 지금 화면을 열어 둔 학생(20초 안에 서버에 물어봄), ✓ = 이 쪽 활동에 답함
