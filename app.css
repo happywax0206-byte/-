@@ -177,7 +177,15 @@ main.lesson .slide { cursor: zoom-in; }
 .tab[aria-disabled="true"]:hover::after { transform: scaleX(0); }
 .tab[draggable="true"] { cursor: grab; }
 .tab-set { position: relative; }
-.tab-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; display: flex; flex-direction: column; gap: .2rem; min-width: 13rem; padding: .4rem; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.15); }
+.top-right { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .5rem; margin-left: auto; }
+.top-right .mirror-status:empty { display: none; }
+.profile-set { position: relative; }
+.avatar { width: 42px; height: 42px; min-height: 0; padding: 0; border: 0; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700; font-size: .9rem; letter-spacing: -.02em; }
+.avatar:hover, .avatar[aria-expanded="true"] { box-shadow: 0 0 0 3px var(--card), 0 0 0 5px var(--accent); }
+.profile-menu .tab { text-align: left; width: 100%; }
+.profile-name { margin: .3rem .5rem 0; font-weight: 700; }
+.profile-menu .muted { margin: 0 .5rem .3rem; }
+.tab-menu, .profile-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; display: flex; flex-direction: column; gap: .2rem; min-width: 13rem; padding: .4rem; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.15); }
 .tab-menu .tab { text-align: left; width: 100%; }
 .tab-menu p { margin: .3rem .4rem .1rem; }
 .tab-mark { flex: none; align-self: stretch; width: 3px; border-radius: 2px; background: var(--accent); }

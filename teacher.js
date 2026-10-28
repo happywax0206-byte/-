@@ -289,16 +289,16 @@ function draw() {
   main = h("main", { class: "wide" });
   tabNav = buildTabNav();
   tabSet = buildTabSet();
+  profileEl = buildProfile();
   app.replaceChildren(
     h("header", { class: "top" },
       h("div", { class: "top-title" }, h("span", { class: "eyebrow" }, "교사용"), pick),
       tabNav,
-      lesson ? h("button", { class: "ghost present-btn", type: "button", title: "학생에게 보여 줄 슬라이드만 새 탭에 띄웁니다", onclick: openPresent }, "▣ 수업 화면 띄우기") : null,
-      lesson ? mirrorStatus : null,
-      h("button", { class: "link", type: "button", title: "프로필·공동작업자 탭으로", onclick() { goTab("people"); } },
-        profile && profile.name ? profile.name + " 선생님" : "내 프로필"),
-      h("button", { class: "link", type: "button", async onclick() { await sb.auth.signOut(); location.reload(); } }, "로그아웃"),
-      tabSet),
+      h("div", { class: "top-right" },
+        lesson ? mirrorStatus : null,
+        lesson ? h("button", { class: "ghost present-btn", type: "button", title: "학생에게 보여 줄 슬라이드만 새 탭에 띄웁니다", onclick: openPresent }, "▣ 수업 화면 띄우기") : null,
+        tabSet,
+        profileEl)),
     main);
   setTopHeight();
   ({ run: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings, people: drawPeople })[tab]();
@@ -338,6 +338,7 @@ async function goTab(k) {
   const needLive = k === "live" && tab !== "live";
   tab = k; localStorage.setItem("cra-tab", k);
   tabMenuOpen = false;
+  profileOpen = false;
   if (needLive) await loadResponses();   // 다른 탭에서는 쓰고 있는 답을 받지 않았으므로 먼저 받는다
   draw();
 }
@@ -370,7 +371,7 @@ function buildTabSet() {
   const btn = h("button", {
     type: "button", class: inMenu ? "tab on" : "tab", "aria-haspopup": "true", "aria-expanded": tabMenuOpen ? "true" : "false",
     title: "탭을 이 단추로 끌어다 놓으면 「설정」 안으로 들어갑니다",
-    onclick() { tabMenuOpen = !tabMenuOpen; refreshTabSet(); },
+    onclick() { tabMenuOpen = !tabMenuOpen; if (profileOpen) { profileOpen = false; refreshProfile(); } refreshTabSet(); },
   }, "⚙ 설정" + (inMenu ? " · " + TABS[tab] : "") + " ▾");
   const menu = tabMenuOpen ? h("div", { class: "tab-menu" },
     tabPlace.menu.map(tabButton),
@@ -433,12 +434,48 @@ function tabDropZone(el, list) {
   });
 }
 
-// 「설정」 목록 밖을 누르거나 Esc를 누르면 닫는다
+// 맨 오른쪽 동그란 프로필 단추: 누르면 이름과 「프로필·공동작업자」, 「로그아웃」
+let profileOpen = false;
+let profileEl = null;
+
+function profileInitial() {
+  const name = (profile && profile.name || "").trim();
+  if (!name) return "나";
+  // 한글 세 글자 이상이면 이름 두 글자(김도현 → 도현), 아니면 첫 글자
+  return /^[가-힣]{3,}$/.test(name) ? name.slice(-2) : [...name][0].toUpperCase();
+}
+
+function buildProfile() {
+  const label = profile && profile.name ? profile.name + " 선생님" : "내 프로필";
+  const menu = profileOpen ? h("div", { class: "profile-menu" },
+    h("p", { class: "profile-name" }, label),
+    me && me.email ? h("p", { class: "muted small" }, me.email) : null,
+    h("button", { class: "tab", type: "button", onclick() { profileOpen = false; goTab("people"); } }, "프로필·공동작업자"),
+    h("button", { class: "tab", type: "button", async onclick() { await sb.auth.signOut(); location.reload(); } }, "로그아웃")) : null;
+  return h("div", { class: "profile-set" },
+    h("button", {
+      class: "avatar", type: "button", title: label, "aria-label": label, "aria-haspopup": "true", "aria-expanded": profileOpen ? "true" : "false",
+      onclick() { profileOpen = !profileOpen; tabMenuOpen = false; refreshTabSet(); refreshProfile(); },
+    }, profileInitial()),
+    menu);
+}
+
+function refreshProfile() {
+  const next = buildProfile();
+  profileEl.replaceWith(next);
+  profileEl = next;
+}
+
+// 「설정」·프로필 목록 밖을 누르거나 Esc를 누르면 닫는다
 document.addEventListener("click", (e) => {
-  if (tabMenuOpen && tabSet && e.target.isConnected && !tabSet.contains(e.target)) { tabMenuOpen = false; refreshTabSet(); }
+  if (!e.target.isConnected) return;   // 방금 다시 그린 단추를 누른 것
+  if (tabMenuOpen && tabSet && !tabSet.contains(e.target)) { tabMenuOpen = false; refreshTabSet(); }
+  if (profileOpen && profileEl && !profileEl.contains(e.target)) { profileOpen = false; refreshProfile(); }
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && tabMenuOpen) { tabMenuOpen = false; refreshTabSet(); }
+  if (e.key !== "Escape") return;
+  if (tabMenuOpen) { tabMenuOpen = false; refreshTabSet(); }
+  if (profileOpen) { profileOpen = false; refreshProfile(); }
 });
 addEventListener("resize", setTopHeight);
 
