@@ -35,7 +35,7 @@ async function init() {
   await loadProfile();
   await loadLessons(localStorage.getItem("cra-lesson"));
   document.addEventListener("keydown", (e) => {
-    if (tab !== "run" || !lesson || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+    if (!isRunTab() || !lesson || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
     if (e.key === "ArrowRight") setPage(lesson.page + 1);
     if (e.key === "ArrowLeft") setPage(lesson.page - 1);
   });
@@ -534,11 +534,11 @@ async function loadResponses(full = true) {
 
 function schedule() {
   clearTimeout(timer);
-  if (!lesson || (tab !== "run" && tab !== "students" && tab !== "live")) return;
+  if (!lesson || (!isRunTab() && tab !== "students" && tab !== "live")) return;
   timer = setTimeout(async () => {
     await loadResponses(false);
     syncScreens();
-    if (tab === "run") refreshRun();
+    if (isRunTab()) refreshRun();
     if (tab === "students") drawStudents();
     if (tab === "live") refreshLive();
     schedule();
@@ -597,7 +597,7 @@ function draw() {
         profileEl)),
     main);
   setTopHeight();
-  ({ run: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings, people: drawPeople, manage: drawManage })[tab]();
+  ({ run: drawRun, preview: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings, people: drawPeople, manage: drawManage })[tab]();
   schedule();
   updateMirror();
 }
@@ -611,8 +611,9 @@ function setTopHeight() {
 // ---------- 위쪽 탭과 수업모드·편집모드 ----------
 // 수업모드에서는 수업할 때 쓰는 탭, 편집모드에서는 미리 준비하는 탭만 위쪽에 보인다.
 // 모드 단추는 지금 모드를 보여 주고, 누르면 다른 모드로 바뀐다(그 모드에서 마지막으로 본 탭으로).
-const TABS = { run: "수업 진행", live: "학생 화면", students: "학생 관리", build: "질문·설문 만들기", settings: "수업 설정", people: "프로필·공동작업자", manage: "관리" };
-const MODES = { class: { name: "수업모드", tabs: ["run", "live", "students"] }, edit: { name: "편집모드", tabs: ["build", "settings", "people", "manage"] } };
+const TABS = { run: "수업 진행", live: "학생 화면", students: "학생 관리", build: "질문·설문 만들기", preview: "수업 미리 보기", settings: "수업 설정", people: "프로필·공동작업자", manage: "관리" };
+const MODES = { class: { name: "수업모드", tabs: ["run", "live", "students"] }, edit: { name: "편집모드", tabs: ["build", "preview", "settings", "people", "manage"] } };
+const isRunTab = () => tab === "run" || tab === "preview";   // 수업 진행 화면을 쓰는 탭(미리 보기는 그 일부만)
 let tabNav = null;        // 위쪽 막대의 탭 칸
 const modeOf = (k) => MODES.edit.tabs.includes(k) ? "edit" : "class";
 
@@ -822,7 +823,7 @@ function snapshotHtml(el) {
 // 수업 진행 탭의 외부 링크: 수업 화면이 열려 있으면 교사 화면에 크게 띄우고 수업 화면에도 보낸다
 document.addEventListener("click", (e) => {
   const a = e.target.closest && e.target.closest("a[href]");
-  if (!a || !presentOn || tab !== "run" || !main || !main.contains(a) || !/^https?:/i.test(a.href)) return;
+  if (!a || !presentOn || !isRunTab() || !main || !main.contains(a) || !/^https?:/i.test(a.href)) return;
   e.preventDefault();
   bigLink(a.href, a.textContent || a.href);
 });
@@ -877,7 +878,7 @@ function ensureCapture() {
 // 지금 잘라 보낼 칸: 크게 띄운 것 > 슬라이드 대신 크게 띄운 시뮬레이션 > 슬라이드 위 시뮬레이션(하나면 그 칸, 여럿이면 슬라이드 전체)
 function mirrorTarget() {
   if (presentShowEl && presentShowEl.isConnected) return { el: presentShowEl, mode: "show" };
-  if (presentShow || tab !== "run" || !run || !lesson || !lesson.slide_count || !run.stage.isConnected) return null;
+  if (presentShow || !isRunTab() || !run || !lesson || !lesson.slide_count || !run.stage.isConnected) return null;
   if (!run.simStage.hidden && run.simStage.firstChild) return { el: run.simStage, mode: "stage" };
   const boxes = [...run.simLayer.children];
   if (boxes.length === 1) return { el: boxes[0], mode: "box", id: boxes[0]._id };
@@ -968,6 +969,8 @@ function drawRun() {
   const panel = h("div", { class: "stack" });
   const roster = h("section", { class: "card stack" });
   const hasSlides = lesson.slide_count > 0;
+  // 편집모드의 「수업 미리 보기」: 슬라이드·활동 카드·전체 화면·수업 화면 띄우기·접속 주소만(제출 열기·학생 목록·CSV는 수업 진행에서)
+  const preview = tab === "preview";
   main.replaceChildren(h("div", { class: "run" },
     h("div", { class: "run-left stack" },
       hasSlides ? stage : h("p", { class: "card muted" }, lesson.kind === "survey" ? "설문 전용입니다. 학생 화면에는 모든 설문이 보입니다." : "슬라이드가 없는 수업입니다. 학생 화면에는 모든 활동이 보입니다."),
@@ -976,11 +979,11 @@ function drawRun() {
         h("button", { class: "ghost", type: "button", onclick: openPresent }, "수업 화면 띄우기")) : null,
       h("div", { class: "row" },
         h("button", { class: "ghost", type: "button", onclick: showJoin }, "학생 접속 주소·QR"),
-        h("button", { class: "ghost", type: "button", onclick() { downloadCSV(activities, lesson.code + "_전체응답"); } }, "전체 응답 CSV")),
-      hasSlides ? h("details", { class: "run-help muted small" }, h("summary", {}, "도움말"), "학생 화면은 여기서 띄운 쪽을 따라갑니다. 키보드 ← → 로도 넘길 수 있습니다. 「수업 화면 띄우기」는 슬라이드만 새 탭에 띄웁니다(그 탭을 프로젝터 화면으로 옮겨 쓰세요). 여기서 시뮬레이션이나 결과를 크게 띄우거나 링크를 누르면 수업 화면에도 바로 보입니다. 화면 공유(「이 탭」)를 허용하면 시뮬레이션·유튜브를 여기서 조작한 그대로 수업 화면에 보입니다.") : null),
+        preview ? null : h("button", { class: "ghost", type: "button", onclick() { downloadCSV(activities, lesson.code + "_전체응답"); } }, "전체 응답 CSV")),
+      hasSlides && !preview ? h("details", { class: "run-help muted small" }, h("summary", {}, "도움말"), "학생 화면은 여기서 띄운 쪽을 따라갑니다. 키보드 ← → 로도 넘길 수 있습니다. 「수업 화면 띄우기」는 슬라이드만 새 탭에 띄웁니다(그 탭을 프로젝터 화면으로 옮겨 쓰세요). 여기서 시뮬레이션이나 결과를 크게 띄우거나 링크를 누르면 수업 화면에도 바로 보입니다. 화면 공유(「이 탭」)를 허용하면 시뮬레이션·유튜브를 여기서 조작한 그대로 수업 화면에 보입니다.") : null),
     h("aside", { class: "run-right stack" },
-      h("section", { class: "card row between" }, openText, openBtn),
-      roster,
+      preview ? null : h("section", { class: "card row between" }, openText, openBtn),
+      preview ? null : roster,
       panel)));
   run = { img, stage, simStage, simLayer, simKey: "", where, prev, next, openBtn, openText, panel, roster, blocks: new Map() };
   refreshRun();
@@ -1047,18 +1050,23 @@ function drawRoster(shown) {
     students.length ? h("p", { class: "muted small" }, "초록색: 지금 접속 중 · ✓: " + (lesson.slide_count ? "이 쪽" : "") + " 활동에 답함") : h("span", {}));
 }
 
+// 미리 보기에서 카드의 「편집」: 그 활동을 「질문·설문 만들기」에서 연다
+function editBtn(a) {
+  return tab === "preview" ? h("button", { class: "ghost", type: "button", onclick() { editing = JSON.parse(JSON.stringify(a)); goTab("build"); } }, "편집") : null;
+}
+
 function runBlock(a) {
   if (a.kind === "sim") return h("section", { class: "card stack" },
     h("div", { class: "row between" },
       h("div", {}, h("p", { class: "muted small" }, "시뮬레이션 · " + whereText(a)), h("h2", {}, a.title)),
-      h("button", { class: "primary", type: "button", onclick() { bigSim(a); } }, "크게 실행")),
+      h("div", { class: "row" }, editBtn(a), h("button", { class: "primary", type: "button", onclick() { bigSim(a); } }, "크게 실행"))),
     h("p", { class: "pill" }, !lesson.slide_count ? "학생 화면: 카드로 보임"
       : a.sim_full ? "학생 화면: 슬라이드 대신 크게 보임"
       : validSimBox(a.sim_box) ? "학생 화면: 슬라이드 위 정한 자리에 보임" : "학생 화면: 슬라이드 아래 카드로 보임"));
   if (isInfoActivity(a)) return h("section", { class: "card stack" },
     h("div", { class: "row between" },
       h("div", {}, h("p", { class: "muted small" }, "설명 카드 · " + whereText(a)), h("h2", {}, a.title)),
-      h("button", { type: "button", class: a.shared ? "ghost" : "primary", async onclick() { await setActivity(a, { shared: !a.shared }); } }, a.shared ? "공개 끝내기" : "학생에게 공개")),
+      h("div", { class: "row" }, editBtn(a), h("button", { type: "button", class: a.shared ? "ghost" : "primary", async onclick() { await setActivity(a, { shared: !a.shared }); } }, a.shared ? "공개 끝내기" : "학생에게 공개"))),
     h("p", { class: a.shared ? "pill on" : "pill" }, a.shared ? "학생에게 공개 중" : "학생에게는 보이지 않음"),
     activityDescription(a) ? linkedDescription(activityDescription(a)) : null,
     a.questions.map((q) => linkedDescription(q.text)));
@@ -1070,10 +1078,10 @@ function runBlock(a) {
       h("div", {},
         h("p", { class: "muted small" }, KIND_NAME[a.kind] + " · " + whereText(a)),
         h("h2", {}, a.title)),
-      h("button", {
+      h("div", { class: "row" }, editBtn(a), h("button", {
         type: "button", class: a.shared ? "ghost" : "primary",
         async onclick() { await setActivity(a, { shared: !a.shared }); },
-      }, a.shared ? "공개 끝내기" : "학생에게 공개")),
+      }, a.shared ? "공개 끝내기" : "학생에게 공개"))),
     h("p", { class: a.shared ? "pill on" : "pill" }, a.shared ? "학생에게 공개 중 (" + (a.named ? "이름과 함께" : "이름 없이") + ")" : "학생에게는 보이지 않음"),
     h("p", { class: "muted small" }, "응답 " + docs.length + " / " + students.length + "명" + (avg ? " · 평균 " + avg : "")),
     summaryView(a.questions, docs, { openFile }),
