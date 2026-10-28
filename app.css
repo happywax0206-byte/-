@@ -324,9 +324,11 @@ body.present .credit { display: none; }
 @media (min-width: 1100px) {
   .run-left { position: sticky; top: calc(var(--top-h, 64px) + .75rem); }
   /* 오른쪽 카드 칸은 따로 스크롤하고, 끝에 닿아도 화면 전체가 따라 내려가지 않는다 */
-  .run-right { position: sticky; top: calc(var(--top-h, 64px) + .75rem); max-height: calc(100vh - var(--top-h, 64px) - 1.5rem);
+  /* 아래 「수업 응답 웹앱 …」 줄(2rem)까지 한 화면에 들어가게 높이를 맞춘다 */
+  .run-right { position: sticky; top: calc(var(--top-h, 64px) + .75rem); max-height: calc(100vh - var(--top-h, 64px) - 3.5rem);
     overflow-y: auto; overscroll-behavior: contain; padding: 0 6px 1rem 2px; scrollbar-gutter: stable; }
   main.wide:has(> .run) { padding-bottom: .75rem; }
+  body:has(main.wide > .run) .credit { height: 2rem; padding: .3rem 16px 0; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 
 /* 수업 설정 · 공동작업자 */
