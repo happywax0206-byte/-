@@ -196,6 +196,19 @@ function embedUrl(u) {
   return u;
 }
 
+// ---------- 학생 화면 전체 보기(WebRTC) — 학생·교사 화면이 함께 쓴다 ----------
+// 영상은 서버를 거치지 않고 두 브라우저 사이에 바로 간다. 서로 주소를 알아내는 데만 공개 STUN 서버를 쓴다.
+const SCREEN_ICE = [{ urls: "stun:stun.l.google.com:19302" }];
+
+// 연결 정보(주소 후보) 모으기가 끝날 때까지(최대 4초) 기다린다. 다 모은 다음 한 번에 서버에 적는다.
+function iceDone(pc) {
+  if (pc.iceGatheringState === "complete") return Promise.resolve();
+  return new Promise((ok) => {
+    const t = setTimeout(ok, 4000);
+    pc.addEventListener("icegatheringstatechange", () => { if (pc.iceGatheringState === "complete") { clearTimeout(t); ok(); } });
+  });
+}
+
 function slideSrc(lesson, n) {
   const dir = lesson.slide_dir.trim();
   return encodeURI(dir.includes("{n}") ? dir.split("{n}").join(n) : dir.replace(/\/+$/, "") + "/" + n + ".png");

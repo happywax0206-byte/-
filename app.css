@@ -362,3 +362,17 @@ body.present .credit { display: none; }
 .member .pill { display: inline-block; vertical-align: middle; }
 .member p { margin: .1rem 0 0; }
 .tip .join-url { word-break: break-all; }
+/* 학생 화면 전체 보기(학생이 동의할 때만) */
+.screen-overlay { z-index: 60; }
+.screen-modal { width: min(620px, 100%); }
+.screen-modal ul { margin: .2rem 0; padding-left: 1.2rem; display: grid; gap: .3rem; }
+.screen-cannot { border: 2px solid var(--accent); }
+.screen-check { display: flex; align-items: center; gap: .5rem; font-weight: 700; flex-direction: row; }
+.screen-check input { width: 1.2rem; height: 1.2rem; }
+.screen-bar { position: sticky; top: 0; z-index: 55; display: flex; align-items: center; justify-content: center; gap: .75rem; flex-wrap: wrap;
+  background: var(--bad); color: #fff; padding: .5rem 1rem; font-weight: 700; }
+.screen-bar button { background: #fff; color: var(--bad); border: 0; border-radius: 999px; padding: .3rem .9rem; font-weight: 700; cursor: pointer; }
+.live-screen { display: grid; gap: .3rem; }
+.screen-video { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #111; border-radius: 6px; }
+.live-tile.big .screen-video { max-height: 75vh; }
+.live-screen .warn { color: var(--warn); font-weight: 700; }

@@ -240,6 +240,7 @@ function schedule() {
   if (!lesson || (tab !== "run" && tab !== "students" && tab !== "live")) return;
   timer = setTimeout(async () => {
     await loadResponses(false);
+    syncScreens();
     if (tab === "run") refreshRun();
     if (tab === "students") drawStudents();
     if (tab === "live") refreshLive();
@@ -1368,14 +1369,125 @@ function flash(text) {
 let live = null;   // { grid, note, tiles: Map(학생 id → { el, sig }), open: 크게 본 학생 id }
 
 function drawLive() {
-  live = { grid: h("div", { class: "live-grid" }), note: h("p", { class: "muted small" }), tiles: new Map(), open: live ? live.open : null };
+  live = { grid: h("div", { class: "live-grid" }), note: h("p", { class: "muted small" }), screenNote: h("p", { class: "msg" }), tiles: new Map(), open: live ? live.open : null };
   main.replaceChildren(h("div", { class: "stack" },
     h("section", { class: "card stack" },
       h("h2", {}, "학생 화면 (실시간)"),
       h("p", { class: "muted small" }, "학생마다 지금 보고 있는 쪽과, 저장하기 전에 쓰고 있는 답이 2초마다 바뀌어 보입니다. 이 화면은 선생님만 볼 수 있습니다. 학생을 누르면 크게 봅니다."),
       live.note),
+    h("section", { class: "card stack" },
+      h("h3", {}, "🖥 학생 모니터 화면 전체 보기 (학생 동의 필요)"),
+      h("p", { class: "muted small" }, "요청하면 학생 화면에 안내 창이 뜹니다: 모니터 전체(다른 창·알림 포함)가 선생님께 보인다는 것, 선생님은 보기만 할 뿐 학생 컴퓨터를 조작하거나 파일·개인 정보에 접근할 수 없다는 것, 언제든 멈추거나 거절할 수 있다는 것. 학생이 읽고 동의한 다음 「전체 화면」을 골라야 보입니다. 학생이 보여 주는 동안 학생 화면 맨 위에는 빨간 띠가 늘 보입니다."),
+      h("p", { class: "muted small" }, "컴퓨터의 크롬·엣지·웨일에서만 됩니다(휴대폰·태블릿은 안 됨). 영상은 서버를 거치지 않고 학생 컴퓨터에서 이 브라우저로 바로 오며 어디에도 저장되지 않습니다. 학교 네트워크가 브라우저끼리의 직접 연결을 막으면 「연결 끊김」으로 보일 수 있습니다."),
+      h("div", { class: "row wrap" },
+        h("button", { class: "primary", type: "button", onclick() {
+          if (confirm("이 수업의 모든 학생에게 화면 전체 보기를 요청할까요?\n학생마다 안내 창이 뜨고, 동의한 학생의 화면만 보입니다. (이미 보이는 학생은 그대로)")) teacherScreen(null, "ask");
+        } }, "모든 학생에게 화면 보기 요청"),
+        h("button", { class: "ghost", type: "button", onclick() { teacherScreen(null, "end"); } }, "모두 화면 보기 끝내기")),
+      live.screenNote),
     live.grid));
   refreshLive();
+}
+
+// ---------- 학생 모니터 화면 보기(WebRTC, 학생이 동의할 때만) ----------
+// 학생이 보낸 연결 정보(offer)에 답하고(answer), 영상은 학생마다 video 하나에 이어 둔다(탭을 옮겨도 연결은 유지).
+const SCREEN_STATE = {
+  asked: "요청함 · 학생이 안내를 읽는 중", declined: "학생이 거절함", unsupported: "이 기기에서는 안 됨(휴대폰 등)",
+  offer: "연결하는 중…", answer: "연결하는 중…", live: "화면 보는 중", failed: "연결 끊김", renew: "다시 연결하는 중…",
+  stopped: "학생이 멈춤", ended: "끝냄",
+};
+const screens = new Map();   // 학생 id → { lesson, key, pc, video, conn }
+const screenRenewed = new Map();   // 학생 id → 다시 연결을 이미 요청한 연결 번호
+
+async function teacherScreen(studentId, action) {
+  if (!lesson) return;
+  const { data, error } = await sb.rpc("teacher_screen", { p_lesson: lesson.id, p_student: studentId, p_action: action });
+  if (error) {
+    const old = /teacher_screen|function/i.test(error.message || "");
+    flash(old ? "먼저 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요." : "보내지 못했습니다: " + error.message);
+    return;
+  }
+  if (data && data.error) return;
+  if (action === "end") (studentId ? [studentId] : [...screens.keys()]).forEach(closeScreen);
+  if (action === "ask") flash(studentId ? "화면 보기를 요청했습니다. 학생이 동의하면 보입니다." : "모든 학생에게 화면 보기를 요청했습니다.");
+  await loadResponses(false);
+  syncScreens();
+  refreshLive();
+}
+
+function closeScreen(id) {
+  const cur = screens.get(id);
+  if (!cur) return;
+  cur.pc.close();
+  if (cur.video.srcObject) cur.video.srcObject = null;
+  screens.delete(id);
+}
+
+// 몇 초마다 받은 학생 목록을 보고: 새 연결 정보에는 답하고, 끝난 것은 닫고, 이 브라우저에 연결이 없는데 보이는 중이라면(새로고침 등) 다시 연결을 요청한다
+function syncScreens() {
+  for (const [id, cur] of screens) {
+    if (!lesson || cur.lesson !== lesson.id || !students.some((s) => s.id === id)) closeScreen(id);
+  }
+  if (!lesson) return;
+  for (const s of students) {
+    const sc = s.screen || {};
+    const cur = screens.get(s.id);
+    if (sc.state === "offer" && (!cur || cur.key !== sc.key)) answerScreen(s.id, sc.key);
+    else if (["answer", "live", "failed"].includes(sc.state) && (!cur || cur.key !== sc.key) && screenRenewed.get(s.id) !== sc.key) {
+      screenRenewed.set(s.id, sc.key);
+      teacherScreen(s.id, "renew");
+    } else if (cur && !["offer", "answer", "live", "failed"].includes(sc.state)) closeScreen(s.id);
+  }
+}
+
+async function answerScreen(id, key) {
+  closeScreen(id);
+  const pc = new RTCPeerConnection({ iceServers: SCREEN_ICE });
+  const video = h("video", { class: "screen-video", autoplay: true, muted: true, playsinline: true });
+  const cur = { lesson: lesson.id, key, pc, video, conn: "new" };
+  screens.set(id, cur);
+  pc.addEventListener("track", (e) => {
+    video.srcObject = e.streams[0] || new MediaStream([e.track]);
+    video.play().catch(() => {});
+  });
+  pc.addEventListener("connectionstatechange", () => { cur.conn = pc.connectionState; refreshLive(); });
+  try {
+    const got = await sb.rpc("teacher_screen", { p_lesson: cur.lesson, p_student: id, p_action: "get" });
+    if (screens.get(id) !== cur) return;
+    if (got.error || !got.data || got.data.key !== key || !got.data.offer) { closeScreen(id); return; }
+    await pc.setRemoteDescription({ type: "offer", sdp: got.data.offer });
+    await pc.setLocalDescription(await pc.createAnswer());
+    await iceDone(pc);
+    if (screens.get(id) !== cur) return;
+    const sent = await sb.rpc("teacher_screen", { p_lesson: cur.lesson, p_student: id, p_action: "answer", p_key: key, p_answer: pc.localDescription.sdp });
+    if (sent.error || (sent.data && sent.data.error)) closeScreen(id);
+  } catch (e) {
+    console.error(e);
+    closeScreen(id);
+  }
+}
+
+// 학생 칸 안의 화면 보기 부분
+function screenPart(s) {
+  const sc = s.screen || {};
+  const cur = screens.get(s.id);
+  const btn = (label, action, cls) => h("button", { class: cls || "ghost", type: "button",
+    onclick(ev) { ev.stopPropagation(); teacherScreen(s.id, action); } }, label);
+  const showing = ["offer", "answer", "live", "failed", "renew"].includes(sc.state);
+  const label = !sc.state ? null : cur && cur.conn === "connected" ? "🖥 화면 보는 중" : SCREEN_STATE[sc.state] || sc.state;
+  const buttons = sc.state === "asked" ? [btn("요청 취소", "end")]
+    : showing ? [cur && cur.conn === "connected" ? h("button", { class: "ghost", type: "button", onclick(ev) {
+        ev.stopPropagation();
+        (cur.video.requestFullscreen ? cur.video.requestFullscreen() : Promise.reject()).catch(() => {});
+      } }, "전체 화면") : null,
+      sc.state === "failed" || (cur && cur.conn === "failed") ? btn("다시 연결", "renew") : null,
+      btn("보기 끝내기", "end")]
+    : [btn("화면 보기 요청", "ask")];
+  if (cur) cur.video.play().catch(() => {});
+  return h("div", { class: "live-screen" },
+    cur ? cur.video : null,
+    h("div", { class: "row wrap" }, label ? h("span", { class: "small " + (sc.state === "declined" || sc.state === "failed" ? "warn" : "muted") }, label) : null,
+      h("span", { class: "spacer" }), buttons.filter(Boolean)));
 }
 
 function liveState(s) {
@@ -1413,12 +1525,16 @@ function liveTile(s) {
     h("div", { class: "row between" }, h("strong", {}, nameOf(s)), h("span", { class: "live-dot " + cls }, label)),
     hasSlides ? h("img", { class: "live-slide", src: slideSrc(lesson, L.page), alt: L.page + "쪽", loading: "lazy" }) : null,
     where ? h("p", { class: "small muted" }, where) : null,
+    "screen" in s ? screenPart(s) : null,
     drafts.length ? drafts : h("p", { class: "small muted" }, cls === "off" ? "" : "쓰고 있는 답 없음"),
     h("p", { class: "small muted" }, "제출한 활동 " + done + "개"));
 }
 
 function refreshLive() {
   if (!live || !live.grid.isConnected) return;
+  const screenOn = students.filter((s) => screens.get(s.id) && screens.get(s.id).conn === "connected").length;
+  live.screenNote.textContent = students.length && !("screen" in students[0]) ? "화면 보기를 쓰려면 먼저 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요."
+    : screenOn ? "지금 화면이 보이는 학생 " + screenOn + "명" : "";
   if (students.length && !("live" in students[0])) {
     live.note.textContent = "이 기능을 쓰려면 먼저 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요.";
   } else if (!students.length) {
@@ -1431,7 +1547,9 @@ function refreshLive() {
   }
   // 바뀐 학생 칸만 다시 그린다(그림이 깜빡이지 않게)
   const els = students.map((s) => {
-    const sig = JSON.stringify([s.live, liveState(s), live.open === s.id, lesson.page, responses.filter((r) => r.student_id === s.id).length]);
+    const cur = screens.get(s.id);
+    const sig = JSON.stringify([s.live, liveState(s), live.open === s.id, lesson.page, responses.filter((r) => r.student_id === s.id).length,
+      s.screen, cur ? cur.key + cur.conn : ""]);
     let t = live.tiles.get(s.id);
     if (!t || t.sig !== sig) { t = { el: liveTile(s), sig }; live.tiles.set(s.id, t); }
     return t.el;
@@ -1762,8 +1880,10 @@ function slidesCard() {
         h("button", { class: "link danger", type: "button", "aria-label": i + "쪽 삭제", onclick() { deleteSlide(i, status); } }, "삭제")),
       pageFx(i)));
   }
+  const pdfBtn = lesson.slide_count ? h("button", { class: "ghost", type: "button", onclick() { downloadSlidesPdf(pdfBtn, status); } }, "⬇ PDF로 내려받기") : null;
   return h("section", { class: "card stack" },
-    h("h2", {}, "슬라이드 " + (lesson.slide_count ? lesson.slide_count + "장" : "없음")),
+    h("div", { class: "row between wrap" }, h("h2", {}, "슬라이드 " + (lesson.slide_count ? lesson.slide_count + "장" : "없음")), pdfBtn),
+    lesson.slide_count ? h("p", { class: "muted small" }, "「PDF로 내려받기」는 지금 이 수업의 슬라이드(순서를 바꾸거나 끝에 더한 것까지 그대로)를 PDF 한 파일로 묶어 줍니다. 쪽마다 그림으로 들어가므로 글자를 고칠 수는 없고, 애니메이션 쪽은 ▶ 자리 표시 그림으로 들어갑니다.") : null,
     h("p", { class: "muted small" }, "PowerPoint에서 「파일 → 다른 이름으로 저장 → PDF」로 저장한 파일을 올리면 쪽마다 그림으로 바뀝니다. 그림 파일(PNG, JPG) 여러 장을 올려도 됩니다(파일 이름 순서). 100쪽까지."),
     h("div", { class: "row wrap" }, file, addBtn, btn),
     h("p", { class: "muted small" }, "애니메이션이 들어간 html 파일은 아래에서 올립니다. 끝에 「▶ 애니메이션」 쪽이 생기고, 수업할 때 그 쪽에서는 교사·학생 화면 모두 슬라이드 대신 애니메이션이 움직입니다. 파일 하나로 된 html(최대 50만 자)만 됩니다."),
@@ -1827,6 +1947,98 @@ async function toSlideImages(files, progress) {
     out.push(await canvasToJpeg(canvas));
   }
   return out;
+}
+
+// ---------- 슬라이드를 PDF로 내려받기 ----------
+// 저장소에는 쪽마다 JPG만 있으므로, 그 그림들을 차례대로 PDF 한 파일에 넣는다(라이브러리 없이 직접 쓴다).
+async function downloadSlidesPdf(btn, status) {
+  if (slideBusy) return;
+  slideBusy = true;
+  btn.disabled = true;
+  const n = lesson.slide_count;
+  try {
+    const pages = [];
+    for (let i = 1; i <= n; i++) {
+      status.textContent = "PDF 만드는 중 " + (i - 1) + " / " + n;
+      const res = await fetch(slideSrc(lesson, i), { cache: "no-cache" });
+      if (!res.ok) throw new Error(i + "쪽 그림을 받지 못했습니다. 「번호 다시 맞추기」를 눌러 보세요.");
+      const blob = await res.blob();
+      let bytes = new Uint8Array(await blob.arrayBuffer());
+      let info = jpegInfo(bytes);
+      if (!info || (info.comps !== 1 && info.comps !== 3)) {
+        // JPG가 아니거나(PNG 등) 색 방식이 특이하면 보통 JPG로 다시 만든다
+        const bmp = await createImageBitmap(blob);
+        const canvas = h("canvas", { width: bmp.width, height: bmp.height });
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(bmp, 0, 0);
+        bytes = new Uint8Array(await (await canvasToJpeg(canvas)).arrayBuffer());
+        info = jpegInfo(bytes);
+        if (!info) throw new Error(i + "쪽 그림을 PDF에 넣지 못했습니다.");
+      }
+      pages.push({ ...info, bytes });
+    }
+    const name = (lesson.title || "슬라이드").replace(/[\\/:*?"<>|]+/g, " ").trim().slice(0, 80) || "슬라이드";
+    const a = h("a", { href: URL.createObjectURL(makePdf(pages)), download: name + ".pdf" });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    status.textContent = "";
+    flash("PDF(" + n + "쪽)를 내려받았습니다.");
+  } catch (e) {
+    status.textContent = "PDF를 만들지 못했습니다: " + (e.message || e);
+  } finally {
+    slideBusy = false;
+    btn.disabled = false;
+  }
+}
+
+// JPG 머리에서 가로·세로·색 성분 수를 읽는다(JPG가 아니면 null)
+function jpegInfo(b) {
+  if (b[0] !== 0xff || b[1] !== 0xd8) return null;
+  let i = 2;
+  while (i + 9 < b.length) {
+    if (b[i] !== 0xff) return null;
+    const m = b[i + 1];
+    if (m === 0xff) { i++; continue; }
+    const len = (b[i + 2] << 8) | b[i + 3];
+    // SOF0~SOF15(DHT C4, JPG C8, DAC CC 빼고)
+    if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
+      return { h: (b[i + 5] << 8) | b[i + 6], w: (b[i + 7] << 8) | b[i + 8], comps: b[i + 9] };
+    }
+    i += 2 + len;
+  }
+  return null;
+}
+
+// 쪽마다 그림 하나를 가득 채운 PDF. 긴 변을 960pt로(16:9 슬라이드면 PowerPoint와 같은 960×540pt).
+function makePdf(pages) {
+  const enc = new TextEncoder();
+  const chunks = [];
+  const offsets = [];
+  let len = 0;
+  const put = (x) => { const b = typeof x === "string" ? enc.encode(x) : x; chunks.push(b); len += b.length; };
+  const obj = (id, ...parts) => { offsets[id] = len; put(id + " 0 obj\n"); parts.forEach(put); put("\nendobj\n"); };
+  const total = 3 + pages.length * 3;   // 0번(비움), 1 목록, 2 쪽 모음, 쪽마다 3개(쪽·그리기·그림)
+  put("%PDF-1.4\n%âãÏÓ\n");
+  obj(1, "<< /Type /Catalog /Pages 2 0 R >>");
+  obj(2, "<< /Type /Pages /Kids [" + pages.map((p, k) => (3 + k * 3) + " 0 R").join(" ") + "] /Count " + pages.length + " >>");
+  pages.forEach((p, k) => {
+    const id = 3 + k * 3;
+    const s = 960 / Math.max(p.w, p.h);
+    const pw = (p.w * s).toFixed(2), ph = (p.h * s).toFixed(2);
+    const draw = "q " + pw + " 0 0 " + ph + " 0 0 cm /Im0 Do Q";
+    obj(id, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " + pw + " " + ph + "] /Resources << /XObject << /Im0 " + (id + 2) + " 0 R >> >> /Contents " + (id + 1) + " 0 R >>");
+    obj(id + 1, "<< /Length " + draw.length + " >>\nstream\n", draw, "\nendstream");
+    obj(id + 2, "<< /Type /XObject /Subtype /Image /Width " + p.w + " /Height " + p.h + " /ColorSpace /" + (p.comps === 1 ? "DeviceGray" : "DeviceRGB") +
+      " /BitsPerComponent 8 /Filter /DCTDecode /Length " + p.bytes.length + " >>\nstream\n", p.bytes, "\nendstream");
+  });
+  const xref = len;
+  put("xref\n0 " + total + "\n0000000000 65535 f \n" + offsets.slice(1, total).map((o) => String(o).padStart(10, "0") + " 00000 n \n").join(""));
+  put("trailer\n<< /Size " + total + " /Root 1 0 R >>\nstartxref\n" + xref + "\n%%EOF\n");
+  return new Blob(chunks, { type: "application/pdf" });
 }
 
 // 수업을 만든 교사의 폴더(공동작업자가 올려도 같은 폴더)

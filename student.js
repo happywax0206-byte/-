@@ -142,6 +142,7 @@ function showEntry(notice) {
 }
 
 function logout(notice) {
+  if (scr.stream) screenStop(true);
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(ME_KEY);
   if (code) localStorage.removeItem("cra-token:" + code.toLowerCase());
@@ -152,6 +153,8 @@ function logout(notice) {
 
 // ---------- 서버에서 상태 받기 ----------
 function stopPolling() {
+  if (scr.stream) screenStop(true);   // 수업을 떠나면 화면 보여 주기도 멈춘다
+  closeScreenModal();
   clearTimeout(timer);
   timer = null;
 }
@@ -254,9 +257,206 @@ function sendLive(now) {
   sb.rpc("student_live", { p_token: token, p_code: code, p_live: live }).then(() => {}, () => { liveSent = ""; });
 }
 
+// ---------- 화면 전체 보여 주기(학생이 동의할 때만) ----------
+// 교사가 요청하면(screen.state = asked) 무엇이 보이고 무엇은 할 수 없는지 알리는 창을 띄우고, 학생이 읽고 동의해야만 시작한다.
+// 영상은 서버를 거치지 않고 WebRTC로 교사 브라우저에 바로 간다. 서버(student_screen)에는 연결 약속(SDP)만 적는다.
+const scr = { ask: null, stream: null, pc: null, key: null, seen: new Set(), modal: null, bar: null, waitTimer: null, renewAt: null };
+
+function screenRpc(ask, st, extra) {
+  return sb.rpc("student_screen", Object.assign({ p_token: token, p_code: code, p_ask: ask, p_state: st || null }, extra || {}));
+}
+
+function handleScreen(sc) {
+  if (!sc || !sc.ask) return;
+  const sharing = scr.stream && scr.stream.active;
+  if (sc.state === "asked") {
+    // 이미 동의해 보여 주는 중: 새 요청에도 그대로 잇는다(같은 요청이면 늦게 온 예전 상태이므로 무시)
+    if (sharing) { if (sc.ask !== scr.ask) { scr.ask = sc.ask; screenOffer(); } return; }
+    if (scr.seen.has(sc.ask)) return;
+    scr.seen.add(sc.ask);
+    if (!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)) {
+      screenRpc(sc.ask, "unsupported");
+      screenNotice("선생님이 화면 보기를 요청했지만, 이 기기(휴대폰·태블릿 등)에서는 화면을 보여 줄 수 없습니다. 선생님께는 「이 기기에서는 안 됨」으로만 알려졌습니다.");
+      return;
+    }
+    screenConsent(sc.ask);
+  } else if (sc.state === "ended") {
+    if (sharing || scr.modal) {
+      closeScreenModal();
+      screenStop(false);
+      screenNotice("선생님이 화면 보기를 끝냈습니다. 이제 내 화면은 보이지 않습니다.");
+    }
+  } else if (sc.state === "renew") {
+    if (scr.renewAt === sc.at) return;   // 이미 답한 다시 연결 요청
+    scr.renewAt = sc.at;
+    if (sharing && sc.ask === scr.ask) screenOffer();
+    else if (!sharing) screenRpc(sc.ask, "stopped");
+  } else if (["offer", "answer", "live", "failed"].includes(sc.state)) {
+    // 새로고침 등으로 보여 주던 화면이 없어졌다
+    if (!sharing) screenRpc(sc.ask, "stopped");
+    else if (sc.state === "answer" && scr.pc && scr.pc.signalingState === "have-local-offer") screenWaitAnswer(scr.key);
+  }
+}
+
+function screenNotice(text) {
+  const box = h("div", { class: "overlay screen-overlay" },
+    h("div", { class: "modal screen-modal" },
+      h("div", { class: "modal-body stack" }, h("p", {}, text),
+        h("button", { class: "primary", type: "button", onclick() { box.remove(); } }, "확인"))));
+  document.body.append(box);
+}
+
+function closeScreenModal() {
+  if (scr.modal) scr.modal.remove();
+  scr.modal = null;
+}
+
+// 동의 창: 다 읽고 확인란에 표시해야 「동의」를 누를 수 있다
+function screenConsent(ask) {
+  closeScreenModal();
+  const check = h("input", { type: "checkbox" });
+  const agree = h("button", { class: "primary", type: "button", disabled: true }, "동의하고 보여 줄 화면 고르기");
+  const msg = h("p", { class: "msg" });
+  check.addEventListener("change", () => { agree.disabled = !check.checked; });
+  const decline = h("button", { class: "ghost", type: "button", onclick() {
+    closeScreenModal();
+    screenRpc(ask, "declined");
+    screenNotice("거절했습니다. 선생님께는 「거절함」으로만 알려지고, 수업 참여와 답 제출은 그대로 할 수 있습니다.");
+  } }, "거절");
+  agree.addEventListener("click", async () => {
+    agree.disabled = decline.disabled = true;
+    msg.textContent = "다음에 뜨는 창에서 「전체 화면」(화면 전체)을 고르고 「공유」를 누르세요.";
+    const err = await screenStart(ask);
+    if (!err) { closeScreenModal(); return; }
+    msg.textContent = err;
+    agree.textContent = "다시 고르기";
+    agree.disabled = !check.checked;
+    decline.disabled = false;
+  });
+  scr.modal = h("div", { class: "overlay screen-overlay" },
+    h("div", { class: "modal screen-modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "screen-title" },
+      h("div", { class: "modal-head" }, h("h2", { id: "screen-title" }, "🖥 선생님이 내 화면 전체를 보려고 합니다")),
+      h("div", { class: "modal-body stack" },
+        h("p", {}, "동의하면 ", h("strong", {}, "이 컴퓨터 모니터에 보이는 모든 것"), "이 선생님 화면에 실시간 영상으로 보입니다. 이 수업 창뿐 아니라 ",
+          h("strong", {}, "다른 창·다른 프로그램·알림·바탕화면"), "도 모두 보입니다. 소리는 보내지 않습니다."),
+        h("div", { class: "tip screen-cannot" },
+          h("strong", {}, "선생님이 할 수 없는 것"),
+          h("ul", {},
+            h("li", {}, "내 컴퓨터의 마우스·키보드를 움직이거나 조작하는 것"),
+            h("li", {}, "내 컴퓨터의 파일·사진·프로그램을 열거나, 복사하거나, 지우는 것"),
+            h("li", {}, "비밀번호·저장된 개인 정보·다른 사이트 계정에 들어가는 것"),
+            h("li", {}, "카메라·마이크를 켜는 것")),
+          h("p", { class: "small" }, "선생님은 화면을 ", h("strong", {}, "보기만"), " 할 수 있습니다.")),
+        h("ul", { class: "small" },
+          h("li", {}, "이 앱은 화면 영상을 서버에 저장하거나 녹화하지 않습니다. 영상은 선생님 컴퓨터로 바로 갑니다."),
+          h("li", {}, "다만 선생님 화면에 보이는 것은 사진으로 찍힐 수 있으니, 보이고 싶지 않은 창(메신저, 개인 사이트 등)은 먼저 닫으세요."),
+          h("li", {}, "보여 주는 동안 화면 맨 위에 빨간 띠가 보이고, 「멈추기」를 누르면 바로 멈춥니다. 브라우저의 「공유 중지」를 누르거나 이 창을 닫아도 멈춥니다."),
+          h("li", {}, "거절해도 됩니다. 선생님께는 「거절함」으로만 알려지고, 수업 참여와 답 제출은 그대로 할 수 있습니다.")),
+        h("label", { class: "check screen-check" }, check, " 위 내용을 모두 읽고 이해했습니다"),
+        h("div", { class: "row wrap" }, decline, h("span", { class: "spacer" }), agree),
+        msg)));
+  document.body.append(scr.modal);
+}
+
+// 화면 고르기 → 전체 화면이 아니면 다시 고르게 한다. 실패하면 알릴 글을 돌려준다
+async function screenStart(ask) {
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { displaySurface: "monitor", frameRate: { ideal: 8, max: 10 } }, audio: false,
+      monitorTypeSurfaces: "include", surfaceSwitching: "exclude", selfBrowserSurface: "include",
+    });
+  } catch (e) {
+    return "화면을 고르지 않았습니다. 보여 주려면 다시 누르고, 원하지 않으면 「거절」을 누르세요.";
+  }
+  const track = stream.getVideoTracks()[0];
+  const surface = track && track.getSettings ? track.getSettings().displaySurface : null;
+  if (surface && surface !== "monitor") {
+    stream.getTracks().forEach((t) => t.stop());
+    return "선생님이 요청한 것은 「전체 화면」입니다. 창이나 탭이 아니라 「전체 화면」을 골라 주세요.";
+  }
+  track.contentHint = "detail";
+  track.addEventListener("ended", () => screenStop(true));   // 브라우저의 「공유 중지」
+  scr.stream = stream;
+  scr.ask = ask;
+  showScreenBar("연결하는 중…");
+  screenOffer();
+  return null;
+}
+
+// 연결 정보(offer)를 만들어 서버에 적고, 교사의 답(answer)을 기다린다
+async function screenOffer() {
+  const track = scr.stream && scr.stream.getVideoTracks()[0];
+  if (!track) return;
+  if (scr.pc) scr.pc.close();
+  const pc = new RTCPeerConnection({ iceServers: SCREEN_ICE });
+  scr.pc = pc;
+  const key = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  scr.key = key;
+  const st = track.getSettings ? track.getSettings() : {};
+  // 전송량을 줄이려고 가로 1280px 이하, 1초 8장 이하로 보낸다
+  pc.addTransceiver(track, { direction: "sendonly", streams: [scr.stream],
+    sendEncodings: [{ maxBitrate: 600000, maxFramerate: 8, scaleResolutionDownBy: Math.max(1, (st.width || 1280) / 1280) }] });
+  pc.addEventListener("connectionstatechange", () => {
+    if (scr.pc !== pc || scr.key !== key) return;
+    if (pc.connectionState === "connected") { showScreenBar(); screenRpc(scr.ask, "live", { p_key: key }); }
+    if (pc.connectionState === "failed") { showScreenBar("선생님과 연결이 끊겼습니다. 선생님이 다시 연결하면 이어서 보입니다."); screenRpc(scr.ask, "failed", { p_key: key }); }
+  });
+  await pc.setLocalDescription(await pc.createOffer());
+  await iceDone(pc);
+  if (scr.pc !== pc) return;
+  const { data, error } = await screenRpc(scr.ask, "offer", { p_offer: pc.localDescription.sdp, p_key: key });
+  if (error || (data && data.error)) { showScreenBar("선생님께 연결하지 못했습니다. 잠시 뒤 선생님이 다시 요청하면 이어집니다."); return; }
+  screenWaitAnswer(key);
+}
+
+// 교사의 답을 1초마다(최대 1분) 묻는다
+function screenWaitAnswer(key) {
+  clearTimeout(scr.waitTimer);
+  const until = Date.now() + 60000;
+  const tick = async () => {
+    if (scr.key !== key || !scr.pc || scr.pc.signalingState !== "have-local-offer") return;
+    const { data } = await screenRpc(scr.ask, null);
+    if (scr.key !== key || !scr.pc || scr.pc.signalingState !== "have-local-offer") return;
+    if (data && data.key === key && data.answer) {
+      try { await scr.pc.setRemoteDescription({ type: "answer", sdp: data.answer }); } catch (e) { console.error(e); }
+      return;
+    }
+    if (data && data.state === "ended") return;
+    if (Date.now() < until) scr.waitTimer = setTimeout(tick, 1000);
+    else showScreenBar("선생님 화면이 응답하지 않습니다. 선생님이 「학생 화면」 탭을 열면 이어집니다.");
+  };
+  scr.waitTimer = setTimeout(tick, 800);
+}
+
+// 보여 주기 멈춤. byStudent면 서버에도 「멈춤」을 적는다
+function screenStop(byStudent) {
+  clearTimeout(scr.waitTimer);
+  if (scr.pc) scr.pc.close();
+  if (scr.stream) scr.stream.getTracks().forEach((t) => t.stop());
+  const ask = scr.ask;
+  scr.pc = scr.stream = scr.key = null;
+  if (scr.bar) { scr.bar.remove(); scr.bar = null; }
+  if (byStudent && ask) screenRpc(ask, "stopped");
+}
+
+// 보여 주는 동안 늘 화면 맨 위에 보이는 빨간 띠
+function showScreenBar(extra) {
+  if (!scr.bar) {
+    scr.bar = h("div", { class: "screen-bar", role: "status" },
+      h("span", { class: "screen-bar-text" }),
+      h("button", { type: "button", onclick() { screenStop(true); screenNotice("화면 보여 주기를 멈췄습니다. 이제 내 화면은 선생님께 보이지 않습니다."); } }, "■ 멈추기"));
+    document.body.prepend(scr.bar);
+  }
+  scr.bar.querySelector(".screen-bar-text").textContent = extra
+    ? "● 화면 보여 주기 켜짐 · " + extra
+    : "● 선생님이 지금 내 화면 전체를 보고 있습니다 (보기만 가능, 조작 불가)";
+}
+
 function apply(data) {
   const before = state;
   state = data;
+  handleScreen(data.screen);
   if (!shell) buildShell();
   shell.conn.hidden = true;
   const teacherPage = clampPage(data.lesson.page);
@@ -297,7 +497,7 @@ function buildShell() {
         h("button", { class: "link", type: "button", onclick() { history.replaceState(null, "", location.pathname); showCodeOnly(); } }, "다른 수업"),
         h("button", { class: "link", type: "button", onclick() { logout("나갔습니다. 다시 들어오려면 입장하세요."); } }, "나가기"))),
     h("main", { class: "lesson" }, conn, closed, slideBox, list),
-    h("p", { class: "muted small center live-note" }, "선생님은 수업 중에 내가 보고 있는 쪽과 저장하기 전에 쓰고 있는 답을 볼 수 있습니다."));
+    h("p", { class: "muted small center live-note" }, "선생님은 수업 중에 내가 보고 있는 쪽과 저장하기 전에 쓰고 있는 답을 볼 수 있습니다. 화면 전체는 내가 동의할 때만 보이고, 선생님은 보기만 할 뿐 내 컴퓨터를 조작할 수 없습니다."));
   const anytimeHead = h("h2", { class: "section-head" }, "언제든 할 수 있는 활동");
   const empty = h("p", { class: "muted center" });
   shell = { img, simStage, simLayer, prev, next, where, back, closed, conn, title, who, slideBox, list, anytimeHead, empty, stageSim: null, stageKey: "" };

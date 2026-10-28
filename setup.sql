@@ -104,6 +104,13 @@ alter table lesson_students add column if not exists live jsonb;
 alter table lesson_students add column if not exists live_at timestamptz;
 alter table lesson_students drop constraint if exists lesson_students_live_size;
 alter table lesson_students add constraint lesson_students_live_size check (live is null or (jsonb_typeof(live) = 'object' and octet_length(live::text) <= 20000));
+-- 나중에 더한 칸: 학생 화면 전체 보기(학생이 동의할 때만). 영상은 서버를 거치지 않고 학생 → 교사 브라우저로 바로 간다(WebRTC).
+-- 여기에는 연결 약속만 적는다 {ask: 요청 번호, state, key: 학생이 만든 연결 번호, offer/answer: 연결 정보(SDP)}
+-- state: asked(교사가 요청) declined(거절) unsupported(휴대폰 등) offer(학생 동의, 연결 정보 보냄) answer(교사 답함)
+--        live(보이는 중) failed(연결 끊김) renew(교사가 다시 연결 요청) stopped(학생이 멈춤) ended(교사가 끝냄)
+alter table lesson_students add column if not exists screen jsonb;
+alter table lesson_students drop constraint if exists lesson_students_screen_size;
+alter table lesson_students add constraint lesson_students_screen_size check (screen is null or (jsonb_typeof(screen) = 'object' and octet_length(screen::text) <= 70000));
 
 create table if not exists responses (
   student_id  uuid not null references students(id) on delete cascade,
@@ -335,7 +342,8 @@ begin
     'me', jsonb_build_object('class_no', s.class_no, 'name', s.name),
     'lesson', jsonb_build_object('code', l.code, 'title', l.title, 'slide_dir', l.slide_dir,
                                  'slide_count', l.slide_count, 'page', l.page, 'open', l.open, 'kind', l.kind, 'transition', l.transition),
-    'watch', coalesce(l.live_watch_at > now() - interval '15 seconds', false));
+    'watch', coalesce(l.live_watch_at > now() - interval '15 seconds', false),
+    'screen', case when m.screen is not null then jsonb_build_object('ask', m.screen -> 'ask', 'state', m.screen -> 'state', 'key', m.screen -> 'key', 'at', m.screen -> 'at') end);
   va := coalesce((
       select jsonb_agg(jsonb_build_object(
         'id', a.id, 'kind', a.kind, 'title', a.title, 'page', a.page, 'page_to', a.page_to, 'named', a.named, 'shared', a.shared,
@@ -466,7 +474,8 @@ begin
     select jsonb_agg(jsonb_build_object(
       'id', s.id, 'class_no', s.class_no, 'name', s.name, 'pin_set', s.pin_set, 'fails', s.fails,
       'locked_until', s.locked_until, 'created_at', s.created_at, 'joined_at', m.joined_at, 'last_seen', m.last_seen,
-      'live', case when p_live then m.live end, 'live_at', m.live_at))
+      'live', case when p_live then m.live end, 'live_at', m.live_at,
+      'screen', coalesce(m.screen - 'offer' - 'answer', '{}'::jsonb)))
     from lesson_students m join students s on s.id = m.student_id
     where m.lesson_id = p_lesson), '[]'::jsonb);
 end $$;
@@ -487,6 +496,85 @@ begin
   end if;
   update lesson_students set live = p_live, live_at = now(), last_seen = now()
     where lesson_id = l.id and student_id = s.id;
+  return jsonb_build_object('ok', true);
+end $$;
+
+-- 학생 화면 전체 보기 — 학생 쪽. p_state 없이 부르면 지금 약속(교사의 answer 포함)만 돌려준다.
+-- 학생은 교사가 요청한 그 요청 번호(p_ask)에만 답할 수 있다.
+create or replace function student_screen(p_token text, p_code text, p_ask text, p_state text default null,
+                                          p_offer text default null, p_key text default null)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+declare
+  s students;
+  l lessons;
+  m lesson_students;
+  v jsonb;
+begin
+  select * into s from students where token = p_token and p_token is not null;
+  if not found then return jsonb_build_object('error', 'logged_out'); end if;
+  select * into l from lessons where code = upper(tidy(p_code));
+  if not found then return jsonb_build_object('error', 'no_lesson'); end if;
+  select * into m from lesson_students where lesson_id = l.id and student_id = s.id for update;
+  if not found then return jsonb_build_object('error', 'no_lesson'); end if;
+  v := m.screen;
+  if p_state is not null then
+    if v is null or v ->> 'ask' is distinct from p_ask then return jsonb_build_object('error', 'stale'); end if;
+    if p_state = 'offer' then
+      if p_offer is null or length(p_offer) > 60000 or coalesce(p_key, '') !~ '^[a-z0-9]{6,32}$' then
+        return jsonb_build_object('error', 'bad');
+      end if;
+      v := jsonb_build_object('ask', p_ask, 'state', 'offer', 'key', p_key, 'offer', p_offer);
+    elsif p_state in ('live', 'failed') then
+      if v ->> 'key' is distinct from p_key or v ->> 'state' not in ('offer', 'answer', 'live', 'failed') then
+        return jsonb_build_object('error', 'stale');
+      end if;
+      v := (v - 'offer' - 'answer') || jsonb_build_object('state', p_state);
+    elsif p_state in ('declined', 'unsupported', 'stopped') then
+      v := jsonb_build_object('ask', p_ask, 'state', p_state);
+    else
+      return jsonb_build_object('error', 'bad');
+    end if;
+    v := v || jsonb_build_object('at', now());
+    update lesson_students set screen = v where lesson_id = l.id and student_id = s.id;
+  end if;
+  return coalesce(v - 'offer', '{}'::jsonb);
+end $$;
+
+-- 학생 화면 전체 보기 — 교사 쪽.
+-- ask: 보기 요청(p_student 없으면 이 수업 학생 모두, 이미 보이는 학생은 빼고) · end: 끝내기 · renew: 다시 연결(교사가 새로고침한 경우 등)
+-- get: 학생이 보낸 연결 정보(offer) 받기 · answer: 교사 쪽 연결 정보 보내기(p_key = 학생이 만든 연결 번호)
+create or replace function teacher_screen(p_lesson uuid, p_student uuid, p_action text, p_key text default null, p_answer text default null)
+returns jsonb language plpgsql volatile security definer set search_path = public, extensions as $$
+declare
+  v jsonb;
+begin
+  if not can_lesson(p_lesson) then raise exception 'not your lesson'; end if;
+  if p_action = 'ask' then
+    update lesson_students
+      set screen = jsonb_build_object('ask', encode(gen_random_bytes(6), 'hex'), 'state', 'asked', 'at', now())
+      where lesson_id = p_lesson and (p_student is null or student_id = p_student)
+        and (p_student is not null or coalesce(screen ->> 'state', '') not in ('offer', 'answer', 'live', 'failed', 'renew'));
+  elsif p_action = 'end' then
+    update lesson_students
+      set screen = jsonb_build_object('ask', screen -> 'ask', 'state', 'ended', 'at', now())
+      where lesson_id = p_lesson and (p_student is null or student_id = p_student)
+        and screen is not null and screen ->> 'state' <> 'ended';
+  elsif p_action = 'renew' then
+    update lesson_students
+      set screen = jsonb_build_object('ask', screen -> 'ask', 'state', 'renew', 'at', now())
+      where lesson_id = p_lesson and student_id = p_student and screen ->> 'state' in ('offer', 'answer', 'live', 'failed');
+  elsif p_action = 'get' then
+    select screen into v from lesson_students where lesson_id = p_lesson and student_id = p_student;
+    return coalesce(v, '{}'::jsonb);
+  elsif p_action = 'answer' then
+    if p_answer is null or length(p_answer) > 60000 then return jsonb_build_object('error', 'bad'); end if;
+    update lesson_students
+      set screen = (screen - 'offer') || jsonb_build_object('state', 'answer', 'answer', p_answer, 'at', now())
+      where lesson_id = p_lesson and student_id = p_student and screen ->> 'state' = 'offer' and screen ->> 'key' = p_key;
+    if not found then return jsonb_build_object('error', 'stale'); end if;
+  else
+    return jsonb_build_object('error', 'bad');
+  end if;
   return jsonb_build_object('ok', true);
 end $$;
 
@@ -602,6 +690,10 @@ grant execute on function student_enter(text, text, text, text, boolean) to anon
 grant execute on function student_state(text, text, text, boolean) to anon, authenticated;
 revoke all on function student_live(text, text, jsonb) from public;
 grant execute on function student_live(text, text, jsonb) to anon, authenticated;
+revoke all on function student_screen(text, text, text, text, text, text) from public;
+grant execute on function student_screen(text, text, text, text, text, text) to anon, authenticated;
+revoke all on function teacher_screen(uuid, uuid, text, text, text) from public;
+grant execute on function teacher_screen(uuid, uuid, text, text, text) to authenticated;
 grant execute on function teacher_students(uuid, boolean) to authenticated;
 grant execute on function student_sim(text, uuid) to anon, authenticated;
 grant execute on function student_save(text, uuid, jsonb) to anon, authenticated;
