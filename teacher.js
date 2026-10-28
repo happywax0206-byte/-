@@ -203,31 +203,136 @@ function drawManageGrid() {
   manageData.detail.replaceChildren(...(g ? [detailPanel(g)] : []));
 }
 
-async function drawManage() {
+// 확장 프로그램(저장소의 extension 폴더)에게 Supabase 대시보드의 Usage 숫자를 부탁한다. 설치되어 있지 않으면 null.
+// 확장 프로그램은 이 브라우저가 대시보드에 로그인되어 있을 때만 읽고, 로그인은 하지 않는다.
+function askDashboard(ref, force) {
+  if (!document.documentElement.dataset.craUsage) return Promise.resolve(null);
+  const id = Math.random().toString(36).slice(2);
+  return new Promise((ok) => {
+    const t = setTimeout(() => { removeEventListener("message", on); ok({ error: "시간이 너무 오래 걸립니다" }); }, 60000);
+    function on(e) {
+      if (e.source !== window || !e.data || e.data.cra !== "usage-result" || e.data.id !== id) return;
+      clearTimeout(t);
+      removeEventListener("message", on);
+      ok(e.data.res || { error: "응답 없음" });
+    }
+    addEventListener("message", on);
+    postMessage({ cra: "usage-request", id, ref, force: !!force }, location.origin);
+  });
+}
+
+const EGRESS_PARTS = {
+  egress_rest: ["데이터베이스 API", "학생 화면 상태·답 저장·교사 화면 목록"], egress_storage: ["파일 저장소", "슬라이드 그림(캐시 안 된 것)·제출 파일"],
+  egress_realtime: ["Realtime", ""], egress_function: ["Edge Functions", ""], egress_supavisor: ["DB 직접 연결", "SQL Editor 등"],
+  egress_graphql: ["GraphQL", ""], egress_logdrain: ["로그 내보내기", ""],
+};
+const EGRESS_USES = "이 앱에서 전송량을 쓰는 곳: 학생 화면이 3초마다 묻는 수업 상태(바뀐 것이 없으면 아주 짧음), 쪽을 넘길 때 받는 슬라이드 그림(같은 그림을 다시 받으면 캐시 전송량), 교사 화면의 학생·답 목록, 학생이 올린 파일 열기.";
+const EXTRA_METRICS = {
+  REALTIME_MESSAGE_COUNT: ["Supabase Realtime 메시지", "개"], REALTIME_PEAK_CONNECTIONS: ["Supabase Realtime 동시 연결", "개"],
+  FUNCTION_INVOCATIONS: ["Supabase Edge Functions", "회"], MONTHLY_ACTIVE_THIRD_PARTY_USERS: ["Supabase 제3자 로그인 사용자", "명"],
+  STORAGE_IMAGES_TRANSFORMED: ["Supabase 그림 변환", "장"],
+};
+
+// 대시보드 숫자로 칸을 채운다(전송량·캐시 전송량·활성 사용자는 대시보드 값으로, DB·저장소는 앱이 잰 값과 나란히)
+function applyDashboard(gauges, d) {
+  const M = Object.fromEntries((d.usages || []).map((u) => [u.metric, u]));
+  const gb = (x) => (+x > 0 && +x < 0.005 ? "<0.01" : String(+(+x).toFixed(2))) + " GB";
+  const find = (k) => gauges.find((g) => g.key === k);
+  const many = (d.usages || []).some((u) => u.projects && u.projects.length > 1);
+  const scope = many ? " · 조직 전체(프로젝트 여러 개 합)" : "";
+  for (const [key, metric] of [["egress", "EGRESS"], ["cached", "CACHED_EGRESS"]]) {
+    const g = find(key), u = M[metric];
+    if (!g || !u) continue;
+    Object.assign(g, { used: +u.usage, total: u.free > 0 ? +u.free : g.total / 1e9, fmt: gb, note: "대시보드 값 · 이번 결제 주기" + scope, how: EGRESS_USES });
+    if (key === "egress" && d.breakdown) {
+      const GiB = 1024 ** 3;   // 대시보드는 하루치 바이트를 1024 단위로 GB로 바꾼다
+      const items = Object.entries(d.breakdown).map(([k, v]) => ({ label: (EGRESS_PARTS[k] || [k])[0], sub: (EGRESS_PARTS[k] || [])[1] ? "(" + EGRESS_PARTS[k][1] + ")" : null, value: v / GiB }));
+      const rest = +u.usage - items.reduce((m, x) => m + x.value, 0);
+      if (rest > 0.005) items.push({ label: "그 밖(로그인 등)", value: rest });
+      g.items = items;
+    }
+    if (many) g.list = h("ol", { class: "usage-list small" }, u.projects.map((p) => h("li", {}, p.name + " · " + gb(p.usage))));
+  }
+  const compare = (key, metric, appFmt) => {
+    const g = find(key), u = M[metric];
+    if (!g || !u) return;
+    g.note = (g.note ? g.note + " · " : "") + "대시보드 " + gb(u.usage);
+    g.how = (g.how ? g.how + " " : "") + "대시보드 값(" + gb(u.usage) + scope + ")은 결제 주기 동안의 하루 평균이고, 위 막대는 앱이 지금 잰 값(" + appFmt(g.used) + ")이라 조금 다를 수 있습니다.";
+  };
+  compare("db", "DATABASE_SIZE", fmtBytes);
+  compare("storage", "STORAGE_SIZE", fmtBytes);
+  const mg = find("mau"), mu = M.MONTHLY_ACTIVE_USERS;
+  if (mg && mu) {
+    mg.how = (mg.how || "") + " 앱이 센 값(1일부터): " + mg.used + "명.";
+    Object.assign(mg, { used: +mu.usage, total: mu.free > 0 ? +mu.free : mg.total, note: "대시보드 값 · 이번 결제 주기 · 학생은 세지 않음" });
+  }
+  // 이 앱은 쓰지 않지만 0이 아니면 칸을 더한다(다른 프로젝트가 쓰는 경우 등)
+  for (const [metric, [title, unit]] of Object.entries(EXTRA_METRICS)) {
+    const u = M[metric];
+    if (u && +u.usage > 0 && +u.free > 0) gauges.push({ key: metric, title, used: +u.usage, total: +u.free, fmt: fmtCount(unit), note: "대시보드 값" + scope });
+  }
+}
+
+function dashboardStatus(el, d, dash) {
+  const usagePage = d && d.org && d.org.slug ? "https://supabase.com/dashboard/org/" + encodeURIComponent(d.org.slug) + "/usage" : dash;
+  const link = h("a", { href: usagePage, target: "_blank", rel: "noopener" }, "Supabase 대시보드");
+  if (d === null) {
+    el.replaceChildren(h("details", { class: "tip" },
+      h("summary", {}, "전송량 등 대시보드 숫자도 보려면: 이 컴퓨터에 확장 프로그램을 한 번 설치하세요 (펼치기)"),
+      h("ol", { class: "small" },
+        h("li", {}, "확장 프로그램 파일: 이 웹앱 저장소의 ", h("strong", {}, "extension"), " 폴더입니다. 이 컴퓨터에 없으면 ",
+          h("a", { href: "https://github.com/" + GITHUB_REPO + "/archive/refs/heads/main.zip" }, "ZIP으로 받아"), " 압축을 풀면 안에 있습니다."),
+        h("li", {}, "크롬 주소창에 chrome://extensions (엣지는 edge://extensions, 웨일은 whale://extensions)를 열고, 「개발자 모드」를 켭니다."),
+        h("li", {}, "「압축해제된 확장 프로그램을 로드합니다」를 눌러 extension 폴더를 고릅니다."),
+        h("li", {}, "이 화면을 새로고침합니다.")),
+      h("p", { class: "small" }, "확장 프로그램은 이 탭을 열 때만(10분에 한 번까지) 움직입니다. 이 브라우저가 Supabase에 로그인되어 있는지 먼저 보고, 로그인되어 있을 때만 Usage 숫자를 읽습니다. 로그인은 하지 않으며 로그인 정보는 이 화면에 넘기지 않습니다.")));
+  } else if (d === "loading") {
+    el.replaceChildren(h("p", { class: "muted small" }, "Supabase 대시보드 숫자를 읽는 중… (로그인되어 있는지 보려고 Supabase 탭이 잠깐 열렸다 닫힐 수 있습니다)"));
+  } else if (d.error) {
+    el.replaceChildren(h("p", { class: "banner" }, "대시보드 숫자를 읽지 못했습니다: " + d.error + " · 잠시 뒤 「다시 읽기」를 눌러 보세요."));
+  } else if (!d.loggedIn) {
+    el.replaceChildren(h("p", { class: "banner" }, "이 브라우저는 Supabase에 로그인되어 있지 않아 대시보드 숫자는 읽지 않았습니다. ", link, "에 로그인한 뒤 「다시 읽기」를 누르세요."));
+  } else if (d.noAccess) {
+    el.replaceChildren(h("p", { class: "banner" }, "이 브라우저에 로그인한 Supabase 계정으로는 이 웹앱의 프로젝트를 볼 수 없습니다. 프로젝트를 만든 계정으로 로그인하세요."));
+  } else {
+    const day = (t) => (new Date(t).getMonth() + 1) + "/" + new Date(t).getDate();
+    el.replaceChildren(...[
+      d.org.restricted ? h("p", { class: "banner bad" }, "Supabase가 이 조직의 사용을 제한하고 있습니다(" + d.org.restricted + "). 대시보드에서 확인하세요.") : null,
+      h("p", { class: "muted small" }, "✓ ", link, "에서 읽음 · 조직 「" + d.org.name + "」" + (d.org.plan ? " (" + d.org.plan + ")" : "") +
+        (d.period ? " · 결제 주기 " + day(d.period.start) + " ~ " + day(d.period.end) : "") +
+        " · " + new Date(d.at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) + (d.cached ? " (10분 안에 읽은 것)" : ""))].filter(Boolean));
+  }
+}
+
+async function drawManage(force) {
+  force = force === true;
   const grid = h("div", { class: "usage-grid" }, h("p", { class: "muted" }, "읽어 오는 중…"));
   const detail = h("div");
   const banner = h("div");
+  const dashEl = h("div");
   const when = h("span", { class: "muted small" });
   const ref = (/^https:\/\/([a-z0-9-]+)\.supabase\.co$/.exec(SB_URL) || [])[1];
   const dash = ref ? "https://supabase.com/dashboard/project/" + ref : "https://supabase.com/dashboard";
   main.replaceChildren(h("div", { class: "stack" },
     h("section", { class: "card stack" },
       h("div", { class: "row between wrap" }, h("h2", {}, "무료 용량"),
-        h("div", { class: "row" }, when, h("button", { class: "ghost", type: "button", onclick: drawManage }, "⟳ 다시 읽기"))),
-      h("p", { class: "muted small" }, "이 웹앱이 쓰는 사이트(Supabase: 데이터·파일, GitHub: 화면)의 무료 한도 중 얼마나 썼는지입니다. 칸을 누르면 무엇이 많이 쓰는지 큰 것부터 보입니다. 60%를 넘으면 주황, 85%를 넘으면 빨강. 한도는 2026년 10월 무료 플랜 기준입니다.")),
+        h("div", { class: "row" }, when, h("button", { class: "ghost", type: "button", onclick() { drawManage(true); } }, "⟳ 다시 읽기"))),
+      h("p", { class: "muted small" }, "이 웹앱이 쓰는 사이트(Supabase: 데이터·파일, GitHub: 화면)의 무료 한도 중 얼마나 썼는지입니다. 칸을 누르면 무엇이 많이 쓰는지 큰 것부터 보입니다. 60%를 넘으면 주황, 85%를 넘으면 빨강. 한도는 2026년 10월 무료 플랜 기준입니다."),
+      dashEl),
     banner, grid, detail,
     h("section", { class: "card stack" },
       h("h3", {}, "알아 둘 것"),
       h("ul", { class: "small" },
-        h("li", {}, "Supabase는 한도를 달력의 1일이 아니라 ", h("strong", {}, "결제 주기"), "(조직을 만든 날짜 기준)로 셉니다. 여기 「이번 달」은 1일부터라 대시보드와 며칠 어긋날 수 있습니다."),
-        h("li", {}, "전송량·캐시 전송량은 Supabase가 대시보드에서만 보여 줍니다(토큰으로 부르는 API와 로그에도 바이트 수가 없음). ",
-          h("a", { href: dash, target: "_blank", rel: "noopener" }, "Supabase 대시보드"), " → 왼쪽 위 조직 이름 → Usage."),
+        h("li", {}, "Supabase는 한도를 달력의 1일이 아니라 ", h("strong", {}, "결제 주기"), "(조직을 만든 날짜 기준)로 셉니다. 대시보드 숫자를 읽으면 그 결제 주기로 보여 줍니다."),
+        h("li", {}, "무료 한도는 프로젝트가 아니라 조직 전체에 적용됩니다(무료 프로젝트 2개까지)."),
         h("li", {}, "데이터베이스 크기는 결제 주기의 하루 평균으로 따지고, 넘으면 다음 주기까지 요청이 막힐 수 있습니다. 디스크가 95% 차면 읽기 전용이 됩니다."),
         h("li", {}, "Supabase 무료 프로젝트는 1주일 넘게 아무도 쓰지 않으면 멈춥니다(대시보드에서 Restore)."),
         h("li", {}, "이 앱이 쓰지 않아 늘 0인 무료 항목: Realtime(동시 연결 200·메시지 200만), Edge Functions(50만 회), 다른 서비스 로그인(제3자 MAU 5만). 「수업 화면 띄우기」 연결은 브라우저 안에서만 오가고, 학생 화면 보기 영상도 Supabase를 거치지 않습니다.")))));
   manageData = { gauges: [], grid, detail };
 
   const ghGet = (path) => fetch("https://api.github.com/repos/" + GITHUB_REPO + path).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const dashP = ref ? askDashboard(ref, force) : Promise.resolve(null);
+  dashboardStatus(dashEl, document.documentElement.dataset.craUsage && ref ? "loading" : null, dash);
   const [st, repo, runs] = await Promise.all([sb.rpc("usage_stats"), ghGet(""), ghGet("/actions/runs?per_page=30")]);
   const tree = repo ? await ghGet("/git/trees/" + encodeURIComponent(repo.default_branch || "main") + "?recursive=1") : null;
   if (!grid.isConnected) return;
@@ -265,7 +370,7 @@ async function drawManage() {
     gauges.push({ key: "db", title: "Supabase 데이터베이스", used: null, total: FREE.db, fmt: fmtBytes });
     gauges.push({ key: "storage", title: "Supabase 파일 저장소", used: null, total: FREE.storage, fmt: fmtBytes });
   }
-  const egressHow = "정확한 숫자는 대시보드에서만 볼 수 있습니다. 이 앱에서 전송량을 쓰는 곳(구조상 많은 순서): ① 학생 화면이 3초마다 묻는 수업 상태(바뀐 것이 없으면 아주 짧음) ② 쪽을 넘길 때 받는 슬라이드 그림(같은 그림을 다시 받으면 캐시 전송량) ③ 교사 화면의 학생·답 목록 ④ 학생이 올린 파일 열기.";
+  const egressHow = "정확한 숫자는 Supabase 대시보드에만 있어, 확장 프로그램이 설치되고 Supabase에 로그인된 브라우저에서만 채워집니다. " + EGRESS_USES;
   gauges.push({ key: "egress", title: "Supabase 전송량", used: null, total: FREE.egress, fmt: fmtBytes, note: "대시보드에서만 볼 수 있음", how: egressHow });
   gauges.push({ key: "cached", title: "Supabase 캐시 전송량", used: null, total: FREE.cached, fmt: fmtBytes, note: "CDN이 대신 보낸 슬라이드 그림 등", how: egressHow });
   if (u && "mau_list" in u) {
@@ -296,6 +401,14 @@ async function drawManage() {
   manageData.gauges = gauges;
   drawManageGrid();
   when.textContent = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) + " 기준";
+  // 대시보드 숫자는 늦게 올 수 있어(뒤쪽 탭에서 로그인 확인) 나중에 덧붙인다
+  const d = await dashP;
+  if (!grid.isConnected || manageData.grid !== grid) return;
+  dashboardStatus(dashEl, d, dash);
+  if (d && d.loggedIn && !d.noAccess && !d.error) {
+    applyDashboard(gauges, d);
+    drawManageGrid();
+  }
 }
 
 function profileCard() {
