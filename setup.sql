@@ -34,6 +34,8 @@ alter table lessons add column if not exists kind text not null default 'lesson'
 alter table lessons add column if not exists transition jsonb;
 alter table lessons drop constraint if exists lessons_transition_size;
 alter table lessons add constraint lessons_transition_size check (transition is null or (jsonb_typeof(transition) = 'object' and octet_length(transition::text) <= 8000));
+-- 나중에 더한 칸: 교사가 「학생 화면」 탭을 마지막으로 본 때. 이때부터 15초 동안만 학생이 쓰고 있는 답을 보낸다
+alter table lessons add column if not exists live_watch_at timestamptz;
 create unique index if not exists lessons_code_key on lessons (code);
 create index if not exists lessons_owner on lessons (owner);
 
@@ -294,17 +296,26 @@ end $$;
 
 -- 학생 화면에 필요한 것 전부: 이 수업의 상태, 활동, 내 응답, 공개된 친구들 응답.
 -- 이미 입장한 학생(열쇠가 있는 기기)이 새 수업 코드로 오면 비밀번호 없이 그 수업에 참여시킨다.
--- 학생은 3초마다 묻는다. 지난번과 똑같으면(p_hash가 같으면) 내용 없이 same만 돌려줘 전송량을 줄인다.
+-- 학생은 3초마다 묻는다. 전송량을 줄이려고 내용을 세 부분(lesson: 수업 정보, activities: 활동, others: 공개된 친구 응답)으로 나누고
+-- 부분마다 md5를 붙인다(hash = 세 md5를 이은 96글자). 학생이 보낸 p_hash와 비교해 바뀐 부분만 돌려주고('parts': true),
+-- 모두 같으면 same만 돌려준다. 그래서 쪽을 넘길 때는 짧은 수업 정보만 간다.
+-- p_parts가 없는 예전 학생 화면(캐시)에는 예전처럼 통째로(others는 활동 안에) 보내고 hash도 전체 md5 하나다.
 drop function if exists student_state(text);
 drop function if exists student_state(text, text);
-create or replace function student_state(p_token text, p_code text, p_hash text default null)
+drop function if exists student_state(text, text, text);
+create or replace function student_state(p_token text, p_code text, p_hash text default null, p_parts boolean default false)
 returns jsonb language plpgsql volatile security definer set search_path = public as $$
 declare
   s students;
   l lessons;
   m lesson_students;
+  vl jsonb;
+  va jsonb;
+  vo jsonb;
+  hl text;
+  ha text;
+  ho text;
   v jsonb;
-  hsh text;
 begin
   select * into s from students where token = p_token and p_token is not null;
   if not found then return jsonb_build_object('error', 'logged_out'); end if;
@@ -320,11 +331,12 @@ begin
     update lesson_students set last_seen = now() where lesson_id = l.id and student_id = s.id;
   end if;
 
-  v := jsonb_build_object(
+  vl := jsonb_build_object(
     'me', jsonb_build_object('class_no', s.class_no, 'name', s.name),
     'lesson', jsonb_build_object('code', l.code, 'title', l.title, 'slide_dir', l.slide_dir,
                                  'slide_count', l.slide_count, 'page', l.page, 'open', l.open, 'kind', l.kind, 'transition', l.transition),
-    'activities', coalesce((
+    'watch', coalesce(l.live_watch_at > now() - interval '15 seconds', false));
+  va := coalesce((
       select jsonb_agg(jsonb_build_object(
         'id', a.id, 'kind', a.kind, 'title', a.title, 'page', a.page, 'page_to', a.page_to, 'named', a.named, 'shared', a.shared,
         'sim_full', a.sim_full, 'sim_box', a.sim_box, 'html_ver', case when a.kind = 'sim' then md5(coalesce(a.html, '')) end,
@@ -332,21 +344,37 @@ begin
           when a.kind = 'quiz' and a.show_answer and r.student_id is not null then a.questions
           else (select coalesce(jsonb_agg(q - 'answer' - 'explain'), '[]'::jsonb) from jsonb_array_elements(a.questions) q)
         end,
-        'mine', r.answers, 'score', r.score, 'total', r.total, 'saved_at', r.updated_at,
-        'others', case when a.shared then (
+        'mine', r.answers, 'score', r.score, 'total', r.total, 'saved_at', r.updated_at
+      ) order by a.page nulls last, a.sort, a.created_at)
+      from activities a
+      left join responses r on r.activity_id = a.id and r.student_id = s.id
+      where a.lesson_id = l.id), '[]'::jsonb);
+  vo := coalesce((
+      select jsonb_object_agg(a.id, (
           select coalesce(jsonb_agg(jsonb_build_object(
                    'name', case when a.named then o.class_no || ' ' || o.name end,
                    'answers', x.answers) order by x.updated_at), '[]'::jsonb)
           from responses x join students o on o.id = x.student_id
-          where x.activity_id = a.id) end
-      ) order by a.page nulls last, a.sort, a.created_at)
+          where x.activity_id = a.id))
       from activities a
-      left join responses r on r.activity_id = a.id and r.student_id = s.id
-      where a.lesson_id = l.id), '[]'::jsonb)
-  );
-  hsh := md5(v::text);
-  if p_hash = hsh then return jsonb_build_object('same', true); end if;
-  return v || jsonb_build_object('hash', hsh);
+      where a.lesson_id = l.id and a.shared), '{}'::jsonb);
+  if not coalesce(p_parts, false) then
+    v := vl || jsonb_build_object('activities', coalesce((
+      select jsonb_agg(case when vo ? (e ->> 'id') then e || jsonb_build_object('others', vo -> (e ->> 'id')) else e end order by n)
+      from jsonb_array_elements(va) with ordinality t(e, n)), '[]'::jsonb));
+    hl := md5(v::text);
+    if p_hash = hl then return jsonb_build_object('same', true); end if;
+    return v || jsonb_build_object('hash', hl);
+  end if;
+  hl := md5(vl::text);
+  ha := md5(va::text);
+  ho := md5(vo::text);
+  if p_hash = (hl || ha || ho) then return jsonb_build_object('same', true); end if;
+  v := jsonb_build_object('parts', true, 'hash', hl || ha || ho);
+  if p_hash is null or substr(p_hash, 1, 32) <> hl then v := v || vl; end if;
+  if p_hash is null or substr(p_hash, 33, 32) <> ha then v := v || jsonb_build_object('activities', va); end if;
+  if p_hash is null or substr(p_hash, 65, 32) <> ho then v := v || jsonb_build_object('others', vo); end if;
+  return v;
 end $$;
 
 -- 학생 응답 저장. 그 수업에 참여한 학생만, 제출이 열려 있을 때만. 퀴즈는 한 번만 제출하고 서버에서 채점한다.
@@ -424,11 +452,16 @@ end $$;
 
 -- 교사 화면: 이 수업에 들어온 학생 목록(비밀번호 대신 '정해졌는지'만)
 -- p_live = false: 「학생 화면」 탭이 아닐 때는 쓰고 있는 답(live)을 빼고 받아 전송량을 줄인다
+-- p_live = true: 교사가 보고 있다고 적어 둔다(live_watch_at). 학생은 그때만 쓰고 있는 답을 보낸다
 drop function if exists teacher_students(uuid);
 create or replace function teacher_students(p_lesson uuid, p_live boolean default true)
-returns jsonb language plpgsql stable security definer set search_path = public as $$
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
 begin
   if not can_lesson(p_lesson) then raise exception 'not your lesson'; end if;
+  if p_live then
+    update lessons set live_watch_at = now()
+      where id = p_lesson and (live_watch_at is null or live_watch_at < now() - interval '5 seconds');
+  end if;
   return coalesce((
     select jsonb_agg(jsonb_build_object(
       'id', s.id, 'class_no', s.class_no, 'name', s.name, 'pin_set', s.pin_set, 'fails', s.fails,
@@ -560,13 +593,13 @@ grant execute on function can_student(uuid) to authenticated;
 grant execute on function can_lesson_path(text) to authenticated;
 
 revoke all on function student_enter(text, text, text, text, boolean) from public;
-revoke all on function student_state(text, text, text) from public;
+revoke all on function student_state(text, text, text, boolean) from public;
 revoke all on function teacher_students(uuid, boolean) from public;
 revoke all on function student_sim(text, uuid) from public;
 revoke all on function student_save(text, uuid, jsonb) from public;
 revoke all on function create_lesson(text, text) from public;
 grant execute on function student_enter(text, text, text, text, boolean) to anon, authenticated;
-grant execute on function student_state(text, text, text) to anon, authenticated;
+grant execute on function student_state(text, text, text, boolean) to anon, authenticated;
 revoke all on function student_live(text, text, jsonb) from public;
 grant execute on function student_live(text, text, jsonb) to anon, authenticated;
 grant execute on function teacher_students(uuid, boolean) to authenticated;
@@ -675,7 +708,7 @@ create policy submissions_teacher_delete on storage.objects for delete to authen
 
 -- ------------------------------------------------------------
 -- 교사 이메일: happywax0206@gmail.com 을 자기 이메일(소문자)로 바꾸세요. 여러 명이면 줄을 더하면 됩니다.
--- 함께 쓸 선생님은 여기에 적지 않아도 됩니다: 교사 화면 「수업 설정 → 공동작업자」에서 이메일로 초대하면 됩니다.
+-- 함께 쓸 선생님은 여기에 적지 않아도 됩니다: 교사 화면 「프로필·공동작업자」 탭에서 이메일로 초대하면 됩니다.
 -- ------------------------------------------------------------
 insert into teachers (email) values ('happywax0206@gmail.com') on conflict do nothing;
 

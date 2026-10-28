@@ -4,7 +4,18 @@
 const SB_URL = String(SUPABASE_URL).trim().replace(/\/(rest|auth|storage)\/v1.*$/, "").replace(/\/+$/, "");
 const configured = (/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(SB_URL) || /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(SB_URL))
   && !/여기에/.test(SUPABASE_KEY) && String(SUPABASE_KEY).trim() !== "";
-const sb = configured && window.supabase ? supabase.createClient(SB_URL, String(SUPABASE_KEY).trim()) : null;
+// 학교 와이파이가 서버 주소를 막으면 요청이 끝없이 기다리기도 한다: 20초가 지나면 끊고 오류로 알린다(파일 올리기는 제외)
+function fetchWithTimeout(url, opts) {
+  if (/\/storage\/v1\//.test(String(url && url.url || url)) || !window.AbortController) return fetch(url, opts);
+  const ctl = new AbortController();
+  if (opts && opts.signal) opts.signal.addEventListener("abort", () => ctl.abort());
+  const t = setTimeout(() => ctl.abort(), 20000);
+  return fetch(url, { ...opts, signal: ctl.signal }).finally(() => clearTimeout(t));
+}
+const sb = configured && window.supabase
+  ? supabase.createClient(SB_URL, String(SUPABASE_KEY).trim(), { global: { fetch: fetchWithTimeout } }) : null;
+// 서버에 닿지 못했을 때 덧붙이는 안내
+const NET_HINT = "학교 와이파이에서만 안 되면 휴대폰 데이터(LTE·5G)로 바꿔 보세요. 와이파이가 서버 주소(supabase.co)를 막고 있을 수 있습니다.";
 
 // 만든 사람 표시. 고쳐 쓰거나 나눌 때도 지우지 말아 주세요(LICENSE.md).
 const CREDIT = { name: "이효송", year: 2026 };
@@ -373,6 +384,12 @@ function openModal(title, body, onclose) {
 }
 
 function notConfigured(app) {
+  if (configured && !window.supabase) {
+    app.replaceChildren(h("main", { class: "narrow" }, h("section", { class: "card" },
+      h("h1", {}, "필요한 파일을 불러오지 못했습니다"),
+      h("p", {}, "새로고침해 보세요. 그래도 안 되면 " + NET_HINT))));
+    return;
+  }
   app.replaceChildren(h("main", { class: "narrow" }, h("section", { class: "card" },
     h("h1", {}, "아직 연결되지 않았습니다"),
     h("p", {}, "config.js 파일에 Supabase 주소(SUPABASE_URL)와 publishable 키(SUPABASE_KEY)를 넣어 주세요. 방법은 README.md에 있습니다."),

@@ -96,7 +96,7 @@ function showEntry(notice) {
         p_code: codeIn.value, p_class_no: noIn.value, p_name: nameIn.value, p_pin: pin, p_confirm: confirming,
       });
       btn.disabled = false;
-      if (error) { msg.textContent = "연결하지 못했습니다. 인터넷을 확인하고 다시 시도하세요. (" + error.message + ")"; return; }
+      if (error) { msg.textContent = "연결하지 못했습니다. " + NET_HINT + " (" + error.message + ")"; return; }
       const err = data.error;
       if (err === "no_lesson") msg.textContent = "수업 코드를 찾지 못했습니다. 선생님께 받은 코드를 확인하세요.";
       else if (err === "bad_name") msg.textContent = "학번과 이름을 확인하세요(각각 20자까지).";
@@ -157,17 +157,23 @@ function stopPolling() {
   timer = null;
 }
 
-let oldState = false;   // setup.sql을 아직 다시 실행하지 않았으면 예전 방식으로 부른다
+// 서버가 아는 방식. setup.sql을 아직 다시 실행하지 않았으면 한 단계씩 예전 방식으로 내려간다
+// 2: 바뀐 부분만(p_parts) · 1: 같으면 same만(p_hash) · 0: 늘 통째로
+let stateMode = 2;
 
 async function poll() {
   clearTimeout(timer);
   // 지난번에 받은 것의 hash를 보내면, 바뀐 것이 없을 때 서버가 내용 없이 same만 돌려준다
-  const args = { p_token: token, p_code: code };
-  if (!oldState && state && state.hash) args.p_hash = state.hash;
-  let { data, error } = await sb.rpc("student_state", args);
-  if (error && args.p_hash && /p_hash|function/i.test(error.message || "")) {
-    oldState = true;
-    ({ data, error } = await sb.rpc("student_state", { p_token: token, p_code: code }));
+  const call = () => {
+    const args = { p_token: token, p_code: code };
+    if (stateMode >= 2) args.p_parts = true;
+    if (stateMode >= 1 && state && state.hash) args.p_hash = state.hash;
+    return sb.rpc("student_state", args);
+  };
+  let { data, error } = await call();
+  while (error && stateMode > 0 && /p_parts|p_hash|function/i.test(error.message || "")) {
+    stateMode--;
+    ({ data, error } = await call());
   }
   if (!token) return;
   if (!error && data.same) {
@@ -180,13 +186,27 @@ async function poll() {
   if (!error && data.error === "full") return showCodeOnly("이 수업은 인원이 가득 찼습니다. 선생님께 알려 주세요.");
   if (error) {
     if (shell) shell.conn.hidden = false;
-    else showEntry("연결하지 못했습니다. 인터넷을 확인하고 다시 입장하세요.");
+    else showEntry("연결하지 못했습니다. " + NET_HINT);
   } else if (data.error === "logged_out") {
     return logout("다시 입장해 주세요. 선생님이 비밀번호를 초기화했거나 학생 정보가 지워졌습니다.");
   } else {
-    apply(data);
+    const full = merge(data);
+    if (!full) return poll();   // 바뀐 부분만 왔는데 합칠 예전 상태가 없다: hash 없이 다시 받는다
+    apply(full);
   }
   timer = setTimeout(poll, document.hidden ? POLL_MS * 4 : POLL_MS);
+}
+
+// 서버는 바뀐 부분(lesson·me·watch / activities / others)만 보낸다(parts). 지난 상태에 합쳐 온전한 상태를 만든다.
+// others(공개된 친구 응답)는 활동마다 a.others 로 붙인다. 예전 서버는 parts 없이 통째로 보낸다.
+function merge(data) {
+  if (!data.parts) return data;
+  const s = Object.assign({}, state || {}, data);
+  if (!s.lesson || !s.me || !s.activities || !s.others) return null;
+  if (data.activities || data.others) {
+    s.activities = s.activities.map((a) => a.shared ? { ...a, others: s.others[a.id] || [] } : a);
+  }
+  return s;
 }
 document.addEventListener("visibilitychange", () => {
   if (token && shell) sendLive(true);
@@ -195,6 +215,7 @@ document.addEventListener("visibilitychange", () => {
 
 // ---------- 선생님에게 보이는 실시간 화면 ----------
 // 보고 있는 쪽, 다른 앱으로 나갔는지, 저장하기 전에 쓰고 있는 답을 바뀔 때만(2초에 한 번까지) 보낸다. 교사만 읽는다.
+// 교사가 「학생 화면」 탭을 보고 있을 때(state.watch)만 보낸다. 예전 서버(watch 없음)에는 늘 보낸다.
 const LIVE_MS = 2000;
 const liveDrafts = {};   // 활동 id → 지금 쓰고 있는 답
 let liveFocus = null;    // 지금 누르고 있는 활동
@@ -221,7 +242,7 @@ function liveNow(onlyFocus) {
 
 function sendLive(now) {
   clearTimeout(liveTimer);
-  if (!token || !state || !shell) return;
+  if (!token || !state || !shell || state.watch === false) return;
   const wait = liveAt + LIVE_MS - Date.now();
   if (wait > 0 && !now) { liveTimer = setTimeout(sendLive, wait); return; }
   let live = liveNow(false);
@@ -243,6 +264,8 @@ function apply(data) {
   if (!before || following) viewing = teacherPage;
   if (viewing > teacherPage) viewing = teacherPage;   // 교사가 앞쪽으로 되돌아간 경우
   following = viewing === teacherPage;
+  // 교사가 「학생 화면」을 막 열었으면 바뀐 게 없어도 지금 모습을 바로 보낸다
+  if (data.watch && !(before && before.watch)) liveSent = "";
   render(!before || before.lesson.page !== data.lesson.page);
 }
 
