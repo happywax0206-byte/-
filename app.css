@@ -313,3 +313,12 @@ body.present .credit { display: none; }
 .present-all { position: absolute; inset: 0; z-index: 2; background: #000; }
 .sim-box.mirrored .sim-frame { visibility: hidden; }
 .sim-box.mirrored .present-video { position: absolute; inset: 0; background: #fff; }
+/* 잘라 보내는 동안 교사 화면의 그 칸은 네모로(둥근 모서리·그림자·테두리가 영상에 검게 나오지 않게) */
+.sim-box.mirroring { border-radius: 0; box-shadow: none; }
+.sim-stage.mirroring .sim-frame, .stage.mirroring .slide { border: 0; border-radius: 0; }
+.sim-box.mirrored .present-video { object-fit: fill; }
+.present-stage .sim-stage .present-video { background: #fff; }
+/* 교사: 넓은 화면의 수업 진행 탭에서는 슬라이드 칸이 스크롤해도 위에 붙어 있다(잘라 보내는 영상이 끊기지 않게) */
+@media (min-width: 1100px) {
+  .run-left { position: sticky; top: calc(var(--top-h, 64px) + .75rem); }
+}

@@ -20,12 +20,14 @@ const video = h("video", { class: "present-video", autoplay: true, playsinline: 
 video.muted = true;
 window.cra_stream = (s) => {
   if (video.srcObject !== s) video.srcObject = s;
-  if (video.paused && video.isConnected) video.play().catch(() => {});
+  if (video.paused && video.isConnected && !(st && st.mirror && st.mirror.frozen)) video.play().catch(() => {});
 };
-function placeVideo(where) {
+// frozen: 교사 화면에서 그 칸이 스크롤로 화면 밖에 나가 있음 → 비어 보이지 않게 마지막 장면에서 멈춰 둔다
+function placeVideo(where, frozen) {
   if (!where) { video.remove(); return; }
   if (video.parentNode !== where) where.append(video);
-  if (video.paused && video.srcObject) video.play().catch(() => {});
+  if (frozen) { if (!video.paused) video.pause(); }
+  else if (video.paused && video.srcObject) video.play().catch(() => {});
 }
 // 교사 화면에 이 창을 알린다(영상을 직접 넘겨받으려고). 교사 화면이 새로고침되면 who 를 받을 때 다시 알린다.
 function attach() { try { if (window.opener && window.opener.cra_attachPresent) window.opener.cra_attachPresent(window); } catch (_) {} }
@@ -86,7 +88,7 @@ function render() {
   }
   if (!localShow) renderShow(st.show);
   if (!show.hidden && m && m.mode === "show" && !localShow) videoAt = show.querySelector(".present-video-wrap");
-  placeVideo(videoAt);
+  placeVideo(videoAt, !!(m && m.frozen));
 }
 
 // 크게 띄운 것: 화면 전체를 덮는다

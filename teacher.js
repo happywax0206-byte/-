@@ -218,11 +218,19 @@ function draw() {
       h("button", { class: "link", type: "button", onclick: changePassword }, "비밀번호 바꾸기"),
       h("button", { class: "link", type: "button", async onclick() { await sb.auth.signOut(); location.reload(); } }, "로그아웃")),
     main);
+  setTopHeight();
   if (!lesson) tab = "settings";
   ({ run: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings })[tab]();
   schedule();
   updateMirror();
 }
+
+// 위쪽 막대 높이. 수업 진행 탭에서 슬라이드 칸이 스크롤해도 그 아래에 붙어 있게(CSS --top-h)
+function setTopHeight() {
+  const top = app.querySelector(".top");
+  if (top) document.documentElement.style.setProperty("--top-h", top.offsetHeight + "px");
+}
+addEventListener("resize", setTopHeight);
 
 // ---------- 수업 화면(학생에게 보여 줄 새 탭) ----------
 // 「수업 화면 띄우기」로 연 present.html 탭에 지금 쪽·시뮬레이션·크게 띄운 것을 보낸다.
@@ -267,7 +275,7 @@ function sendPresent(force) {
 if (presentCh) {
   presentCh.onmessage = (e) => {
     const m = e.data || {};
-    if (m.type === "hello") { presentOn = true; sendPresent(true); mirrorEl = null; updateMirror(); }   // 수업 화면을 새로 열었으면 조작 화면도 다시 넘긴다
+    if (m.type === "hello") { presentOn = true; sendPresent(true); setMirrorEl(null); updateMirror(); }   // 수업 화면을 새로 열었으면 조작 화면도 다시 넘긴다
     if (m.type === "bye") { presentOn = false; updateMirror(); }
     if (m.type === "closed" && presentClose) presentClose();   // 수업 화면에서 Esc·닫기를 누르면 교사 화면에서도 닫는다
     if (m.type === "step" && lesson && lesson.slide_count) setPage(lesson.page + (m.step > 0 ? 1 : -1));   // 수업 화면에서 ← → 를 누름
@@ -352,7 +360,7 @@ function ensureCapture() {
           return false;
         }
         // 크롬 위쪽의 「공유 중지」를 누르면 수업 화면은 따로 띄운 사본으로 돌아간다
-        t.addEventListener("ended", () => { capture = null; mirrorEl = null; updateMirror(); });
+        t.addEventListener("ended", () => { capture = null; setMirrorEl(null); updateMirror(); });
         capture = s;
         return true;
       }, () => { captureDenied = true; return false; })
@@ -390,20 +398,46 @@ function updateMirror() {
       try {
         if (window.RestrictionTarget) await t.restrictTo(await RestrictionTarget.fromElement(want.el));
         else await t.cropTo(await CropTarget.fromElement(want.el));
-        mirrorEl = want.el;
+        setMirrorEl(want.el);
       } catch (err) {
+        // 쪽을 넘기는 중이라 칸이 아직 그려지지 않았을 때 등. 잠시 뒤 다시 해 본다(같은 칸에 몇 번까지만)
         console.warn("잘라 보내기 실패", err);
-        mirrorEl = null; mirrorOn = null;
+        setMirrorEl(null); mirrorOn = null;
+        mirrorRetry = mirrorRetryEl === want.el ? mirrorRetry + 1 : 1;
+        mirrorRetryEl = want.el;
+        if (mirrorRetry <= 5) setTimeout(updateMirror, 400);
         return;
       }
     }
     try { presentWin.cra_stream(capture); } catch (_) { mirrorOn = null; return; }
-    mirrorOn = { mode: want.mode, id: want.id || null };
-  }).catch((err) => { console.warn(err); mirrorOn = null; }).then(() => { sendPresent(); drawMirrorStatus(); });
+    mirrorOn = { mode: want.mode, id: want.id || null, frozen: !mirrorSeen };
+  }).catch((err) => { console.warn(err); mirrorOn = null; }).then(() => { if (!mirrorOn) setMirrorEl(null); sendPresent(); drawMirrorStatus(); });
+}
+
+// 잘라 보내는 칸 표시: 모서리를 둥글게 깎거나 그림자를 두면 잘라 낸 영상의 모서리·가장자리가 검게 나오므로 그동안은 네모로 둔다.
+// 화면 잘라 보내기는 실제로 화면에 보이는 부분만 잡을 수 있어서, 스크롤로 칸이 화면 밖으로 나가면
+// 수업 화면은 마지막 장면에서 멈춰 둔다(frozen). 다시 보이면 이어서 보인다.
+let mirrorSeen = true;
+let mirrorRetry = 0, mirrorRetryEl = null;
+const mirrorIO = window.IntersectionObserver ? new IntersectionObserver((entries) => {
+  const seen = entries[entries.length - 1].intersectionRatio > 0.97;
+  if (seen === mirrorSeen) return;
+  mirrorSeen = seen;
+  if (mirrorOn) { mirrorOn = { ...mirrorOn, frozen: !seen }; sendPresent(); }
+}, { threshold: [0, 0.5, 0.97, 1] }) : null;
+
+function setMirrorEl(el) {
+  if (el === mirrorEl) return;
+  if (mirrorEl) mirrorEl.classList.remove("mirroring");
+  mirrorEl = el;
+  if (mirrorIO) mirrorIO.disconnect();
+  mirrorSeen = true;
+  if (el) { el.classList.add("mirroring"); if (mirrorIO) mirrorIO.observe(el); }
 }
 
 // 위쪽 막대: 수업 화면이 열려 있을 때 조작을 보내는 중인지 보이고, 꺼져 있으면 켜는 단추
 function drawMirrorStatus() {
+  requestAnimationFrame(setTopHeight);   // 단추 글자가 바뀌어 위쪽 막대 높이가 달라질 수 있다
   mirrorStatus.hidden = !presentOn || !canMirror();
   if (mirrorStatus.hidden) return;
   if (captureTrack()) mirrorStatus.replaceChildren(h("span", { class: "pill on", title: "시뮬레이션·링크에서 조작한 것이 수업 화면에 그대로 보입니다. 끄려면 크롬 위쪽의 「공유 중지」를 누르세요." }, "● 조작 보내는 중"));
