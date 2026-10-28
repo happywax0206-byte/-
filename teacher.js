@@ -753,6 +753,10 @@ document.addEventListener("keydown", (e) => {
   if (profileOpen) { profileOpen = false; refreshProfile(); }
 });
 addEventListener("resize", setTopHeight);
+// 창이 커지거나 슬라이드를 전체 화면으로 띄우면 더 큰 슬라이드 그림으로 바꾼다
+const refitRun = () => { if (isRunTab() && run && lesson) refitSlide(run.img, lesson, viewPage()); };
+addEventListener("resize", refitRun);
+document.addEventListener("fullscreenchange", refitRun);
 
 // ---------- 수업 화면(학생에게 보여 줄 새 탭) ----------
 // 「수업 화면 띄우기」로 연 present.html 탭에 지금 쪽·시뮬레이션·크게 띄운 것을 보낸다.
@@ -1061,13 +1065,13 @@ function refreshRun() {
   if (L.slide_count > 0) {
     // 화면 넘김 효과: 앞으로 가면 그 쪽의 효과, 뒤로 가면 떠나는 쪽의 효과를 거꾸로
     const dir = run.shownPage && P < run.shownPage ? -1 : 1;
-    changeSlide(run.img, slideSrc(L, P), stageSim || run.shownPage === P ? null : transitionFor(L, dir > 0 ? P : run.shownPage), dir, [run.simLayer]);
+    changeSlide(run.img, slideSrc(L, P, slideSize(run.img)), stageSim || run.shownPage === P ? null : transitionFor(L, dir > 0 ? P : run.shownPage), dir, [run.simLayer]);
     run.shownPage = P;
     run.img.alt = "슬라이드 " + P;
     run.where.textContent = P + " / " + L.slide_count;
     run.prev.disabled = P <= 1;
     run.next.disabled = P >= L.slide_count;
-    if (P < L.slide_count) new Image().src = slideSrc(L, P + 1);
+    if (P < L.slide_count) new Image().src = slideSrc(L, P + 1, slideSize(run.img));
   }
   run.openText.replaceChildren(h("strong", {}, L.open ? "제출 받는 중" : "제출 닫힘"),
     h("span", { class: "muted small" }, " · 입장 " + students.length + "명"));
@@ -1818,7 +1822,7 @@ function liveTile(s) {
   return h("article", { class: "card live-tile " + cls + (big ? " big" : ""), title: big ? "누르면 작게" : "누르면 크게",
     onclick() { live.open = big ? null : s.id; refreshLive(); } },
     h("div", { class: "row between" }, h("strong", {}, nameOf(s)), h("span", { class: "live-dot " + cls }, label)),
-    hasSlides ? h("img", { class: "live-slide", src: slideSrc(lesson, L.page), alt: L.page + "쪽", loading: "lazy" }) : null,
+    hasSlides ? h("img", { class: "live-slide", src: slideSrc(lesson, L.page, "s"), alt: L.page + "쪽", loading: "lazy" }) : null,
     where ? h("p", { class: "small muted" }, where) : null,
     "screen" in s ? screenPart(s) : null,
     drafts.length ? drafts : h("p", { class: "small muted" }, cls === "off" ? "" : "쓰고 있는 답 없음"),
@@ -2170,7 +2174,7 @@ function slidesCard() {
         moveSlide(dragFrom, ins > dragFrom ? ins - 1 : ins, status);
       },
     },
-      h("img", { src: slideSrc(lesson, i), alt: i + "쪽", loading: "lazy", draggable: "false" }),
+      h("img", { src: slideSrc(lesson, i, "s"), alt: i + "쪽", loading: "lazy", draggable: "false" }),
       h("figcaption", {}, h("span", { title: htmlOn(i) ? htmlOn(i).title : null }, i + "쪽" + (htmlOn(i) ? " · 애니메이션" : "")),
         h("button", { class: "link danger", type: "button", "aria-label": i + "쪽 삭제", onclick() { deleteSlide(i, status); } }, "삭제")),
       pageFx(i)));
@@ -2200,10 +2204,37 @@ async function loadPdfJs() {
 }
 
 const SLIDE_WIDTH = 1600;
+const SLIDE_WIDTHS = { s: 1024, m: 1600, l: 2560 };   // 기기에 맞춰 받을 세 가지 크기(common.js slideSize)
 
-function canvasToJpeg(canvas) {
-  return new Promise((ok, fail) => canvas.toBlob((b) => (b ? ok(b) : fail(new Error("그림으로 바꾸지 못했습니다"))), "image/jpeg", 0.85));
+function canvasToJpeg(canvas, quality) {
+  return new Promise((ok, fail) => canvas.toBlob((b) => (b ? ok(b) : fail(new Error("그림으로 바꾸지 못했습니다"))), "image/jpeg", quality || 0.85));
 }
+
+// 가장 큰 그림(canvas)에서 세 가지 크기 JPG를 만든다. 원래 그림이 작으면 키우지 않는다
+async function slideSet(big) {
+  const out = { l: await canvasToJpeg(big, 0.8) };
+  for (const k of ["m", "s"]) {
+    const scale = Math.min(1, SLIDE_WIDTHS[k] / big.width);
+    const c = h("canvas", { width: Math.round(big.width * scale), height: Math.round(big.height * scale) });
+    const g = c.getContext("2d");
+    g.imageSmoothingQuality = "high";
+    g.drawImage(big, 0, 0, c.width, c.height);
+    out[k] = await canvasToJpeg(c);
+  }
+  return out;
+}
+
+// 쪽 하나의 그림 올리기. sized면 세 가지 크기(n-s.jpg, n.jpg, n-l.jpg), 아니면 보통 그림 하나
+async function putSlide(folder, n, img, sized) {
+  const set = img instanceof Blob ? { m: img, s: img, l: img } : img;
+  for (const k of sized ? ["m", "s", "l"] : ["m"]) {
+    const { error } = await sb.storage.from("slides").upload(folder + n + SLIDE_SUFFIX[k] + ".jpg", set[k], { upsert: true, contentType: "image/jpeg", cacheControl: "3600" });
+    if (error) throw error;
+  }
+}
+
+// 슬라이드 주소에 캐시를 깨는 v=와 세 가지 크기 표시(sz=1)를 붙인다
+const freshSlideDir = (base, sized) => base.split("?")[0] + "?v=" + Date.now() + (sized ? "&sz=1" : "");
 
 // 파일들을 쪽별 JPG 묶음으로 바꾼다
 async function toSlideImages(files, progress) {
@@ -2217,13 +2248,13 @@ async function toSlideImages(files, progress) {
     for (let i = 1; i <= pdf.numPages; i++) {
       progress(i - 1, pdf.numPages, "그림으로 바꾸는 중");
       const page = await pdf.getPage(i);
-      const vp = page.getViewport({ scale: SLIDE_WIDTH / page.getViewport({ scale: 1 }).width });
+      const vp = page.getViewport({ scale: SLIDE_WIDTHS.l / page.getViewport({ scale: 1 }).width });
       const canvas = h("canvas", { width: Math.round(vp.width), height: Math.round(vp.height) });
       const ctx = canvas.getContext("2d");
       ctx.fillStyle = "#fff";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       await page.render({ canvasContext: ctx, viewport: vp }).promise;
-      out.push(await canvasToJpeg(canvas));
+      out.push(await slideSet(canvas));
     }
     return out;
   }
@@ -2233,13 +2264,13 @@ async function toSlideImages(files, progress) {
   for (const [i, f] of imgs.entries()) {
     progress(i, imgs.length, "그림 줄이는 중");
     const bmp = await createImageBitmap(f);
-    const scale = Math.min(1, SLIDE_WIDTH / bmp.width);
+    const scale = Math.min(1, SLIDE_WIDTHS.l / bmp.width);
     const canvas = h("canvas", { width: Math.round(bmp.width * scale), height: Math.round(bmp.height * scale) });
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-    out.push(await canvasToJpeg(canvas));
+    out.push(await slideSet(canvas));
   }
   return out;
 }
@@ -2435,6 +2466,14 @@ function movedRange(a, from, newPos) {
   return { page, page_to: last > page ? last : null };
 }
 
+// 쪽 그림 이름 바꾸기. 보통 그림은 꼭 있어야 하고, 작은·큰 그림은 있을 때만(없으면 common.js가 보통 그림으로 대신)
+async function moveSlideFiles(folder, x, y) {
+  const st = sb.storage.from("slides");
+  const r = await st.move(folder + x + ".jpg", folder + y + ".jpg");
+  if (r.error) throw r.error;
+  if (slideSized(lesson)) for (const k of ["s", "l"]) await st.move(folder + x + SLIDE_SUFFIX[k] + ".jpg", folder + y + SLIDE_SUFFIX[k] + ".jpg");
+}
+
 async function moveSlide(from, to, status) {
   if (slideBusy || from === to) return;
   let folder;
@@ -2442,7 +2481,7 @@ async function moveSlide(from, to, status) {
   slideBusy = true;
   document.querySelectorAll(".thumb button, .slide-tools button").forEach((b) => { b.disabled = true; });
   const st = sb.storage.from("slides");
-  const mv = async (x, y) => { const r = await st.move(folder + x + ".jpg", folder + y + ".jpg"); if (r.error) throw r.error; };
+  const mv = (x, y) => moveSlideFiles(folder, x, y);
   try {
     status.textContent = from + "쪽을 " + to + "쪽 자리로 옮기는 중…";
     await checkSlideNums(folder);
@@ -2463,7 +2502,7 @@ async function moveSlide(from, to, status) {
       const u = await sb.from("activities").update(change).eq("id", a.id);
       if (u.error) throw u.error;
     }
-    const dir = lesson.slide_dir.split("?")[0] + "?v=" + Date.now();   // 이름이 바뀐 그림을 브라우저가 예전 것으로 보이지 않게
+    const dir = freshSlideDir(lesson.slide_dir, slideSized(lesson));   // 이름이 바뀐 그림을 브라우저가 예전 것으로 보이지 않게
     const u = await sb.from("lessons").update({ slide_dir: dir, page: newPos(lesson.page), ...transitionChange(newPos) }).eq("id", lesson.id);
     if (u.error) throw u.error;
     flash(from + "쪽을 " + to + "쪽으로 옮겼습니다.");
@@ -2499,7 +2538,7 @@ async function deleteSlide(k, status) {
     if (k) {
       if (!nums.includes(k)) throw new Error(k + "쪽 그림이 이미 없습니다. 「번호 다시 맞추기」를 눌러 주세요.");
       status.textContent = k + "쪽을 지우는 중…";
-      const r = await st.remove([folder + k + ".jpg"]);
+      const r = await st.remove(Object.values(SLIDE_SUFFIX).map((x) => folder + k + x + ".jpg"));
       if (r.error) throw r.error;
       nums = nums.filter((x) => x !== k);
     }
@@ -2507,8 +2546,7 @@ async function deleteSlide(k, status) {
     for (const [i, num] of nums.entries()) {
       if (num === i + 1) continue;
       status.textContent = "슬라이드 번호를 맞추는 중 " + (i + 1) + " / " + nums.length;
-      const r = await st.move(folder + num + ".jpg", folder + (i + 1) + ".jpg");
-      if (r.error) throw r.error;
+      await moveSlideFiles(folder, num, i + 1);
     }
     const left = nums.length;
     if (sims.length) {
@@ -2530,7 +2568,7 @@ async function deleteSlide(k, status) {
       }
     }
     const pageNow = k && lesson.page > k ? lesson.page - 1 : lesson.page;
-    const dir = base + "?v=" + Date.now();   // 이름이 바뀐 그림을 브라우저가 예전 것으로 보이지 않게
+    const dir = freshSlideDir(base, slideSized(lesson));   // 이름이 바뀐 그림을 브라우저가 예전 것으로 보이지 않게
     const u = await sb.from("lessons").update({ slide_dir: left ? dir : "", slide_count: left, page: Math.min(Math.max(pageNow, 1), Math.max(left, 1)),
       ...(k ? transitionChange((p) => (p === k ? 0 : p > k ? p - 1 : p)) : {}) }).eq("id", lesson.id);
     if (u.error) throw u.error;
@@ -2548,17 +2586,16 @@ async function deleteSlide(k, status) {
 async function uploadSlides(files, progress) {
   const images = await toSlideImages(files, progress);
   const folder = slideFolder(lesson);
-  for (const [i, blob] of images.entries()) {
+  for (const [i, img] of images.entries()) {
     progress(i, images.length, "올리는 중");
-    const { error } = await sb.storage.from("slides").upload(folder + (i + 1) + ".jpg", blob, { upsert: true, contentType: "image/jpeg", cacheControl: "3600" });
-    if (error) throw error;
+    await putSlide(folder, i + 1, img, true);
   }
   progress(images.length, images.length, "올리는 중");
   // 전보다 쪽 수가 줄었으면 남은 그림을 지운다
   const { data: old } = await sb.storage.from("slides").list(folder.replace(/\/$/, ""), { limit: 1000 });
   const extra = (old || []).map((o) => o.name).filter((n) => parseInt(n, 10) > images.length).map((n) => folder + n);
   if (extra.length) await sb.storage.from("slides").remove(extra);
-  const dir = SB_URL + "/storage/v1/object/public/slides/" + folder + "{n}.jpg?v=" + Date.now();
+  const dir = freshSlideDir(SB_URL + "/storage/v1/object/public/slides/" + folder + "{n}.jpg", true);
   // 슬라이드를 모두 바꾸면 쪽마다 정한 넘김 효과는 지운다(수업 전체 효과는 그대로)
   const { error } = await sb.from("lessons").update({ slide_dir: dir, slide_count: images.length, page: 1, ...transitionChange(() => 0) }).eq("id", lesson.id);
   if (error) throw error;
@@ -2579,10 +2616,11 @@ async function appendImages(images, progress) {
   const folder = start ? editableSlideFolder() : slideFolder(lesson);
   if (start) await checkSlideNums(folder);
   if (start + images.length > 100) throw new Error("슬라이드는 모두 100장까지입니다(지금 " + start + "장, 더할 것 " + images.length + "장).");
-  for (const [i, blob] of images.entries()) {
+  // 예전에 보통 그림 하나로만 올린 수업에 더할 때는 그대로 하나만(쪽마다 크기 종류가 섞이지 않게)
+  const sized = start ? slideSized(lesson) : true;
+  for (const [i, img] of images.entries()) {
     progress(i, images.length, "올리는 중");
-    const { error } = await sb.storage.from("slides").upload(folder + (start + i + 1) + ".jpg", blob, { upsert: true, contentType: "image/jpeg", cacheControl: "3600" });
-    if (error) throw error;
+    await putSlide(folder, start + i + 1, img, sized);
   }
   progress(images.length, images.length, "올리는 중");
   if (!start) {
@@ -2592,7 +2630,7 @@ async function appendImages(images, progress) {
     if (extra.length) await sb.storage.from("slides").remove(extra);
   }
   const base = start ? lesson.slide_dir.split("?")[0] : SB_URL + "/storage/v1/object/public/slides/" + folder + "{n}.jpg";
-  const { error } = await sb.from("lessons").update({ slide_dir: base + "?v=" + Date.now(), slide_count: start + images.length }).eq("id", lesson.id);
+  const { error } = await sb.from("lessons").update({ slide_dir: freshSlideDir(base, sized), slide_count: start + images.length }).eq("id", lesson.id);
   if (error) throw error;
   return start;
 }

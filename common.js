@@ -209,9 +209,47 @@ function iceDone(pc) {
   });
 }
 
-function slideSrc(lesson, n) {
+// 슬라이드 그림 크기. 새로 올린 수업은 쪽마다 작은(n-s.jpg, 가로 1024)·보통(n.jpg, 1600)·큰(n-l.jpg, 2560) 그림이 있고
+// 주소 끝에 &sz=1 이 붙는다(없으면 보통 그림 하나뿐). 기기는 그림이 보일 칸의 실제 화소 수에 맞는 것을 받는다.
+const SLIDE_SUFFIX = { s: "-s", m: "", l: "-l" };
+const slideMissing = new Set();   // 없던 크기의 주소(보통 그림으로 대신)
+const slideSized = (lesson) => /[?&]sz=1(&|$)/.test(lesson.slide_dir || "");
+
+// 그림 요소가 보일 칸의 너비 × 화면 배율로 고른다. el이 없으면 창 전체(크게 보기)
+function slideSize(el) {
+  const fs = document.fullscreenElement;
+  const box = el && fs && fs.contains(el) ? fs : el && el.parentElement;
+  const px = ((box && box.clientWidth) || innerWidth) * (window.devicePixelRatio || 1);
+  return px <= 1200 ? "s" : px <= 1800 ? "m" : "l";
+}
+
+// size: "s" | "m" | "l" (기본 "m")
+function slideSrc(lesson, n, size) {
   const dir = lesson.slide_dir.trim();
-  return encodeURI(dir.includes("{n}") ? dir.split("{n}").join(n) : dir.replace(/\/+$/, "") + "/" + n + ".png");
+  if (!dir.includes("{n}")) return encodeURI(dir.replace(/\/+$/, "") + "/" + n + ".png");
+  const base = encodeURI(dir.split("{n}").join(n));
+  if (!size || size === "m" || !slideSized(lesson)) return base;
+  const url = encodeURI(dir.split("{n}").join(n + SLIDE_SUFFIX[size]));
+  return slideMissing.has(url) ? base : url;
+}
+
+// 작은·큰 그림이 없으면(올리다 멈춘 쪽 등) 보통 그림으로 바꾼다
+document.addEventListener("error", (e) => {
+  const img = e.target;
+  if (!img || img.tagName !== "IMG") return;
+  const src = img.getAttribute("src") || "";
+  const base = src.replace(/(\/slides\/.*\/\d+)-[sl](\.jpg)/, "$1$2");
+  if (base !== src) { slideMissing.add(src); img.src = base; }
+}, true);
+
+// 창 크기가 바뀌거나 전체 화면이 되면 더 큰 그림이 필요할 때만 바꾼다(작아질 때는 그대로)
+const SLIDE_RANK = { s: 0, m: 1, l: 2 };
+function refitSlide(img, lesson, n) {
+  if (!img || !lesson || !lesson.slide_count || img._fx || !slideSized(lesson)) return;
+  const cur = img.getAttribute("src") || "";
+  const now = /-s\.jpg/.test(cur) ? "s" : /-l\.jpg/.test(cur) ? "l" : "m";
+  const want = slideSize(img);
+  if (SLIDE_RANK[want] > SLIDE_RANK[now]) img.src = slideSrc(lesson, n, want);
 }
 
 // ---------- 화면 넘김 효과 ----------

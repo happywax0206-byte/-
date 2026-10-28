@@ -510,7 +510,7 @@ function zoom() {
     return loadSim(a).then((html) => openSimFull(a.title, html));
   }
   if (shell.zoom) return;
-  const big = h("img", { src: shell.img.src, alt: shell.img.alt });
+  const big = h("img", { src: slideSrc(state.lesson, viewing, slideSize()), alt: shell.img.alt });
   const box = h("div", { class: "slide-zoom", onclick: close }, big, h("p", {}, "눌러서 닫기 · 휴대폰은 가로로 돌리면 더 크게 보입니다"));
   function close() {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -542,13 +542,13 @@ function render(pageChanged) {
   shell.closed.hidden = L.open;
   shell.slideBox.hidden = !hasSlides;
   if (hasSlides) {
-    const src = slideSrc(L, viewing);
+    const src = slideSrc(L, viewing, slideSize(shell.img));
     // 화면 넘김 효과: 앞으로 가면 그 쪽의 효과, 뒤로 가면 떠나는 쪽의 효과를 거꾸로. 애니메이션 쪽으로 갈 때는 바로 바꾼다
     const dir = shell.shownPage && viewing < shell.shownPage ? -1 : 1;
     const fullHere = state.activities.some((a) => a.kind === "sim" && a.sim_full && onPage(a, viewing));
     const fx = fullHere || shell.shownPage === viewing ? null : transitionFor(L, dir > 0 ? viewing : shell.shownPage);
     changeSlide(shell.img, src, fx, dir, [shell.simLayer]);
-    if (shell.zoom) changeSlide(shell.zoom, src, fx, dir);
+    if (shell.zoom) changeSlide(shell.zoom, slideSrc(L, viewing, slideSize()), fx, dir);
     shell.shownPage = viewing;
     shell.img.alt = "슬라이드 " + viewing;
     shell.where.textContent = viewing + " / " + L.slide_count;
@@ -860,6 +860,15 @@ function buildForm(c) {
     quizDone && a.total ? h("p", { class: "score" }, "점수 " + a.score + " / " + a.total) : null,
     rows, err, btn, status].flat().filter(Boolean));
 }
+
+// 휴대폰을 가로로 돌리거나 창이 커지면 더 큰 슬라이드 그림으로 바꾼다
+function refitSlides() {
+  if (!shell || !state || !state.lesson) return;
+  refitSlide(shell.img, state.lesson, viewing);
+  if (shell.zoom) refitSlide(shell.zoom, state.lesson, viewing);
+}
+addEventListener("resize", refitSlides);
+document.addEventListener("fullscreenchange", refitSlides);
 
 // 맨 끝에서 시작: 위 파일의 let/const(stateMode, liveDrafts, simCache…)가 모두 준비된 뒤
 if (!sb) notConfigured(app);

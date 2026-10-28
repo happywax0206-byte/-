@@ -60,10 +60,10 @@ function render() {
     if (has) {
       // 화면 넘김 효과는 교사 화면과 같게: 앞으로 가면 그 쪽의 효과, 뒤로 가면 떠나는 쪽의 효과를 거꾸로
       const dir = shownPage && L.page < shownPage ? -1 : 1;
-      changeSlide(img, slideSrc(L, L.page), stageSim || shownPage === L.page ? null : transitionFor(L, dir > 0 ? L.page : shownPage), dir, [layer]);
+      changeSlide(img, slideSrc(L, L.page, slideSize(img)), stageSim || shownPage === L.page ? null : transitionFor(L, dir > 0 ? L.page : shownPage), dir, [layer]);
       shownPage = L.page;
       img.alt = "슬라이드 " + L.page;
-      if (L.page < L.slide_count) new Image().src = slideSrc(L, L.page + 1);
+      if (L.page < L.slide_count) new Image().src = slideSrc(L, L.page + 1, slideSize(img));
     }
     img.hidden = !has || !!stageSim;
     // 「슬라이드 대신 크게」 시뮬레이션: 교사 화면 영상이 오면 그것을, 아니면 사본을
@@ -162,6 +162,10 @@ stage.addEventListener("click", () => {
   if (!document.fullscreenElement && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
 });
 document.addEventListener("fullscreenchange", () => { hint.hidden = !!document.fullscreenElement; });
+// 창이 커지거나 전체 화면이 되면 더 큰 슬라이드 그림으로 바꾼다
+const refit = () => { if (st && st.lesson) refitSlide(img, st.lesson, st.lesson.page); };
+addEventListener("resize", refit);
+document.addEventListener("fullscreenchange", refit);
 setTimeout(() => { hint.hidden = true; }, 8000);
 
 // 프로젝터 화면 쪽에서 눌러도(무선 프레젠터 포함) 교사 화면이 쪽을 넘긴다
