@@ -578,6 +578,26 @@ begin
   return jsonb_build_object('ok', true);
 end $$;
 
+-- 교사 화면 「관리」 탭: 무료 용량 중 쓴 만큼. 데이터베이스 크기, 저장소(버킷별) 크기, 교사 계정 수(이번 달 로그인). 교사만.
+-- 전송량(egress)은 데이터베이스에서 알 수 없어 Supabase 대시보드에서만 보인다.
+create or replace function usage_stats() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not is_teacher() then raise exception 'not a teacher'; end if;
+  return jsonb_build_object(
+    'db_bytes', pg_database_size(current_database()),
+    'storage', coalesce((
+      select jsonb_object_agg(bucket_id, jsonb_build_object('bytes', b, 'files', n))
+      from (select bucket_id, sum(coalesce((metadata ->> 'size')::bigint, 0)) b, count(*) n
+            from storage.objects group by bucket_id) x), '{}'::jsonb),
+    'users', (select count(*) from auth.users),
+    'mau', (select count(*) from auth.users where last_sign_in_at >= date_trunc('month', now())),
+    'students', (select count(*) from students),
+    'lessons', (select count(*) from lessons));
+end $$;
+revoke all on function usage_stats() from public;
+grant execute on function usage_stats() to authenticated;
+
 -- ------------------------------------------------------------
 -- 교사 프로필과 수업 공동작업자
 -- ------------------------------------------------------------

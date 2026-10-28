@@ -114,6 +114,94 @@ function drawPeople() {
       : h("section", { class: "card stack" }, h("h2", {}, "공동작업자"), h("p", { class: "muted" }, "위쪽에서 수업을 고르면 그 수업의 공동작업자를 보고 초대할 수 있습니다."))));
 }
 
+// ---------- 관리: 쓰고 있는 사이트의 무료 용량 ----------
+// 무료 플랜 한도(2026년 기준). 바뀌면 여기 숫자만 고친다.
+const FREE = { db: 500e6, storage: 1e9, egress: 5e9, mau: 50000, pages: 1e9 };
+const GITHUB_REPO = location.hostname.endsWith(".github.io")
+  ? location.hostname.split(".")[0] + "/" + (location.pathname.split("/")[1] || "") : "happywax0206-byte/-";
+
+function fmtBytes(b) {
+  const num = (x, d) => String(+x.toFixed(d));   // 500.0 → 500
+  if (b < 1e6) return num(b / 1e3, b < 1e4 ? 1 : 0) + " KB";
+  if (b < 1e9) return num(b / 1e6, b < 1e7 ? 2 : 1) + " MB";
+  return num(b / 1e9, 2) + " GB";
+}
+
+// 반원 막대: 찬 만큼 색이 칠해지고 가운데에 「쓴 양 / 전체」와 %를 띄운다. used가 null이면 이 앱에서는 읽을 수 없는 것
+function gauge(title, used, total, fmt, note) {
+  const known = used != null;
+  const pct = known ? used / total * 100 : 0;
+  const color = !known ? "#c9d1de" : pct >= 85 ? "var(--bad)" : pct >= 60 ? "#d97706" : "var(--ok)";
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 120 66");
+  svg.setAttribute("class", "gauge-arc");
+  svg.setAttribute("aria-hidden", "true");
+  for (const [stroke, len] of [["#eef0f4", 100], [color, Math.min(100, Math.max(known && used > 0 ? 1 : 0, pct))]]) {
+    if (!len) continue;
+    const p = document.createElementNS(ns, "path");
+    p.setAttribute("d", "M 10 60 A 50 50 0 0 1 110 60");
+    p.setAttribute("pathLength", "100");
+    p.setAttribute("fill", "none");
+    p.setAttribute("stroke", stroke);
+    p.setAttribute("stroke-width", "11");
+    p.setAttribute("stroke-linecap", "round");
+    p.setAttribute("stroke-dasharray", len + " 100");
+    svg.append(p);
+  }
+  return h("figure", { class: "card gauge", role: "img", "aria-label": title + " " + (known ? fmt(used) + " / " + fmt(total) : "알 수 없음") },
+    h("figcaption", {}, title),
+    h("div", { class: "gauge-box" }, svg,
+      h("div", { class: "gauge-text" },
+        h("strong", {}, !known ? "?" : used > 0 && pct < 0.1 ? "<0.1%" : (pct < 10 ? +pct.toFixed(1) : Math.round(pct)) + "%"),
+        h("span", {}, (known ? fmt(used) : "?") + " / " + fmt(total)))),
+    note ? h("p", { class: "muted small" }, note) : null);
+}
+
+async function drawManage() {
+  const grid = h("div", { class: "usage-grid" }, h("p", { class: "muted" }, "읽어 오는 중…"));
+  const when = h("span", { class: "muted small" });
+  const ref = (/^https:\/\/([a-z0-9-]+)\.supabase\.co$/.exec(SB_URL) || [])[1];
+  const dash = ref ? "https://supabase.com/dashboard/project/" + ref : "https://supabase.com/dashboard";
+  main.replaceChildren(h("div", { class: "stack" },
+    h("section", { class: "card stack" },
+      h("div", { class: "row between wrap" }, h("h2", {}, "무료 용량"),
+        h("div", { class: "row" }, when, h("button", { class: "ghost", type: "button", onclick: drawManage }, "⟳ 다시 읽기"))),
+      h("p", { class: "muted small" }, "이 웹앱이 쓰는 사이트(Supabase: 데이터·파일, GitHub: 화면)의 무료 플랜 한도 중 얼마나 썼는지입니다. 60%를 넘으면 주황, 85%를 넘으면 빨강으로 바뀝니다. 한도는 2026년 무료 플랜 기준이라 바뀔 수 있습니다.")),
+    grid,
+    h("section", { class: "card stack" },
+      h("h3", {}, "직접 확인해야 하는 것"),
+      h("ul", { class: "small" },
+        h("li", {}, "전송량(egress, 한 달 5 GB)과 정확한 이번 달 사용자 수는 이 앱에서 읽을 수 없습니다. ",
+          h("a", { href: dash, target: "_blank", rel: "noopener" }, "Supabase 대시보드"), "에 로그인해 왼쪽 위 조직 이름 → Usage에서 보세요."),
+        h("li", {}, "Supabase 무료 프로젝트는 1주일 넘게 아무도 쓰지 않으면 잠시 멈춥니다(대시보드에서 Restore를 누르면 다시 켜짐)."),
+        h("li", {}, "GitHub Pages 전송량은 한 달 100 GB 정도까지 괜찮고(넘으면 안내 메일), 숫자를 보여 주는 곳은 없습니다.")))));
+
+  const [st, gh] = await Promise.all([
+    sb.rpc("usage_stats"),
+    fetch("https://api.github.com/repos/" + GITHUB_REPO).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+  ]);
+  if (!grid.isConnected) return;
+  const u = st.data || null;
+  const files = u ? Object.values(u.storage || {}).reduce((m, b) => m + (+b.bytes || 0), 0) : null;
+  const fileCount = u ? Object.values(u.storage || {}).reduce((m, b) => m + (+b.files || 0), 0) : 0;
+  const bucket = (k) => (u && u.storage && u.storage[k] ? fmtBytes(+u.storage[k].bytes) : "0 KB");
+  const n = (x) => Math.round(x).toLocaleString("ko-KR") + "명";
+  grid.replaceChildren(
+    gauge("Supabase 데이터베이스", u ? +u.db_bytes : null, FREE.db, fmtBytes,
+      u ? "수업 " + u.lessons + "개 · 학생 " + u.students + "명 · 질문·답 등 글자 데이터" : null),
+    gauge("Supabase 파일 저장소", files, FREE.storage, fmtBytes,
+      u ? "파일 " + fileCount.toLocaleString("ko-KR") + "개 · 슬라이드 " + bucket("slides") + " · 학생 제출 " + bucket("submissions") : null),
+    gauge("Supabase 전송량 (이번 달)", null, FREE.egress, fmtBytes, "이 앱에서는 읽을 수 없음 · 아래 대시보드에서 확인"),
+    gauge("Supabase 로그인 (이번 달)", u ? +u.mau : null, FREE.mau, n,
+      u ? "전체 교사 계정 " + u.users + "개 · 학생은 계정이 아니라 세지 않음" : null),
+    gauge("GitHub 저장소 (화면 파일)", gh && gh.size != null ? gh.size * 1024 : null, FREE.pages, fmtBytes,
+      gh ? "github.com/" + GITHUB_REPO + " · Pages 사이트는 1 GB까지" : "GitHub에서 읽지 못함(잠시 뒤 다시)"));
+  if (st.error) grid.prepend(h("p", { class: "banner" }, /usage_stats|function/i.test(st.error.message || "")
+    ? "Supabase 수치를 보려면 먼저 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요." : "Supabase 수치를 읽지 못했습니다: " + st.error.message));
+  when.textContent = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) + " 기준";
+}
+
 function profileCard() {
   const pwBtn = h("button", { class: "ghost", type: "button", onclick: changePassword }, "비밀번호 바꾸기");
   if (!profile) return h("section", { class: "card stack" }, h("h2", {}, "내 프로필"),
@@ -174,7 +262,7 @@ async function loadLessons(selectId) {
   if (error) return fatal(error);
   lessons = data;
   lesson = lessons.find((l) => l.id === selectId) || lessons[0] || null;
-  if (!lesson && tab !== "people") tab = "settings";
+  if (!lesson && tab !== "people" && tab !== "manage") tab = "settings";
   await loadLesson();
 }
 
@@ -286,7 +374,7 @@ function draw() {
   }, lessons.map((l) => h("option", { value: l.id, selected: lesson && l.id === lesson.id }, (l.kind === "survey" ? "[설문] " : "") + (isMine(l) ? "" : "[공동] ") + l.title + " (" + l.code + ")")),
     h("option", { value: "new", selected: !lesson }, "+ 새 수업 만들기"));
   if (!TABS[tab]) tab = "run";
-  if (!lesson && tab !== "people") tab = "settings";
+  if (!lesson && tab !== "people" && tab !== "manage") tab = "settings";
   main = h("main", { class: "wide" });
   tabNav = buildTabNav();
   tabSet = buildTabSet();
@@ -302,7 +390,7 @@ function draw() {
         profileEl)),
     main);
   setTopHeight();
-  ({ run: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings, people: drawPeople })[tab]();
+  ({ run: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings, people: drawPeople, manage: drawManage })[tab]();
   schedule();
   updateMirror();
 }
@@ -315,8 +403,8 @@ function setTopHeight() {
 
 // ---------- 위쪽 탭과 「설정」 ----------
 // 탭은 위쪽 막대(top)나 오른쪽 「설정」 안(menu)에 있다. 끌어서 둘 사이를 옮기거나 순서를 바꾸고, 이 브라우저에 기억한다.
-const TABS = { run: "수업 진행", live: "학생 화면", build: "질문·설문 만들기", students: "학생 관리", settings: "수업 설정", people: "프로필·공동작업자" };
-const TAB_PLACE_DEFAULT = { top: ["run", "live", "students"], menu: ["build", "settings", "people"] };
+const TABS = { run: "수업 진행", live: "학생 화면", build: "질문·설문 만들기", students: "학생 관리", settings: "수업 설정", people: "프로필·공동작업자", manage: "관리" };
+const TAB_PLACE_DEFAULT = { top: ["run", "live", "students"], menu: ["build", "settings", "people", "manage"] };
 let tabPlace = loadTabPlace();
 let tabMenuOpen = false;
 let tabDrag = null;       // 끌고 있는 탭
@@ -346,7 +434,7 @@ async function goTab(k) {
 
 function tabButton(k) {
   // disabled 대신 aria-disabled: 수업이 없을 때도 끌어서 옮길 수는 있게
-  const off = !lesson && k !== "settings" && k !== "people";
+  const off = !lesson && k !== "settings" && k !== "people" && k !== "manage";
   return h("button", {
     type: "button", class: tab === k ? "tab on" : "tab", "data-tab": k, draggable: "true", "aria-disabled": off ? "true" : null,
     title: "끌어서 위쪽 막대와 「설정」 사이로 옮길 수 있습니다",

@@ -376,3 +376,13 @@ body.present .credit { display: none; }
 .screen-video { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #111; border-radius: 6px; }
 .live-tile.big .screen-video { max-height: 75vh; }
 .live-screen .warn { color: var(--warn); font-weight: 700; }
+/* 관리: 무료 용량 반원 막대 */
+.usage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .75rem; }
+.usage-grid > .banner { grid-column: 1 / -1; }
+.gauge { margin: 0; display: grid; gap: .3rem; justify-items: center; text-align: center; padding: 1rem; }
+.gauge figcaption { font-weight: 700; }
+.gauge-box { position: relative; width: 100%; max-width: 240px; }
+.gauge-arc { display: block; width: 100%; }
+.gauge-text { position: absolute; left: 0; right: 0; bottom: 2%; display: grid; line-height: 1.15; }
+.gauge-text strong { font-size: 1.7rem; }
+.gauge-text span { font-size: .85rem; color: var(--muted); }
