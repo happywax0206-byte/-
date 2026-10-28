@@ -10,6 +10,11 @@ create extension if not exists pgcrypto with schema extensions;
 create table if not exists teachers (
   email text primary key
 );
+-- 나중에 더한 칸: 교사 프로필(이름·학교·과목)과, 공동작업자로 초대되어 들어온 교사인지
+alter table teachers add column if not exists name text check (length(name) <= 30);
+alter table teachers add column if not exists school text check (length(school) <= 50);
+alter table teachers add column if not exists subject text check (length(subject) <= 30);
+alter table teachers add column if not exists invited boolean not null default false;
 
 -- 수업(반) 하나. 수업 코드는 서버가 겹치지 않게 만든다.
 create table if not exists lessons (
@@ -31,6 +36,15 @@ alter table lessons drop constraint if exists lessons_transition_size;
 alter table lessons add constraint lessons_transition_size check (transition is null or (jsonb_typeof(transition) = 'object' and octet_length(transition::text) <= 8000));
 create unique index if not exists lessons_code_key on lessons (code);
 create index if not exists lessons_owner on lessons (owner);
+
+-- 수업 공동작업자: 수업을 만든 교사가 이메일로 초대한 교사. 그 수업을 함께 보고 고치고 진행한다(지우기는 만든 교사만).
+create table if not exists lesson_members (
+  lesson_id  uuid not null references lessons(id) on delete cascade,
+  email      text not null check (email = lower(email) and length(email) <= 200),
+  added_at   timestamptz not null default now(),
+  primary key (lesson_id, email)
+);
+create index if not exists lesson_members_email on lesson_members (email);
 
 create table if not exists activities (
   id          uuid primary key default gen_random_uuid(),
@@ -133,22 +147,66 @@ alter table activities enable row level security;
 alter table students   enable row level security;
 alter table responses  enable row level security;
 alter table lesson_students enable row level security;
+alter table lesson_members enable row level security;   -- 정책 없음: 아래 함수로만 쓴다
 
 create or replace function is_teacher() returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (select 1 from teachers where email = lower(auth.jwt() ->> 'email'))
 $$;
 
+create or replace function my_email() returns text
+language sql stable as $$ select lower(coalesce(auth.jwt() ->> 'email', '')) $$;
+
+-- 이 수업을 볼 수 있는지: 내가 만든 수업이거나 공동작업자로 초대받은 수업
+create or replace function can_lesson(p_lesson uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select is_teacher() and exists (
+    select 1 from lessons l where l.id = p_lesson
+      and (l.owner = auth.uid() or exists (select 1 from lesson_members m where m.lesson_id = l.id and m.email = my_email())))
+$$;
+
+create or replace function can_activity(p_activity uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from activities a where a.id = p_activity and can_lesson(a.lesson_id))
+$$;
+
+-- 학생 계정은 웹앱 전체에 하나: 내가 볼 수 있는 수업에 들어온 학생만 다룬다
+create or replace function can_student(p_student uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from lesson_students m where m.student_id = p_student and can_lesson(m.lesson_id))
+$$;
+
+-- 저장소 폴더 이름(글자)이 볼 수 있는 수업의 id인지
+create or replace function can_lesson_path(p text) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return coalesce(p, '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' and can_lesson(p::uuid);
+end $$;
+
+-- 예전에는 교사면 모든 수업을 다뤘다. 이제는 내 수업과 초대받은 수업만. 수업 지우기는 만든 교사만.
 drop policy if exists teacher_all on lessons;
 drop policy if exists teacher_all on activities;
 drop policy if exists teacher_all on students;
 drop policy if exists teacher_all on responses;
 drop policy if exists teacher_all on lesson_students;
-create policy teacher_all on lessons    for all to authenticated using (is_teacher()) with check (is_teacher());
-create policy teacher_all on activities for all to authenticated using (is_teacher()) with check (is_teacher());
-create policy teacher_all on students   for all to authenticated using (is_teacher()) with check (is_teacher());
-create policy teacher_all on responses  for all to authenticated using (is_teacher()) with check (is_teacher());
-create policy teacher_all on lesson_students for all to authenticated using (is_teacher()) with check (is_teacher());
+drop policy if exists lesson_select on lessons;
+drop policy if exists lesson_insert on lessons;
+drop policy if exists lesson_update on lessons;
+drop policy if exists lesson_delete on lessons;
+create policy lesson_select on lessons for select to authenticated using (can_lesson(id));
+create policy lesson_insert on lessons for insert to authenticated with check (is_teacher() and owner = auth.uid());
+create policy lesson_update on lessons for update to authenticated using (can_lesson(id)) with check (can_lesson(id));
+create policy lesson_delete on lessons for delete to authenticated using (is_teacher() and owner = auth.uid());
+create policy teacher_all on activities for all to authenticated using (can_lesson(lesson_id)) with check (can_lesson(lesson_id));
+create policy teacher_all on students   for all to authenticated using (can_student(id)) with check (can_student(id));
+create policy teacher_all on responses  for all to authenticated using (can_activity(activity_id)) with check (can_activity(activity_id));
+create policy teacher_all on lesson_students for all to authenticated using (can_lesson(lesson_id)) with check (can_lesson(lesson_id));
+
+-- 수업을 만든 교사(owner)는 바뀌지 않는다(공동작업자가 수업을 가져가지 못하게)
+create or replace function lessons_keep_owner() returns trigger
+language plpgsql as $$ begin new.owner := old.owner; return new; end $$;
+drop trigger if exists lessons_keep_owner on lessons;
+create trigger lessons_keep_owner before update on lessons for each row execute function lessons_keep_owner();
 
 -- 새 수업 만들기: 겹치지 않는 수업 코드를 서버가 정한다(헷갈리는 0, O, 1, I 는 쓰지 않음)
 -- p_kind: 'lesson'(슬라이드 수업) 또는 'survey'(설문만)
@@ -370,7 +428,7 @@ drop function if exists teacher_students(uuid);
 create or replace function teacher_students(p_lesson uuid, p_live boolean default true)
 returns jsonb language plpgsql stable security definer set search_path = public as $$
 begin
-  if not is_teacher() then raise exception 'not a teacher'; end if;
+  if not can_lesson(p_lesson) then raise exception 'not your lesson'; end if;
   return coalesce((
     select jsonb_agg(jsonb_build_object(
       'id', s.id, 'class_no', s.class_no, 'name', s.name, 'pin_set', s.pin_set, 'fails', s.fails,
@@ -398,6 +456,108 @@ begin
     where lesson_id = l.id and student_id = s.id;
   return jsonb_build_object('ok', true);
 end $$;
+
+-- ------------------------------------------------------------
+-- 교사 프로필과 수업 공동작업자
+-- ------------------------------------------------------------
+create or replace function my_profile() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object('email', t.email, 'name', t.name, 'school', t.school, 'subject', t.subject)
+  from teachers t where t.email = my_email()
+$$;
+
+create or replace function save_profile(p_name text, p_school text, p_subject text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+begin
+  if not is_teacher() then raise exception 'not a teacher'; end if;
+  if length(trim(coalesce(p_name, ''))) > 30 or length(trim(coalesce(p_school, ''))) > 50 or length(trim(coalesce(p_subject, ''))) > 30 then
+    return jsonb_build_object('error', 'too_long');
+  end if;
+  update teachers set name = nullif(trim(p_name), ''), school = nullif(trim(p_school), ''), subject = nullif(trim(p_subject), '')
+    where email = my_email();
+  return my_profile();
+end $$;
+
+-- 이 수업을 만든 교사와 공동작업자(프로필과 함께). joined: 그 이메일로 계정을 만들었는지
+create or replace function lesson_people(p_lesson uuid) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  l lessons;
+  oe text;
+begin
+  if not can_lesson(p_lesson) then raise exception 'not your lesson'; end if;
+  select * into l from lessons where id = p_lesson;
+  select lower(u.email) into oe from auth.users u where u.id = l.owner;
+  return jsonb_build_object(
+    'owner', (select jsonb_build_object('email', oe, 'name', t.name, 'school', t.school, 'subject', t.subject, 'me', l.owner = auth.uid())
+              from (select 1) x left join teachers t on t.email = oe),
+    'members', coalesce((
+      select jsonb_agg(jsonb_build_object('email', m.email, 'name', t.name, 'school', t.school, 'subject', t.subject, 'me', m.email = my_email(),
+               'joined', exists (select 1 from auth.users u where lower(u.email) = m.email and u.email_confirmed_at is not null))
+             order by m.added_at)
+      from lesson_members m left join teachers t on t.email = m.email
+      where m.lesson_id = p_lesson), '[]'::jsonb));
+end $$;
+
+-- 공동작업자 초대: 수업을 만든 교사만. 초대한 이메일은 교사 목록에도 넣어 로그인할 수 있게 한다.
+create or replace function add_member(p_lesson uuid, p_email text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  e text := lower(trim(coalesce(p_email, '')));
+  l lessons;
+begin
+  select * into l from lessons where id = p_lesson;
+  if not found or not is_teacher() or l.owner <> auth.uid() then return jsonb_build_object('error', 'not_owner'); end if;
+  if e !~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$' or length(e) > 200 then return jsonb_build_object('error', 'bad_email'); end if;
+  if e = my_email() then return jsonb_build_object('error', 'self'); end if;
+  if (select count(*) from lesson_members where lesson_id = p_lesson) >= 20 then return jsonb_build_object('error', 'full'); end if;
+  insert into lesson_members (lesson_id, email) values (p_lesson, e) on conflict do nothing;
+  insert into teachers (email, invited) values (e, true) on conflict do nothing;
+  return jsonb_build_object('ok', true);
+end $$;
+
+-- 공동작업자 빼기: 만든 교사는 누구든, 공동작업자는 자기 자신만(「이 수업에서 나가기」)
+create or replace function remove_member(p_lesson uuid, p_email text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  e text := lower(trim(coalesce(p_email, '')));
+  l lessons;
+begin
+  select * into l from lessons where id = p_lesson;
+  if not found or not is_teacher() or (l.owner <> auth.uid() and e <> my_email()) then return jsonb_build_object('error', 'not_owner'); end if;
+  delete from lesson_members where lesson_id = p_lesson and email = e;
+  -- 초대로만 들어온 교사가 이제 어느 수업에도 없으면 교사 목록에서도 뺀다(로그인해도 교사 화면을 못 쓴다)
+  delete from teachers t where t.email = e and t.invited
+    and not exists (select 1 from lesson_members m where m.email = e)
+    and not exists (select 1 from lessons x join auth.users u on u.id = x.owner where lower(u.email) = e);
+  return jsonb_build_object('ok', true);
+end $$;
+
+-- 이 수업의 슬라이드 그림을 다른 수업(복제한 수업, 내가 볼 수 없는 수업 포함)도 쓰는지
+create or replace function slide_dir_shared(p_lesson uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select can_lesson(p_lesson) and exists (
+    select 1 from lessons a join lessons b on b.id <> a.id
+    where a.id = p_lesson and a.slide_dir <> '' and split_part(b.slide_dir, '?', 1) = split_part(a.slide_dir, '?', 1))
+$$;
+
+revoke all on function my_profile() from public;
+revoke all on function save_profile(text, text, text) from public;
+revoke all on function lesson_people(uuid) from public;
+revoke all on function add_member(uuid, text) from public;
+revoke all on function remove_member(uuid, text) from public;
+revoke all on function slide_dir_shared(uuid) from public;
+grant execute on function my_profile() to authenticated;
+grant execute on function save_profile(text, text, text) to authenticated;
+grant execute on function lesson_people(uuid) to authenticated;
+grant execute on function add_member(uuid, text) to authenticated;
+grant execute on function remove_member(uuid, text) to authenticated;
+grant execute on function slide_dir_shared(uuid) to authenticated;
+grant execute on function my_email() to authenticated;
+grant execute on function can_lesson(uuid) to authenticated;
+grant execute on function can_activity(uuid) to authenticated;
+grant execute on function can_student(uuid) to authenticated;
+grant execute on function can_lesson_path(text) to authenticated;
 
 revoke all on function student_enter(text, text, text, text, boolean) from public;
 revoke all on function student_state(text, text, text) from public;
@@ -427,9 +587,15 @@ drop policy if exists slides_teacher_insert on storage.objects;
 drop policy if exists slides_teacher_update on storage.objects;
 drop policy if exists slides_teacher_delete on storage.objects;
 create policy slides_teacher_read on storage.objects for select to authenticated using (bucket_id = 'slides' and is_teacher());
-create policy slides_teacher_insert on storage.objects for insert to authenticated with check (bucket_id = 'slides' and is_teacher());
-create policy slides_teacher_update on storage.objects for update to authenticated using (bucket_id = 'slides' and is_teacher()) with check (bucket_id = 'slides' and is_teacher());
-create policy slides_teacher_delete on storage.objects for delete to authenticated using (bucket_id = 'slides' and is_teacher());
+-- 올리고 지우기는 내 폴더(교사id/…)이거나, 볼 수 있는 수업의 폴더(만든교사id/수업id/…, 공동작업자)에서만
+create or replace function can_slide_path(p_name text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select is_teacher() and ((storage.foldername(p_name))[1] = auth.uid()::text or can_lesson_path((storage.foldername(p_name))[2]))
+$$;
+grant execute on function can_slide_path(text) to authenticated;
+create policy slides_teacher_insert on storage.objects for insert to authenticated with check (bucket_id = 'slides' and can_slide_path(name));
+create policy slides_teacher_update on storage.objects for update to authenticated using (bucket_id = 'slides' and can_slide_path(name)) with check (bucket_id = 'slides' and can_slide_path(name));
+create policy slides_teacher_delete on storage.objects for delete to authenticated using (bucket_id = 'slides' and can_slide_path(name));
 
 -- ------------------------------------------------------------
 -- 학생이 답으로 올리는 파일(질문 종류 「파일 올리기」): 비공개 저장소. 교사만 열어 보고 지운다.
@@ -503,11 +669,13 @@ create policy submissions_student_insert on storage.objects for insert to anon, 
   with check (bucket_id = 'submissions' and submission_ticket_ok(name));
 create policy submissions_student_read on storage.objects for select to anon, authenticated
   using (bucket_id = 'submissions' and submission_ticket_ok(name));
-create policy submissions_teacher_read on storage.objects for select to authenticated using (bucket_id = 'submissions' and is_teacher());
-create policy submissions_teacher_delete on storage.objects for delete to authenticated using (bucket_id = 'submissions' and is_teacher());
+-- 교사는 볼 수 있는 수업의 폴더(수업id/…)만
+create policy submissions_teacher_read on storage.objects for select to authenticated using (bucket_id = 'submissions' and can_lesson_path((storage.foldername(name))[1]));
+create policy submissions_teacher_delete on storage.objects for delete to authenticated using (bucket_id = 'submissions' and can_lesson_path((storage.foldername(name))[1]));
 
 -- ------------------------------------------------------------
 -- 교사 이메일: happywax0206@gmail.com 을 자기 이메일(소문자)로 바꾸세요. 여러 명이면 줄을 더하면 됩니다.
+-- 함께 쓸 선생님은 여기에 적지 않아도 됩니다: 교사 화면 「수업 설정 → 공동작업자」에서 이메일로 초대하면 됩니다.
 -- ------------------------------------------------------------
 insert into teachers (email) values ('happywax0206@gmail.com') on conflict do nothing;
 

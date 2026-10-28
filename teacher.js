@@ -27,10 +27,12 @@ async function init() {
   if (error || !ok) {
     return app.replaceChildren(h("main", { class: "narrow" }, h("section", { class: "card stack" },
       h("h1", {}, "교사로 등록되지 않은 계정입니다"),
-      h("p", {}, (me.email || "") + " 이메일이 teachers 표에 없습니다. setup.sql 맨 아래에 이 이메일을 넣고 다시 실행하세요."),
+      h("p", {}, (me.email || "") + " 이메일은 아직 초대받지 않았습니다. 수업을 만든 선생님께 「수업 설정 → 공동작업자」에서 이 이메일로 초대해 달라고 하세요. 초대받은 뒤 새로고침하면 됩니다."),
+      h("p", { class: "muted small" }, "이 웹앱을 처음 설치하는 선생님이면 setup.sql 맨 아래에 이 이메일을 넣고 다시 실행하세요."),
       error ? h("p", { class: "error" }, error.message) : null,
       h("button", { class: "ghost", type: "button", async onclick() { await sb.auth.signOut(); location.reload(); } }, "로그아웃"))));
   }
+  await loadProfile();
   await loadLessons(localStorage.getItem("cra-lesson"));
   document.addEventListener("keydown", (e) => {
     if (tab !== "run" || !lesson || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
@@ -56,7 +58,82 @@ function showLogin() {
       },
     }, h("label", {}, "이메일", email), h("label", {}, "비밀번호", pw),
       h("button", { class: "primary big", type: "submit" }, "로그인"), msg),
-    h("p", { class: "muted small center" }, "교사 계정은 Supabase 대시보드 → Authentication → Users 에서 만듭니다.")));
+    h("p", { class: "center" }, h("button", { class: "link", type: "button", onclick: showSignUp }, "공동작업자로 초대받았나요? 계정 만들기"))));
+}
+
+// 초대받은 선생님이 그 이메일로 계정을 만든다. Supabase 설정에 따라 바로 들어가지거나, 메일의 확인 링크를 눌러야 한다.
+function showSignUp() {
+  const email = h("input", { type: "email", autocomplete: "username", required: true });
+  const pw = h("input", { type: "password", autocomplete: "new-password", required: true, minlength: 8 });
+  const again = h("input", { type: "password", autocomplete: "new-password", required: true });
+  const msg = h("p", { class: "msg" });
+  const btn = h("button", { class: "primary big", type: "submit" }, "계정 만들기");
+  app.replaceChildren(h("main", { class: "narrow" },
+    h("header", { class: "intro" }, h("p", { class: "eyebrow" }, "교사용"), h("h1", {}, "계정 만들기")),
+    h("form", {
+      class: "card stack",
+      async onsubmit(e) {
+        e.preventDefault();
+        if (pw.value.length < 8) { msg.textContent = "비밀번호는 8자 이상으로 정하세요."; return; }
+        if (pw.value !== again.value) { msg.textContent = "두 칸의 비밀번호가 다릅니다."; return; }
+        btn.disabled = true;
+        msg.textContent = "만드는 중…";
+        const { data, error } = await sb.auth.signUp({ email: email.value.trim(), password: pw.value,
+          options: { emailRedirectTo: location.origin + location.pathname } });
+        btn.disabled = false;
+        if (error) {
+          msg.textContent = /not allowed|disabled/i.test(error.message)
+            ? "이 웹앱은 직접 계정 만들기가 꺼져 있습니다. 수업을 만든 선생님께 계정을 만들어 달라고 하세요(Supabase → Authentication → Users → Add user)."
+            : "만들지 못했습니다: " + error.message;
+          return;
+        }
+        if (data.session) return init();
+        msg.textContent = "확인 메일을 보냈습니다. 메일함에서 링크를 누른 뒤 이 화면에서 로그인하세요. (메일이 안 오면 스팸함도 보세요.)";
+      },
+    }, h("p", { class: "muted small" }, "수업을 만든 선생님이 초대한 이메일을 그대로 쓰세요. 초대받지 않은 이메일로 만들면 교사 화면을 쓸 수 없습니다."),
+      h("label", {}, "이메일", email), h("label", {}, "비밀번호 (8자 이상)", pw), h("label", {}, "비밀번호 한 번 더", again), btn, msg),
+    h("p", { class: "center" }, h("button", { class: "link", type: "button", onclick: showLogin }, "이미 계정이 있으면: 로그인"))));
+  email.focus();
+}
+
+// ---------- 내 프로필 ----------
+let profile = null;   // { email, name, school, subject }. setup.sql을 아직 다시 실행하지 않았으면 null
+async function loadProfile() {
+  const { data, error } = await sb.rpc("my_profile");
+  profile = error ? null : data;
+}
+
+const teacherLabel = (p) => (p && p.name ? p.name + " 선생님" : (p && p.email) || "");
+const teacherDetail = (p) => [p && p.school, p && p.subject].filter(Boolean).join(" · ");
+
+function editProfile() {
+  if (!profile) return alert("프로필을 쓰려면 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요.");
+  const name = h("input", { type: "text", maxlength: 30, value: profile.name || "", placeholder: "예: 이효송" });
+  const school = h("input", { type: "text", maxlength: 50, value: profile.school || "", placeholder: "예: ○○고등학교" });
+  const subject = h("input", { type: "text", maxlength: 30, value: profile.subject || "", placeholder: "예: 물리" });
+  const msg = h("p", { class: "msg" });
+  const btn = h("button", { class: "primary", type: "submit" }, "저장");
+  const close = openModal("내 프로필", h("div", { class: "stack" },
+    h("form", {
+      class: "stack",
+      async onsubmit(e) {
+        e.preventDefault();
+        btn.disabled = true;
+        msg.textContent = "저장 중…";
+        const { data, error } = await sb.rpc("save_profile", { p_name: name.value, p_school: school.value, p_subject: subject.value });
+        btn.disabled = false;
+        if (error || data.error) { msg.textContent = "저장하지 못했습니다: " + (error ? error.message : "글자가 너무 깁니다."); return; }
+        profile = data;
+        close();
+        draw();
+        flash("프로필을 저장했습니다.");
+      },
+    }, h("p", { class: "muted small" }, "이메일: " + (me.email || "")),
+      h("label", {}, "이름", name), h("label", {}, "학교", school), h("label", {}, "과목", subject),
+      h("p", { class: "muted small" }, "공동작업자 목록에서 다른 선생님에게 보입니다. 학생에게는 보이지 않습니다."),
+      btn, msg),
+    h("p", {}, h("button", { class: "link", type: "button", onclick() { close(); changePassword(); } }, "비밀번호 바꾸기"))));
+  name.focus();
 }
 
 // 로그인한 교사의 비밀번호 바꾸기
@@ -103,7 +180,7 @@ async function loadLesson() {
     const { data, error } = await sb.from("activities").select("*").eq("lesson_id", lesson.id);
     if (error) return fatal(error);
     activities = sortActivities(data);
-    await loadResponses();
+    await Promise.all([loadResponses(), loadSlidesShared()]);
     removeOrphanFiles().catch(() => {});
   }
   draw();
@@ -180,6 +257,7 @@ async function save(table, row, id) {
   return data[0];
 }
 
+const isMine = (l) => !!l && l.owner === me.id;   // 내가 만든 수업인지(아니면 공동작업자로 초대받은 수업)
 const nameOf = (s) => s.class_no + " " + s.name;
 const studentById = (id) => students.find((s) => s.id === id);
 const docsOf = (a) => responses.filter((r) => r.activity_id === a.id && studentById(r.student_id))
@@ -196,7 +274,7 @@ function draw() {
       else lesson = lessons.find((l) => l.id === pick.value);
       await loadLesson();
     },
-  }, lessons.map((l) => h("option", { value: l.id, selected: lesson && l.id === lesson.id }, (l.kind === "survey" ? "[설문] " : "") + l.title + " (" + l.code + ")")),
+  }, lessons.map((l) => h("option", { value: l.id, selected: lesson && l.id === lesson.id }, (l.kind === "survey" ? "[설문] " : "") + (isMine(l) ? "" : "[공동] ") + l.title + " (" + l.code + ")")),
     h("option", { value: "new", selected: !lesson }, "+ 새 수업 만들기"));
   const tabs = [["run", "수업 진행"], ["live", "학생 화면"], ["build", "질문·설문 만들기"], ["students", "학생 관리"], ["settings", "수업 설정"]];
   if (!tabs.some(([k]) => k === tab)) tab = "run";
@@ -215,7 +293,7 @@ function draw() {
       }, label))),
       lesson ? h("button", { class: "ghost present-btn", type: "button", title: "학생에게 보여 줄 슬라이드만 새 탭에 띄웁니다", onclick: openPresent }, "▣ 수업 화면 띄우기") : null,
       lesson ? mirrorStatus : null,
-      h("button", { class: "link", type: "button", onclick: changePassword }, "비밀번호 바꾸기"),
+      h("button", { class: "link", type: "button", title: "이름·학교·과목, 비밀번호 바꾸기", onclick: editProfile }, profile && profile.name ? profile.name + " 선생님" : "내 프로필"),
       h("button", { class: "link", type: "button", async onclick() { await sb.auth.signOut(); location.reload(); } }, "로그아웃")),
     main);
   setTopHeight();
@@ -1319,7 +1397,72 @@ function drawSettings() {
       h("div", { class: "row" },
         h("button", { class: "ghost", type: "button", onclick: showJoin }, "QR 크게 보기"),
         h("button", { class: "ghost", type: "button", onclick: duplicate }, "다른 반용으로 복제"),
-        h("button", { class: "ghost danger", type: "button", onclick: remove }, "수업 지우기"))) : null));
+        isMine(lesson) ? h("button", { class: "ghost danger", type: "button", onclick: remove }, "수업 지우기") : null)) : null,
+    lesson ? membersCard() : null));
+}
+
+// 공동작업자: 수업을 만든 교사가 이메일로 초대한 교사는 이 수업을 함께 보고 고치고 진행한다(지우기는 만든 교사만)
+function membersCard() {
+  const box = h("section", { class: "card stack" }, h("h2", {}, "공동작업자"), h("p", { class: "muted small" }, "불러오는 중…"));
+  const forLesson = lesson;
+  const person = (p, tag, extra) => h("div", { class: "member" },
+    h("div", {}, h("strong", {}, p.name ? p.name + " 선생님" : p.email), tag ? h("span", { class: "pill" }, tag) : null,
+      h("p", { class: "muted small" }, [p.name ? p.email : null, teacherDetail(p) || null].filter(Boolean).join(" · ") || "프로필을 아직 적지 않았습니다")),
+    extra);
+  const teacherUrl = new URL("teacher.html", location.href).href;
+
+  async function refresh() {
+    const { data, error } = await sb.rpc("lesson_people", { p_lesson: forLesson.id });
+    if (lesson !== forLesson || !box.isConnected) return;
+    if (error) {
+      box.replaceChildren(h("h2", {}, "공동작업자"),
+        h("p", { class: "muted" }, /lesson_people|function/i.test(error.message || "")
+          ? "공동작업자를 쓰려면 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요."
+          : "불러오지 못했습니다: " + error.message));
+      return;
+    }
+    const owner = data.owner && data.owner.me;
+    const email = h("input", { type: "email", maxlength: 200, placeholder: "초대할 선생님 이메일", "aria-label": "초대할 선생님 이메일" });
+    const msg = h("p", { class: "msg" });
+    async function invite(e) {
+      e.preventDefault();
+      if (!email.value.trim()) return;
+      msg.textContent = "초대하는 중…";
+      const r = await sb.rpc("add_member", { p_lesson: forLesson.id, p_email: email.value });
+      const err = r.error ? r.error.message : r.data.error;
+      if (err) {
+        msg.textContent = { bad_email: "이메일 모양을 확인하세요.", self: "내 이메일은 넣지 않아도 됩니다.", full: "공동작업자는 20명까지입니다.", not_owner: "수업을 만든 선생님만 초대할 수 있습니다." }[err] || "초대하지 못했습니다: " + err;
+        return;
+      }
+      refresh();
+    }
+    async function drop(p) {
+      const leaving = p.me;
+      if (!confirm(leaving ? "이 수업에서 나갈까요? 다시 들어오려면 수업을 만든 선생님이 다시 초대해야 합니다."
+        : (p.name || p.email) + " 선생님을 이 수업의 공동작업자에서 뺄까요?")) return;
+      const r = await sb.rpc("remove_member", { p_lesson: forLesson.id, p_email: p.email });
+      if (r.error || r.data.error) return alert("하지 못했습니다: " + (r.error ? r.error.message : r.data.error));
+      if (leaving) return loadLessons(null);
+      refresh();
+    }
+    box.replaceChildren(...[
+      h("h2", {}, "공동작업자"),
+      h("p", { class: "muted small" }, "초대한 선생님은 이 수업을 함께 보고, 고치고, 진행할 수 있습니다. 수업 지우기와 공동작업자 초대는 만든 선생님만 할 수 있습니다."),
+      person(data.owner || { email: "(알 수 없음)" }, "만든 사람"),
+      data.members.map((p) => person(p, p.me ? "나" : p.joined ? null : "가입 전",
+        owner || p.me ? h("button", { class: "link danger", type: "button", onclick() { drop(p); } }, p.me ? "이 수업에서 나가기" : "빼기") : null)),
+      data.members.length ? null : h("p", { class: "muted small" }, "아직 공동작업자가 없습니다."),
+      owner ? h("form", { class: "row", onsubmit: invite }, email, h("button", { class: "primary", type: "submit" }, "초대")) : null,
+      owner ? msg : null,
+      owner ? h("div", { class: "tip" },
+        h("strong", {}, "초대한 다음에는"),
+        h("p", {}, "초대한 선생님께 교사 화면 주소를 보내 주세요: ", h("span", { class: "join-url" }, teacherUrl)),
+        h("p", {}, "그 선생님 계정이 아직 없으면(「가입 전」): Supabase 대시보드 → Authentication → Users → Add user에서 초대한 이메일과 임시 비밀번호를 넣고 Auto Confirm User에 체크해 만든 뒤, 임시 비밀번호를 알려 주세요. 로그인한 다음 「내 프로필 → 비밀번호 바꾸기」로 바꾸면 됩니다."),
+        h("p", { class: "muted small" }, "Supabase에서 가입(Allow new users to sign up)을 켜 두었다면 그 선생님이 로그인 화면의 「계정 만들기」로 직접 만들 수도 있습니다.")) : null,
+    ].flat().filter(Boolean));
+  }
+  refresh();
+  return box;
 }
 
 // 슬라이드 올리기: PDF 한 개 또는 그림 여러 장 → 쪽마다 JPG로 바꿔 Storage에 올린다.
@@ -1513,7 +1656,21 @@ async function toSlideImages(files, progress) {
   return out;
 }
 
-const slideFolder = (l) => me.id + "/" + l.id + "/";
+// 수업을 만든 교사의 폴더(공동작업자가 올려도 같은 폴더)
+const slideFolder = (l) => (l.owner || me.id) + "/" + l.id + "/";
+
+// 이 수업의 슬라이드를 다른 수업도 쓰는지. 내가 볼 수 없는 수업(다른 선생님이 복제한 것)까지 서버에 묻는다.
+let slidesSharedFor = null;   // { id, dir, shared }
+async function loadSlidesShared() {
+  if (!lesson || !lesson.slide_dir) { slidesSharedFor = null; return; }
+  const { data, error } = await sb.rpc("slide_dir_shared", { p_lesson: lesson.id });
+  slidesSharedFor = error ? null : { id: lesson.id, dir: lesson.slide_dir.split("?")[0], shared: !!data };
+}
+function slidesShared(l) {
+  const base = (l.slide_dir || "").split("?")[0];
+  if (slidesSharedFor && slidesSharedFor.id === l.id && slidesSharedFor.dir === base && slidesSharedFor.shared) return true;
+  return lessons.some((x) => x.id !== l.id && (x.slide_dir || "").split("?")[0] === base);
+}
 
 // 슬라이드 그림이 들어 있는 폴더(주소에서 읽는다). 다른 교사가 올렸거나 복제한 수업이면 원래 수업의 폴더다.
 function slideFolderOf(l) {
@@ -1531,8 +1688,7 @@ let slideBusy = false;
 function editableSlideFolder() {
   const folder = slideFolderOf(lesson);
   if (!folder) throw new Error("이 수업의 슬라이드 위치를 알 수 없습니다. 슬라이드를 다시 올려 주세요.");
-  const base = lesson.slide_dir.split("?")[0];
-  if (folder !== slideFolder(lesson) || lessons.some((x) => x.id !== lesson.id && (x.slide_dir || "").split("?")[0] === base)) {
+  if (folder !== slideFolder(lesson) || slidesShared(lesson)) {
     throw new Error("이 슬라이드는 복제한 다른 수업과 함께 쓰고 있어서 쪽을 지우거나 옮기거나 더할 수 없습니다.\n이 수업에서 PDF를 「다시 올리기」하면 이 수업만의 슬라이드가 됩니다.");
   }
   return folder;
@@ -1808,7 +1964,8 @@ function htmlSlideImage(title) {
 // 수업을 지울 때 그 수업의 슬라이드 그림도 지운다(복제한 다른 수업이 같은 그림을 쓰면 남긴다)
 async function removeSlideFiles(l) {
   if (!l.slide_count || !l.slide_dir.includes("/" + l.id + "/")) return;
-  if (lessons.some((x) => x.id !== l.id && x.slide_dir.split("?")[0] === l.slide_dir.split("?")[0])) return;
+  const { data: shared, error } = await sb.rpc("slide_dir_shared", { p_lesson: l.id });
+  if ((!error && shared) || lessons.some((x) => x.id !== l.id && x.slide_dir.split("?")[0] === l.slide_dir.split("?")[0])) return;
   // 그림을 올린 교사의 폴더(교사가 여러 명일 수 있으므로 주소에서 읽는다)
   const m = /\/public\/slides\/(.+\/)\{n\}/.exec(l.slide_dir);
   if (!m) return;
