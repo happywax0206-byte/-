@@ -1,4 +1,4 @@
-// 교사 화면(버전 2): 로그인 → 수업 고르기 → [수업 진행] [질문·설문 만들기] [학생 관리] [수업 설정]
+// 교사 화면(버전 2): 로그인 → 수업 고르기 → [수업 진행] [학생 화면] [학생 관리] · 오른쪽 「설정」 안에 [질문·설문 만들기] [수업 설정] [프로필·공동작업자] (끌어서 옮길 수 있음)
 // 수업 진행·학생 관리 탭은 3초마다 응답을 다시 읽어 온다.
 
 const app = document.getElementById("app");
@@ -284,29 +284,23 @@ function draw() {
     },
   }, lessons.map((l) => h("option", { value: l.id, selected: lesson && l.id === lesson.id }, (l.kind === "survey" ? "[설문] " : "") + (isMine(l) ? "" : "[공동] ") + l.title + " (" + l.code + ")")),
     h("option", { value: "new", selected: !lesson }, "+ 새 수업 만들기"));
-  const tabs = [["run", "수업 진행"], ["live", "학생 화면"], ["build", "질문·설문 만들기"], ["students", "학생 관리"], ["settings", "수업 설정"], ["people", "프로필·공동작업자"]];
-  if (!tabs.some(([k]) => k === tab)) tab = "run";
+  if (!TABS[tab]) tab = "run";
+  if (!lesson && tab !== "people") tab = "settings";
   main = h("main", { class: "wide" });
+  tabNav = buildTabNav();
+  tabSet = buildTabSet();
   app.replaceChildren(
     h("header", { class: "top" },
       h("div", { class: "top-title" }, h("span", { class: "eyebrow" }, "교사용"), pick),
-      h("nav", { class: "tabs" }, tabs.map(([k, label]) => h("button", {
-        type: "button", class: tab === k ? "tab on" : "tab", disabled: !lesson && k !== "settings" && k !== "people",
-        async onclick() {
-          const needLive = k === "live" && tab !== "live";
-          tab = k; localStorage.setItem("cra-tab", k);
-          if (needLive) await loadResponses();   // 다른 탭에서는 쓰고 있는 답을 받지 않았으므로 먼저 받는다
-          draw();
-        },
-      }, label))),
+      tabNav,
       lesson ? h("button", { class: "ghost present-btn", type: "button", title: "학생에게 보여 줄 슬라이드만 새 탭에 띄웁니다", onclick: openPresent }, "▣ 수업 화면 띄우기") : null,
       lesson ? mirrorStatus : null,
-      h("button", { class: "link", type: "button", title: "프로필·공동작업자 탭으로", onclick() { tab = "people"; localStorage.setItem("cra-tab", tab); draw(); } },
+      h("button", { class: "link", type: "button", title: "프로필·공동작업자 탭으로", onclick() { goTab("people"); } },
         profile && profile.name ? profile.name + " 선생님" : "내 프로필"),
-      h("button", { class: "link", type: "button", async onclick() { await sb.auth.signOut(); location.reload(); } }, "로그아웃")),
+      h("button", { class: "link", type: "button", async onclick() { await sb.auth.signOut(); location.reload(); } }, "로그아웃"),
+      tabSet),
     main);
   setTopHeight();
-  if (!lesson && tab !== "people") tab = "settings";
   ({ run: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings, people: drawPeople })[tab]();
   schedule();
   updateMirror();
@@ -317,6 +311,135 @@ function setTopHeight() {
   const top = app.querySelector(".top");
   if (top) document.documentElement.style.setProperty("--top-h", top.offsetHeight + "px");
 }
+
+// ---------- 위쪽 탭과 「설정」 ----------
+// 탭은 위쪽 막대(top)나 오른쪽 「설정」 안(menu)에 있다. 끌어서 둘 사이를 옮기거나 순서를 바꾸고, 이 브라우저에 기억한다.
+const TABS = { run: "수업 진행", live: "학생 화면", build: "질문·설문 만들기", students: "학생 관리", settings: "수업 설정", people: "프로필·공동작업자" };
+const TAB_PLACE_DEFAULT = { top: ["run", "live", "students"], menu: ["build", "settings", "people"] };
+let tabPlace = loadTabPlace();
+let tabMenuOpen = false;
+let tabDrag = null;       // 끌고 있는 탭
+let tabNav = null;        // 위쪽 막대의 탭 칸
+let tabSet = null;        // 「설정」 단추와 펼친 목록
+const tabMark = h("span", { class: "tab-mark" });   // 끌어다 놓을 자리 표시
+
+function loadTabPlace() {
+  let p = null;
+  try { p = JSON.parse(localStorage.getItem("cra-tab-place")); } catch {}
+  if (!p || !Array.isArray(p.top) || !Array.isArray(p.menu)) p = TAB_PLACE_DEFAULT;
+  const seen = new Set();
+  const keep = (list) => list.filter((k) => TABS[k] && !seen.has(k) && seen.add(k));
+  const place = { top: keep(p.top), menu: keep(p.menu) };
+  for (const k of Object.keys(TABS)) if (!seen.has(k)) place[TAB_PLACE_DEFAULT.top.includes(k) ? "top" : "menu"].push(k);
+  return place;
+}
+
+async function goTab(k) {
+  const needLive = k === "live" && tab !== "live";
+  tab = k; localStorage.setItem("cra-tab", k);
+  tabMenuOpen = false;
+  if (needLive) await loadResponses();   // 다른 탭에서는 쓰고 있는 답을 받지 않았으므로 먼저 받는다
+  draw();
+}
+
+function tabButton(k) {
+  // disabled 대신 aria-disabled: 수업이 없을 때도 끌어서 옮길 수는 있게
+  const off = !lesson && k !== "settings" && k !== "people";
+  return h("button", {
+    type: "button", class: tab === k ? "tab on" : "tab", "data-tab": k, draggable: "true", "aria-disabled": off ? "true" : null,
+    title: "끌어서 위쪽 막대와 「설정」 사이로 옮길 수 있습니다",
+    onclick() { if (!off) goTab(k); },
+    ondragstart(e) {
+      tabDrag = k;
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", TABS[k]);
+      document.body.classList.add("tab-dragging");
+    },
+    ondragend() { tabDrag = null; tabMark.remove(); document.body.classList.remove("tab-dragging"); },
+  }, TABS[k]);
+}
+
+function buildTabNav() {
+  const nav = h("nav", { class: "tabs", "aria-label": "탭" }, tabPlace.top.map(tabButton));
+  tabDropZone(nav, "top");
+  return nav;
+}
+
+function buildTabSet() {
+  const inMenu = tabPlace.menu.includes(tab);
+  const btn = h("button", {
+    type: "button", class: inMenu ? "tab on" : "tab", "aria-haspopup": "true", "aria-expanded": tabMenuOpen ? "true" : "false",
+    title: "탭을 이 단추로 끌어다 놓으면 「설정」 안으로 들어갑니다",
+    onclick() { tabMenuOpen = !tabMenuOpen; refreshTabSet(); },
+  }, "⚙ 설정" + (inMenu ? " · " + TABS[tab] : "") + " ▾");
+  const menu = tabMenuOpen ? h("div", { class: "tab-menu" },
+    tabPlace.menu.map(tabButton),
+    h("p", { class: "muted small" }, tabPlace.menu.length ? "끌어서 위쪽 막대로 꺼내거나 순서를 바꿀 수 있습니다." : "위쪽 탭을 여기로 끌어다 놓으세요.")) : null;
+  const set = h("div", {
+    class: "tab-set",
+    // 탭을 끌고 와서 단추 위에 올리면 목록을 펼친다
+    ondragenter() { if (tabDrag && !tabMenuOpen) { tabMenuOpen = true; refreshTabSet(); } },
+  }, btn, menu);
+  tabDropZone(set, "menu");
+  return set;
+}
+
+// 끄는 중인 단추가 지워지면 dragend가 오지 않으므로, 끄는 동안에는 반대쪽 칸만 다시 그린다
+function refreshTabSet() {
+  const next = buildTabSet();
+  tabSet.replaceWith(next);
+  tabSet = next;
+  setTopHeight();
+}
+
+function refreshTabs() {
+  const nav = buildTabNav();
+  tabNav.replaceWith(nav);
+  tabNav = nav;
+  refreshTabSet();
+}
+
+function tabDropZone(el, list) {
+  // 놓으면 이 단추 앞에 들어간다(없으면 맨 끝)
+  const before = (e) => [...el.querySelectorAll("[data-tab]")].filter((b) => b.dataset.tab !== tabDrag).find((b) => {
+    const r = b.getBoundingClientRect();
+    return list === "menu" ? e.clientY < r.top + r.height / 2
+      : e.clientY < r.top || (e.clientY < r.bottom && e.clientX < r.left + r.width / 2);
+  }) || null;
+  el.addEventListener("dragover", (e) => {
+    if (!tabDrag) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const b = before(e);
+    const box = list === "menu" ? el.querySelector(".tab-menu") : el;
+    if (!box) return;
+    if (b) b.before(tabMark); else (box.querySelector("p") ? box.querySelector("p").before(tabMark) : box.append(tabMark));
+  });
+  el.addEventListener("dragleave", (e) => { if (!el.contains(e.relatedTarget)) tabMark.remove(); });
+  el.addEventListener("drop", (e) => {
+    if (!tabDrag) return;
+    e.preventDefault();
+    const k = tabDrag, b = before(e);
+    tabPlace.top = tabPlace.top.filter((x) => x !== k);
+    tabPlace.menu = tabPlace.menu.filter((x) => x !== k);
+    const dest = tabPlace[list];
+    const i = b ? dest.indexOf(b.dataset.tab) : -1;
+    dest.splice(i < 0 ? dest.length : i, 0, k);
+    localStorage.setItem("cra-tab-place", JSON.stringify(tabPlace));
+    tabDrag = null;
+    tabMark.remove();
+    document.body.classList.remove("tab-dragging");
+    refreshTabs();
+  });
+}
+
+// 「설정」 목록 밖을 누르거나 Esc를 누르면 닫는다
+document.addEventListener("click", (e) => {
+  if (tabMenuOpen && tabSet && e.target.isConnected && !tabSet.contains(e.target)) { tabMenuOpen = false; refreshTabSet(); }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && tabMenuOpen) { tabMenuOpen = false; refreshTabSet(); }
+});
 addEventListener("resize", setTopHeight);
 
 // ---------- 수업 화면(학생에게 보여 줄 새 탭) ----------

@@ -172,6 +172,18 @@ main.lesson .slide { cursor: zoom-in; }
 .tab:hover:not(:disabled)::after, .tab:focus-visible::after, .top .link:hover::after, .top .link:focus-visible::after, .present-btn:hover::after, .present-btn:focus-visible::after { transform: scaleX(1); }
 .top .link, .present-btn { position: relative; }
 @media (prefers-reduced-motion: reduce) { .tab::after, .top .link::after, .present-btn::after { transition: none; } }
+/* 오른쪽 「설정」: 위쪽 탭을 끌어 넣고 뺄 수 있다 */
+.tab[aria-disabled="true"] { cursor: default; opacity: .55; }
+.tab[aria-disabled="true"]:hover::after { transform: scaleX(0); }
+.tab[draggable="true"] { cursor: grab; }
+.tab-set { position: relative; }
+.tab-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; display: flex; flex-direction: column; gap: .2rem; min-width: 13rem; padding: .4rem; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.15); }
+.tab-menu .tab { text-align: left; width: 100%; }
+.tab-menu p { margin: .3rem .4rem .1rem; }
+.tab-mark { flex: none; align-self: stretch; width: 3px; border-radius: 2px; background: var(--accent); }
+.tab-menu .tab-mark { width: auto; height: 3px; }
+.tab-dragging .tabs { min-width: 8rem; min-height: 40px; border-radius: 8px; outline: 2px dashed var(--line); outline-offset: 2px; }
+.tab-dragging .tab-menu { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .teacher .top-title select { min-height: 40px; padding: .3rem .6rem; font-weight: 700; max-width: 70vw; }
 
 /* 교사: 수업 진행 */
