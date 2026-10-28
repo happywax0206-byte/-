@@ -36,8 +36,8 @@ async function init() {
   await loadLessons(localStorage.getItem("cra-lesson"));
   document.addEventListener("keydown", (e) => {
     if (!isRunTab() || !lesson || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
-    if (e.key === "ArrowRight") setPage(lesson.page + 1);
-    if (e.key === "ArrowLeft") setPage(lesson.page - 1);
+    if (e.key === "ArrowRight") setPage(viewPage() + 1);
+    if (e.key === "ArrowLeft") setPage(viewPage() - 1);
   });
 }
 
@@ -480,6 +480,7 @@ async function loadLesson() {
   students = [];
   responses = [];
   editing = null;
+  previewPage = null;
   if (lesson) {
     localStorage.setItem("cra-lesson", lesson.id);
     const { data, error } = await sb.from("activities").select("*").eq("lesson_id", lesson.id);
@@ -611,10 +612,14 @@ function setTopHeight() {
 // ---------- 위쪽 탭과 수업모드·편집모드 ----------
 // 수업모드에서는 수업할 때 쓰는 탭, 편집모드에서는 미리 준비하는 탭만 위쪽에 보인다.
 // 모드 단추는 지금 모드를 보여 주고, 누르면 다른 모드로 바뀐다(그 모드에서 마지막으로 본 탭으로).
+// 탭은 끌어서 같은 모드 안에서 순서를 바꿀 수 있고, 그 순서는 이 브라우저에 기억한다(cra-tab-order).
 const TABS = { run: "수업 진행", live: "학생 화면", students: "학생 관리", build: "질문·설문 만들기", preview: "수업 미리 보기", settings: "수업 설정", people: "프로필·공동작업자", manage: "관리" };
 const MODES = { class: { name: "수업모드", tabs: ["run", "live", "students"] }, edit: { name: "편집모드", tabs: ["build", "preview", "settings", "people", "manage"] } };
 const isRunTab = () => tab === "run" || tab === "preview";   // 수업 진행 화면을 쓰는 탭(미리 보기는 그 일부만)
 let tabNav = null;        // 위쪽 막대의 탭 칸
+let tabDrag = null;       // 끌고 있는 탭
+const tabMark = h("span", { class: "tab-mark" });   // 끌어다 놓을 자리 표시
+loadTabOrder();
 const modeOf = (k) => MODES.edit.tabs.includes(k) ? "edit" : "class";
 
 async function goTab(k) {
@@ -632,9 +637,64 @@ function switchMode() {
   goTab(MODES[to].tabs.includes(last) ? last : MODES[to].tabs[0]);
 }
 
+function loadTabOrder() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem("cra-tab-order")); } catch {}
+  for (const [name, m] of Object.entries(MODES)) {
+    const list = saved && Array.isArray(saved[name]) ? saved[name] : [];
+    // 저장된 순서에서 이 모드의 탭만 쓰고, 빠진 탭(새로 생긴 탭)은 끝에 붙인다
+    const order = list.filter((k, i) => m.tabs.includes(k) && list.indexOf(k) === i);
+    m.tabs = order.concat(m.tabs.filter((k) => !order.includes(k)));
+  }
+}
+
 function tabButton(k) {
+  // disabled 대신 aria-disabled: 수업이 없을 때도 끌어서 옮길 수는 있게
   const off = !lesson && k !== "settings" && k !== "people" && k !== "manage";
-  return h("button", { type: "button", class: tab === k ? "tab on" : "tab", "data-tab": k, disabled: off, onclick() { goTab(k); } }, TABS[k]);
+  return h("button", {
+    type: "button", class: tab === k ? "tab on" : "tab", "data-tab": k, draggable: "true", "aria-disabled": off ? "true" : null,
+    title: "끌어서 순서를 바꿀 수 있습니다",
+    onclick() { if (!off) goTab(k); },
+    ondragstart(e) {
+      tabDrag = k;
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", TABS[k]);
+      document.body.classList.add("tab-dragging");
+    },
+    ondragend() { tabDrag = null; tabMark.remove(); document.body.classList.remove("tab-dragging"); },
+  }, TABS[k]);
+}
+
+// 놓으면 그 단추 앞에 들어간다(없으면 맨 끝)
+function tabDropZone(nav, mode) {
+  const before = (e) => [...nav.querySelectorAll("[data-tab]")].filter((b) => b.dataset.tab !== tabDrag).find((b) => {
+    const r = b.getBoundingClientRect();
+    return e.clientY < r.top || (e.clientY < r.bottom && e.clientX < r.left + r.width / 2);
+  }) || null;
+  nav.addEventListener("dragover", (e) => {
+    if (!tabDrag) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const b = before(e);
+    if (b) b.before(tabMark); else nav.append(tabMark);
+  });
+  nav.addEventListener("dragleave", (e) => { if (!nav.contains(e.relatedTarget)) tabMark.remove(); });
+  nav.addEventListener("drop", (e) => {
+    if (!tabDrag) return;
+    e.preventDefault();
+    const k = tabDrag, b = before(e);
+    const list = MODES[mode].tabs.filter((x) => x !== k);
+    const i = b ? list.indexOf(b.dataset.tab) : -1;
+    list.splice(i < 0 ? list.length : i, 0, k);
+    MODES[mode].tabs = list;
+    localStorage.setItem("cra-tab-order", JSON.stringify({ class: MODES.class.tabs, edit: MODES.edit.tabs }));
+    tabDrag = null;
+    tabMark.remove();
+    document.body.classList.remove("tab-dragging");
+    const nav2 = buildTabNav();
+    tabNav.replaceWith(nav2);
+    tabNav = nav2;
+  });
 }
 
 function buildTabNav() {
@@ -646,7 +706,9 @@ function buildTabNav() {
     title: noLesson ? "수업을 먼저 만들거나 고르세요" : "누르면 " + MODES[other].name + "로 바뀝니다",
     onclick: switchMode,
   }, h("span", { class: "mode-knob", "aria-hidden": "true" }), MODES[mode].name);
-  return h("nav", { class: "tabs", "aria-label": "탭" }, sw, MODES[mode].tabs.map(tabButton));
+  const nav = h("nav", { class: "tabs", "aria-label": "탭" }, sw, MODES[mode].tabs.map(tabButton));
+  tabDropZone(nav, mode);
+  return nav;
 }
 
 // 맨 오른쪽 동그란 프로필 단추: 누르면 이름과 「프로필·공동작업자」, 「로그아웃」
@@ -745,7 +807,7 @@ function syncPresent() {
 function presentState() {
   const L = lesson;
   return {
-    lesson: L && { id: L.id, title: L.title, slide_dir: L.slide_dir, slide_count: L.slide_count, page: L.page, transition: L.transition },
+    lesson: L && { id: L.id, title: L.title, slide_dir: L.slide_dir, slide_count: L.slide_count, page: viewPage(), transition: L.transition },
     sims: L ? activities.filter((a) => a.kind === "sim").map((a) => ({ id: a.id, title: a.title, html: a.html, html_ver: a.html_ver,
       page: a.page, page_to: a.page_to, sim_full: a.sim_full, sim_box: a.sim_box })) : [],
     show: presentShow,
@@ -773,7 +835,7 @@ if (presentCh) {
     }
     if (m.type === "bye") { presentOn = false; updateMirror(); }   // updateMirror가 끝나면 위쪽 단추도 다시 그린다
     if (m.type === "closed" && presentClose) presentClose();   // 수업 화면에서 Esc·닫기를 누르면 교사 화면에서도 닫는다
-    if (m.type === "step" && lesson && lesson.slide_count) setPage(lesson.page + (m.step > 0 ? 1 : -1));   // 수업 화면에서 ← → 를 누름
+    if (m.type === "step" && lesson && lesson.slide_count) setPage(viewPage() + (m.step > 0 ? 1 : -1));   // 수업 화면에서 ← → 를 누름
   };
   presentCh.postMessage({ type: "who" });   // 이 탭을 새로 열었을 때 이미 열린 수업 화면이 있는지
 }
@@ -959,8 +1021,8 @@ let run = null;
 function drawRun() {
   const img = h("img", { class: "slide", alt: "" });
   const where = h("span", { class: "where" });
-  const prev = h("button", { class: "ghost", type: "button", onclick() { setPage(lesson.page - 1); } }, "◀ 이전");
-  const next = h("button", { class: "primary", type: "button", onclick() { setPage(lesson.page + 1); } }, "다음 ▶");
+  const prev = h("button", { class: "ghost", type: "button", onclick() { setPage(viewPage() - 1); } }, "◀ 이전");
+  const next = h("button", { class: "primary", type: "button", onclick() { setPage(viewPage() + 1); } }, "다음 ▶");
   const openBtn = h("button", { type: "button", onclick() { setLesson({ open: !lesson.open }); } });
   const openText = h("span", {});
   const simStage = h("div", { class: "sim-stage", hidden: true });
@@ -977,6 +1039,7 @@ function drawRun() {
       hasSlides ? h("nav", { class: "pager" }, prev, where, next, h("span", { class: "spacer" }),
         h("button", { class: "ghost", type: "button", onclick() { if (stage.requestFullscreen) stage.requestFullscreen(); } }, "전체 화면"),
         h("button", { class: "ghost", type: "button", onclick: openPresent }, "수업 화면 띄우기")) : null,
+      hasSlides && preview ? h("p", { class: "muted small" }, "미리 보기: 여기서 쪽을 넘겨도 학생 화면은 따라 넘어가지 않습니다(수업 화면 띄우기 탭은 따라감).") : null,
       h("div", { class: "row" },
         h("button", { class: "ghost", type: "button", onclick: showJoin }, "학생 접속 주소·QR"),
         preview ? null : h("button", { class: "ghost", type: "button", onclick() { downloadCSV(activities, lesson.code + "_전체응답"); } }, "전체 응답 CSV")),
@@ -991,20 +1054,20 @@ function drawRun() {
 
 function refreshRun() {
   if (!run) return;
-  const L = lesson;
-  const shown = activities.filter((a) => L.slide_count === 0 || onPage(a, L.page) || a.page == null);
+  const L = lesson, P = viewPage();
+  const shown = activities.filter((a) => L.slide_count === 0 || onPage(a, P) || a.page == null);
   // 「슬라이드 자리에 띄우기」 시뮬레이션: 교사 화면에서도 슬라이드 대신 띄운다(다시 그릴 때마다 새로 띄우지 않게 key로 확인)
-  const stageSim = L.slide_count > 0 ? shown.find((a) => a.kind === "sim" && a.sim_full && onPage(a, L.page)) : null;
+  const stageSim = L.slide_count > 0 ? shown.find((a) => a.kind === "sim" && a.sim_full && onPage(a, P)) : null;
   if (L.slide_count > 0) {
     // 화면 넘김 효과: 앞으로 가면 그 쪽의 효과, 뒤로 가면 떠나는 쪽의 효과를 거꾸로
-    const dir = run.shownPage && L.page < run.shownPage ? -1 : 1;
-    changeSlide(run.img, slideSrc(L, L.page), stageSim || run.shownPage === L.page ? null : transitionFor(L, dir > 0 ? L.page : run.shownPage), dir, [run.simLayer]);
-    run.shownPage = L.page;
-    run.img.alt = "슬라이드 " + L.page;
-    run.where.textContent = L.page + " / " + L.slide_count;
-    run.prev.disabled = L.page <= 1;
-    run.next.disabled = L.page >= L.slide_count;
-    if (L.page < L.slide_count) new Image().src = slideSrc(L, L.page + 1);
+    const dir = run.shownPage && P < run.shownPage ? -1 : 1;
+    changeSlide(run.img, slideSrc(L, P), stageSim || run.shownPage === P ? null : transitionFor(L, dir > 0 ? P : run.shownPage), dir, [run.simLayer]);
+    run.shownPage = P;
+    run.img.alt = "슬라이드 " + P;
+    run.where.textContent = P + " / " + L.slide_count;
+    run.prev.disabled = P <= 1;
+    run.next.disabled = P >= L.slide_count;
+    if (P < L.slide_count) new Image().src = slideSrc(L, P + 1);
   }
   run.openText.replaceChildren(h("strong", {}, L.open ? "제출 받는 중" : "제출 닫힘"),
     h("span", { class: "muted small" }, " · 입장 " + students.length + "명"));
@@ -1019,11 +1082,11 @@ function refreshRun() {
     run.simStage.replaceChildren(...(stageSim ? [simFrame(stageSim.html, stageSim.title)] : []));
   }
   // 슬라이드 위 정한 자리에 얹는 시뮬레이션
-  const boxed = L.slide_count > 0 && !stageSim ? shown.filter((a) => a.kind === "sim" && !a.sim_full && validSimBox(a.sim_box) && onPage(a, L.page)) : [];
+  const boxed = L.slide_count > 0 && !stageSim ? shown.filter((a) => a.kind === "sim" && !a.sim_full && validSimBox(a.sim_box) && onPage(a, P)) : [];
   showSimBoxes(run.simLayer, boxed, (a) => a.html, bigSim);
   drawRoster(shown.filter((a) => a.kind !== "sim"));
   run.panel.replaceChildren(...(shown.length ? shown.map(runBlock)
-    : [h("p", { class: "card muted" }, L.page + "쪽에는 활동이 없습니다. 「질문·설문 만들기」에서 추가하세요.")]));
+    : [h("p", { class: "card muted" }, P + "쪽에는 활동이 없습니다. 「질문·설문 만들기」에서 추가하세요.")]));
   updateMirror();
 }
 
@@ -1104,8 +1167,21 @@ function responseTable(a) {
     }))));
 }
 
+// 편집모드에서 보는 쪽은 이 화면에만 둔다(학생 화면은 따라 넘어가지 않음). 처음에는 지금 수업 쪽에서 시작
+let previewPage = null;
+function viewPage() {
+  if (!lesson) return 1;
+  if (modeOf(tab) !== "edit") return lesson.page;
+  return Math.min(Math.max(previewPage || lesson.page || 1, 1), Math.max(lesson.slide_count, 1));
+}
+
 async function setPage(n) {
   n = Math.min(Math.max(n, 1), Math.max(lesson.slide_count, 1));
+  if (modeOf(tab) === "edit") {
+    if (n === viewPage()) return;
+    previewPage = n;
+    return refreshRun();
+  }
   if (n === lesson.page) return;
   await setLesson({ page: n });
 }
@@ -1225,12 +1301,12 @@ function drawBuild() {
     h("button", {
       type: "button", class: "kind",
       onclick() {
-        editing = { kind: lesson.slide_count ? "slide" : "survey", title: "", page: lesson.slide_count ? lesson.page : null, show_answer: true, named: false, shared: false, questions: [newQuestion("choice")] };
+        editing = { kind: lesson.slide_count ? "slide" : "survey", title: "", page: lesson.slide_count ? viewPage() : null, show_answer: true, named: false, shared: false, questions: [newQuestion("choice")] };
         drawBuild();
       },
     }, h("strong", {}, "질문/퀴즈"), h("span", {}, "설명·질문·설문·퀴즈를 한 카드에")),
     h("button", { type: "button", class: "kind", onclick() {
-      editing = { kind: "sim", title: "", page: lesson.slide_count ? lesson.page : null, sim_full: false, sim_box: null, html: "", questions: [] };
+      editing = { kind: "sim", title: "", page: lesson.slide_count ? viewPage() : null, sim_full: false, sim_box: null, html: "", questions: [] };
       drawBuild();
     } }, h("strong", {}, "시뮬레이션"), h("span", {}, "html 파일을 슬라이드 사이에")));
   main.replaceChildren(h("div", { class: "build" },
@@ -1310,7 +1386,7 @@ function simEditor() {
     if (!e.title.trim()) { e.title = f.name.replace(/\.html?$/i, ""); title.value = e.title; }
     msg.textContent = "";
   } });
-  const pageIn = h("input", { type: "number", min: 1, max: Math.max(lesson.slide_count, 1), value: e.page ?? lesson.page, class: "num", "aria-label": "시작 쪽", oninput() { e.page = parseInt(pageIn.value, 10) || 1; place.setPage(e.page); } });
+  const pageIn = h("input", { type: "number", min: 1, max: Math.max(lesson.slide_count, 1), value: e.page ?? viewPage(), class: "num", "aria-label": "시작 쪽", oninput() { e.page = parseInt(pageIn.value, 10) || 1; place.setPage(e.page); } });
   const pageToIn = h("input", { type: "number", min: 1, max: Math.max(lesson.slide_count, 1), value: e.page_to > e.page ? e.page_to : "", placeholder: "(한 쪽만)", class: "num", "aria-label": "끝 쪽", oninput() { e.page_to = parseInt(pageToIn.value, 10) || null; } });
 
   // 보일 자리: 슬라이드 아래 카드(기본) / 슬라이드 위 정한 자리 / 슬라이드 대신 크게
@@ -1329,7 +1405,7 @@ function simEditor() {
       h("label", { class: "option" }, h("input", { type: "radio", name: "sim-mode", checked: e.mode === k, onchange() {
         e.mode = k;
         placeBox.hidden = k !== "box";
-        if (k === "box") { place.setPage(e.page ?? lesson.page); place.loadHtml(); }
+        if (k === "box") { place.setPage(e.page ?? viewPage()); place.loadHtml(); }
       } }), h("span", {}, text))));
 
   async function saveSim() {
@@ -1389,7 +1465,7 @@ function simEditor() {
 // 「어디에 보일까요?」: 슬라이드 쪽 아래(시작~끝 쪽) / 언제든. 질문·설문과 설명 카드가 함께 쓴다
 function placeControls(e, redraw) {
   if (!lesson.slide_count) return null;
-  const pageIn = h("input", { type: "number", min: 1, max: Math.max(lesson.slide_count, 1), value: e.page ?? lesson.page, class: "num", "aria-label": "시작 쪽", oninput() { e.page = parseInt(pageIn.value, 10) || 1; } });
+  const pageIn = h("input", { type: "number", min: 1, max: Math.max(lesson.slide_count, 1), value: e.page ?? viewPage(), class: "num", "aria-label": "시작 쪽", oninput() { e.page = parseInt(pageIn.value, 10) || 1; } });
   // 여러 쪽에 걸쳐 같은 활동을 띄울 때 끝 쪽. 비우면 시작 쪽 한 쪽에만 보인다
   const pageToIn = h("input", { type: "number", min: 1, max: Math.max(lesson.slide_count, 1), value: e.page_to > e.page ? e.page_to : "", placeholder: "(한 쪽만)", class: "num", "aria-label": "끝 쪽", oninput() { e.page_to = parseInt(pageToIn.value, 10) || null; } });
   const placeSel = h("select", {

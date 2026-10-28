@@ -172,7 +172,11 @@ main.lesson .slide { cursor: zoom-in; }
 .tab:hover:not(:disabled)::after, .tab:focus-visible::after, .top .link:hover::after, .top .link:focus-visible::after, .present-btn:hover::after, .present-btn:focus-visible::after { transform: scaleX(1); }
 .top .link, .present-btn { position: relative; }
 @media (prefers-reduced-motion: reduce) { .tab::after, .top .link::after, .present-btn::after { transition: none; } }
-.tab:disabled { cursor: default; opacity: .55; }
+.tab:disabled, .tab[aria-disabled="true"] { cursor: default; opacity: .55; }
+.tab[aria-disabled="true"]:hover::after { transform: scaleX(0); }
+.tab[draggable="true"] { cursor: grab; }
+.tab-mark { flex: none; align-self: stretch; width: 3px; border-radius: 2px; background: var(--accent); }
+.tab-dragging .tabs { border-radius: 8px; outline: 2px dashed var(--line); outline-offset: 2px; }
 /* 수업모드·편집모드 스위치: 지금 모드 이름을 보이고, 누르면 다른 모드로 */
 .tabs { align-items: center; }
 .mode-switch { display: inline-flex; align-items: center; gap: .5rem; margin-right: .5rem; padding: .3rem .9rem .3rem .35rem; border: 2px solid var(--accent); border-radius: 999px; background: var(--card); color: var(--accent); font-weight: 700; white-space: nowrap; }
