@@ -840,16 +840,15 @@ async function moveActivity(fromId, toId, after) {
 
 function drawBuild() {
   const list = activityList();
-  // 질문 카드 하나에 설명·고르기·글·파일 칸을 섞어 넣는다. 「질문 +」는 정답 없는 카드, 「퀴즈 +」는 정답·자동 채점 카드
-  const kindList = [[lesson.slide_count ? "slide" : "survey", "질문 +", "설명·질문·설문 (정답 없음)"], ["quiz", "퀴즈 +", "정답·자동 채점"]];
-  const kinds = h("div", { class: "kinds" }, kindList.map(([k, name, sub]) =>
+  // 질문/퀴즈 카드 하나에 설명·질문(정답 없음)·퀴즈(정답·자동 채점) 칸을 섞어 넣는다
+  const kinds = h("div", { class: "kinds" },
     h("button", {
       type: "button", class: "kind",
       onclick() {
-        editing = { kind: k, title: "", page: lesson.slide_count ? lesson.page : null, show_answer: true, named: false, shared: false, questions: [newQuestion("choice")] };
+        editing = { kind: lesson.slide_count ? "slide" : "survey", title: "", page: lesson.slide_count ? lesson.page : null, show_answer: true, named: false, shared: false, questions: [newQuestion("choice")] };
         drawBuild();
       },
-    }, h("strong", {}, name), h("span", {}, sub))),
+    }, h("strong", {}, "질문/퀴즈"), h("span", {}, "설명·질문·설문·퀴즈를 한 카드에")),
     h("button", { type: "button", class: "kind", onclick() {
       editing = { kind: "sim", title: "", page: lesson.slide_count ? lesson.page : null, sim_full: false, sim_box: null, html: "", questions: [] };
       drawBuild();
@@ -1040,6 +1039,10 @@ function editor() {
   if (e.kind === "sim") return simEditor();
   const redraw = () => { const y = scrollY; drawBuild(); scrollTo(0, y); };
   if (e.description === undefined) e.description = activityDescription(e);
+  // 칸마다 q.quiz = 퀴즈(정답·자동 채점) 칸. 예전 퀴즈 활동은 모든 질문이 퀴즈 칸
+  if (e.kind === "quiz") e.questions.forEach((q) => { if (q.type !== "info" && q.quiz === undefined) q.quiz = true; });
+  const isQuiz = (q) => q.type !== "info" && !!q.quiz;
+  const hasQuiz = e.questions.some(isQuiz);
   const hasResponses = e.id && responses.some((r) => r.activity_id === e.id);
   const msg = h("p", { class: "error" });
 
@@ -1051,6 +1054,7 @@ function editor() {
   let num = 0;
   const qs = e.questions.map((q, i) => {
     const info = q.type === "info";
+    const quiz = isQuiz(q);
     const typeSel = h("select", {
       "aria-label": "칸 종류",
       onchange() {
@@ -1077,7 +1081,7 @@ function editor() {
         redraw();
       },
     }, q.options.filter(Boolean).join("\n")) : null;
-    const answerPick = e.kind === "quiz" && choice && q.options.filter(Boolean).length ? h("fieldset", { class: "options" },
+    const answerPick = quiz && choice && q.options.filter(Boolean).length ? h("fieldset", { class: "options" },
       h("legend", {}, "정답 표시" + (q.type === "multi" ? " (모두 고르기)" : "")),
       q.options.filter(Boolean).map((o) => h("label", { class: "option" + ([].concat(q.answer ?? []).includes(o) ? " right" : "") },
         h("input", {
@@ -1094,9 +1098,14 @@ function editor() {
     const acceptSel = q.type === "file" ? h("select", { "aria-label": "받을 파일", onchange() { q.accept = acceptSel.value; } },
       h("option", { value: "any", selected: q.accept !== "image" }, "사진·문서 (PDF, 한글, 워드, 엑셀, PPT 등)"),
       h("option", { value: "image", selected: q.accept === "image" }, "사진만 (휴대폰에서 바로 찍기)")) : null;
-    const explain = e.kind === "quiz" && !info ? h("input", { type: "text", maxlength: 300, value: q.explain || "", placeholder: "해설 (선택)", oninput() { q.explain = explain.value.trim() || undefined; } }) : null;
-    return h("article", { class: "q-edit stack" + (info ? " info" : "") },
-      h("div", { class: "row" }, h("strong", {}, info ? "설명" : "질문 " + (++num)), typeSel, h("span", { class: "spacer" }),
+    const explain = quiz ? h("input", { type: "text", maxlength: 300, value: q.explain || "", placeholder: "해설 (선택)", oninput() { q.explain = explain.value.trim() || undefined; } }) : null;
+    const quizCheck = info ? null : h("label", { class: "check" }, h("input", { type: "checkbox", checked: quiz, onchange(ev) {
+      q.quiz = ev.target.checked;
+      if (!q.quiz) { delete q.answer; delete q.explain; }
+      redraw();
+    } }), "퀴즈 (정답·채점)");
+    return h("article", { class: "q-edit stack" + (info ? " info" : quiz ? " quiz" : "") },
+      h("div", { class: "row wrap" }, h("strong", {}, info ? "설명" : (quiz ? "퀴즈 " : "질문 ") + (++num)), typeSel, quizCheck, h("span", { class: "spacer" }),
         h("button", { class: "link", type: "button", onclick() { move(-1); } }, "위로"),
         h("button", { class: "link", type: "button", onclick() { move(1); } }, "아래로"),
         h("button", { class: "link danger", type: "button", onclick() { if (e.questions.length > 1) { e.questions.splice(i, 1); redraw(); } } }, "삭제")),
@@ -1106,7 +1115,7 @@ function editor() {
       acceptSel ? h("p", { class: "muted small" }, "학생은 " + FILE_COUNT + "개까지, 한 개에 " + fileSize(FILE_MAX) + "까지 올립니다. 파일은 교사만 열어 볼 수 있고, 「학생에게 공개」해도 친구들에게는 파일 이름만 보입니다.") : null,
       answerPick,
       explain ? h("label", {}, "해설", explain) : null,
-      e.kind === "quiz" && !choice && !info ? h("p", { class: "muted small" }, "글로 답하는 질문은 자동 채점하지 않습니다.") : null);
+      quiz && !choice ? h("p", { class: "muted small" }, "글로 답하는 질문은 자동 채점하지 않습니다.") : null);
   });
 
   async function saveActivity() {
@@ -1120,7 +1129,9 @@ function editor() {
       delete q.description;
       delete q.intro;
       if (!q.text) { msg.textContent = name + "을 입력하세요."; return; }
-      if (info) { delete q.options; delete q.answer; delete q.accept; delete q.explain; continue; }
+      if (info || !q.quiz) { delete q.quiz; delete q.answer; delete q.explain; }
+      else q.quiz = true;
+      if (info) { delete q.options; delete q.accept; continue; }
       const i = n - 1;
       if (q.type === "choice" || q.type === "multi") {
         q.options = q.options.map((x) => x.trim()).filter(Boolean);
@@ -1130,7 +1141,12 @@ function editor() {
       if (q.type === "file") q.accept = q.accept === "image" ? "image" : "any"; else delete q.accept;
     }
     if (e.questions.length && e.description.trim()) e.questions[0].intro = e.description.trim();
-    const row = { kind: e.kind, title: e.title, page: e.page, show_answer: e.show_answer, named: e.named, questions: e.questions };
+    // 퀴즈 칸이 하나라도 있으면 카드 전체가 퀴즈(한 번만 제출, 채점). 없으면 질문 카드
+    const kind = e.questions.some(isQuiz) ? "quiz" : e.kind !== "quiz" ? e.kind : lesson.slide_count ? "slide" : "survey";
+    if (hasResponses && kind !== e.kind && !confirm(kind === "quiz"
+      ? "퀴즈 칸이 생겨 이 카드가 퀴즈가 됩니다. 이미 낸 학생은 다시 낼 수 없고 점수도 매겨지지 않습니다. 저장할까요?"
+      : "퀴즈 칸이 없어져 이 카드가 질문 카드가 됩니다. 학생들이 답을 다시 고칠 수 있게 됩니다. 저장할까요?")) return;
+    const row = { kind, title: e.title, page: e.page, show_answer: e.show_answer, named: e.named, questions: e.questions };
     if (!putPageTo(row, e, msg)) return;
     if (!e.id) { row.lesson_id = lesson.id; row.sort = activities.length; }
     const saved = await save("activities", row, e.id);
@@ -1153,8 +1169,8 @@ function editor() {
   }
 
   return h("section", { class: "card stack editor" },
-    h("p", { class: "muted small" }, KIND_NAME[e.kind] + " 카드" + (e.id ? " 고치기" : " 새로 만들기") +
-      " · 설명과 여러 질문을 한 카드에 섞어 넣을 수 있습니다" + (e.kind === "quiz" ? " (고르기 질문은 정답으로 자동 채점)" : "")),
+    h("p", { class: "muted small" }, "질문/퀴즈 카드" + (e.id ? " 고치기" : " 새로 만들기") +
+      " · 설명·질문·퀴즈 칸을 한 카드에 섞어 넣을 수 있습니다"),
     hasResponses ? h("p", { class: "banner" }, "이미 학생 응답이 있습니다. 질문이나 보기를 바꾸면 기존 응답과 맞지 않을 수 있습니다.") : null,
     h("div", { class: "row wrap" },
       h("label", { class: "grow" }, "제목", title),
@@ -1162,11 +1178,15 @@ function editor() {
       lesson.slide_count && e.page != null ? h("p", { class: "muted small grow" }, "끝 쪽을 적으면 그 사이 쪽마다 같은 카드가 보이고, 학생이 쓴 답도 이어서 보입니다.") : null,
     h("label", {}, "카드 설명문 (선택)", description),
     h("div", { class: "row wrap" },
-      e.kind === "quiz" ? h("label", { class: "check" }, h("input", { type: "checkbox", checked: e.show_answer, onchange(ev) { e.show_answer = ev.target.checked; } }), "제출 뒤 정답과 해설 보여 주기") : null,
+      hasQuiz ? h("label", { class: "check" }, h("input", { type: "checkbox", checked: e.show_answer, onchange(ev) { e.show_answer = ev.target.checked; } }), "제출 뒤 정답과 해설 보여 주기") : null,
       h("label", { class: "check" }, h("input", { type: "checkbox", checked: e.named, onchange(ev) { e.named = ev.target.checked; } }), "학생에게 공개할 때 이름 표시")),
     qs,
-    h("div", { class: "row wrap" }, Object.entries(blockTypes).map(([k, v]) =>
-      h("button", { class: "ghost", type: "button", onclick() { e.questions.push(k === "info" ? { id: newId(), type: "info", text: "" } : newQuestion(k)); redraw(); } }, "+ " + v))),
+    h("div", { class: "row wrap" },
+      h("button", { class: "primary", type: "button", onclick() { e.questions.push(newQuestion("choice")); redraw(); } }, "질문 +"),
+      h("button", { class: "primary", type: "button", onclick() { const q = newQuestion("choice"); q.quiz = true; e.questions.push(q); if (!hasQuiz) e.show_answer = true; redraw(); } }, "퀴즈 +"),
+      h("button", { class: "ghost", type: "button", onclick() { e.questions.push({ id: newId(), type: "info", text: "" }); redraw(); } }, "설명 +")),
+    h("p", { class: "muted small" }, "질문 +: 정답 없는 질문·설문 · 퀴즈 +: 정답을 표시해 자동 채점 · 설명 +: 학생이 읽기만 하는 글. 칸의 종류(고르기·글·파일)는 칸 안에서 바꿉니다." +
+      (hasQuiz ? " 퀴즈 칸이 있는 카드는 학생이 한 번만 제출합니다." : "")),
     isInfoActivity(e) ? h("p", { class: "muted small" }, "설명 칸만 있으면 학생은 읽기만 하고 답을 입력하지 않습니다.") : null,
     msg,
     h("div", { class: "row between" },
