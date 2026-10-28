@@ -17,8 +17,7 @@ let timer = null;
 let shell = null;
 const cards = new Map(); // 활동 id → 화면 카드
 
-if (!sb) notConfigured(app);
-else start();
+// 시작은 파일 맨 끝에서 한다(아래쪽 let/const가 모두 만들어진 뒤에 poll이 돌아야 한다)
 
 function start() {
   code = (params.get("c") || localStorage.getItem("cra-last-code") || "").trim();
@@ -661,3 +660,7 @@ function buildForm(c) {
     quizDone && a.total ? h("p", { class: "score" }, "점수 " + a.score + " / " + a.total) : null,
     rows, err, btn, status].flat().filter(Boolean));
 }
+
+// 맨 끝에서 시작: 위 파일의 let/const(stateMode, liveDrafts, simCache…)가 모두 준비된 뒤
+if (!sb) notConfigured(app);
+else start();
