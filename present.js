@@ -119,6 +119,17 @@ function renderShow(s) {
   show.hidden = false;
 }
 
+// 「동기화」: 띄운 것을 모두 비운다. 곧 교사 화면이 지금 상태와 영상을 처음부터 다시 보낸다.
+function resetView() {
+  if (img._fx) img._fx();
+  img.removeAttribute("src");
+  lessonId = null; shownPage = 0; simKey = ""; showKey = ""; localShow = false;
+  layer._key = null; layer.replaceChildren();
+  simStage.replaceChildren();
+  show.hidden = true; show.replaceChildren();
+  video.remove(); video.srcObject = null;
+}
+
 function closeShow() {
   const fromTeacher = !localShow && st && st.show;
   renderShow(null);
@@ -134,6 +145,7 @@ if (ch) {
       render();
     }
     if (m.type === "who") { attach(); ch.postMessage({ type: "hello" }); }
+    if (m.type === "sync") { resetView(); attach(); ch.postMessage({ type: "hello" }); }   // 교사 화면의 「동기화」
     if (m.type === "close") {   // 교사 화면의 「수업 화면 닫기」
       window.close();
       // 창을 스스로 닫지 못하는 경우(주소를 직접 열었을 때)

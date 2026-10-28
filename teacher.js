@@ -264,6 +264,24 @@ function closePresent() {
   drawMirrorStatus();
 }
 
+// 「동기화」: 수업 화면이 교사 화면과 어긋나거나 멈춘 것 같을 때. 수업 화면이 띄운 것을 모두 비우고 hello 하면
+// 그때 지금 상태와 조작 화면을 처음부터 다시 보낸다. 답이 없으면 수업 화면 탭이 닫혔거나 멈춘 것이다.
+let syncWait = 0;
+let syncedAt = 0;
+function syncPresent() {
+  if (!presentCh) return;
+  clearTimeout(syncWait);
+  presentSent = "";
+  presentCh.postMessage({ type: "sync" });
+  syncWait = setTimeout(() => {
+    syncWait = 0;
+    presentOn = false;
+    drawMirrorStatus();
+    alert("수업 화면이 응답하지 않습니다. 「수업 화면 띄우기」를 눌러 다시 여세요.");
+  }, 2500);
+  drawMirrorStatus();
+}
+
 function presentState() {
   const L = lesson;
   return {
@@ -288,7 +306,11 @@ function sendPresent(force) {
 if (presentCh) {
   presentCh.onmessage = (e) => {
     const m = e.data || {};
-    if (m.type === "hello") { presentOn = true; sendPresent(true); setMirrorEl(null); updateMirror(); }   // 수업 화면을 새로 열었으면 조작 화면도 다시 넘긴다
+    if (m.type === "hello") {   // 수업 화면을 새로 열었으면(또는 「동기화」로 비웠으면) 상태와 조작 화면을 다시 넘긴다
+      presentOn = true;
+      if (syncWait) { clearTimeout(syncWait); syncWait = 0; syncedAt = Date.now(); setTimeout(drawMirrorStatus, 2000); }
+      sendPresent(true); setMirrorEl(null); updateMirror();
+    }
     if (m.type === "bye") { presentOn = false; updateMirror(); }   // updateMirror가 끝나면 위쪽 단추도 다시 그린다
     if (m.type === "closed" && presentClose) presentClose();   // 수업 화면에서 Esc·닫기를 누르면 교사 화면에서도 닫는다
     if (m.type === "step" && lesson && lesson.slide_count) setPage(lesson.page + (m.step > 0 ? 1 : -1));   // 수업 화면에서 ← → 를 누름
@@ -464,7 +486,10 @@ function drawMirrorStatus() {
     : h("button", { class: "primary present-btn", type: "button",
       title: "시뮬레이션·유튜브를 이 화면에서 조작한 그대로 수업 화면에 보냅니다. 「이 탭」 공유를 허용하세요.",
       onclick() { askCapture(true); } }, "조작도 보내기");
-  mirrorStatus.replaceChildren(h("button", { class: "ghost present-btn", type: "button", title: "수업 화면 탭을 닫습니다", onclick: closePresent }, "수업 화면 닫기"), state);
+  const sync = h("button", { class: "ghost present-btn", type: "button", disabled: !!syncWait,
+    title: "수업 화면이 교사 화면과 다르거나 멈췄을 때 누르세요. 수업 화면을 비우고 지금 화면을 처음부터 다시 보냅니다.",
+    onclick: syncPresent }, syncWait ? "맞추는 중…" : Date.now() - syncedAt < 2000 ? "✓ 맞췄습니다" : "⟳ 동기화");
+  mirrorStatus.replaceChildren(sync, h("button", { class: "ghost present-btn", type: "button", title: "수업 화면 탭을 닫습니다", onclick: closePresent }, "수업 화면 닫기"), state);
 }
 
 
