@@ -605,7 +605,7 @@ function drawRun() {
       h("div", { class: "row" },
         h("button", { class: "ghost", type: "button", onclick: showJoin }, "학생 접속 주소·QR"),
         h("button", { class: "ghost", type: "button", onclick() { downloadCSV(activities, lesson.code + "_전체응답"); } }, "전체 응답 CSV")),
-      hasSlides ? h("p", { class: "muted small" }, "학생 화면은 여기서 띄운 쪽을 따라갑니다. 키보드 ← → 로도 넘길 수 있습니다. 「수업 화면 띄우기」는 슬라이드만 새 탭에 띄웁니다(그 탭을 프로젝터 화면으로 옮겨 쓰세요). 여기서 시뮬레이션이나 결과를 크게 띄우거나 링크를 누르면 수업 화면에도 바로 보입니다. 화면 공유(「이 탭」)를 허용하면 시뮬레이션·유튜브를 여기서 조작한 그대로 수업 화면에 보입니다.") : null),
+      hasSlides ? h("details", { class: "run-help muted small" }, h("summary", {}, "도움말"), "학생 화면은 여기서 띄운 쪽을 따라갑니다. 키보드 ← → 로도 넘길 수 있습니다. 「수업 화면 띄우기」는 슬라이드만 새 탭에 띄웁니다(그 탭을 프로젝터 화면으로 옮겨 쓰세요). 여기서 시뮬레이션이나 결과를 크게 띄우거나 링크를 누르면 수업 화면에도 바로 보입니다. 화면 공유(「이 탭」)를 허용하면 시뮬레이션·유튜브를 여기서 조작한 그대로 수업 화면에 보입니다.") : null),
     h("aside", { class: "run-right stack" },
       h("section", { class: "card row between" }, openText, openBtn),
       roster,
