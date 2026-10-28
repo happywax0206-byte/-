@@ -251,6 +251,19 @@ function openPresent() {
   captureDenied = false;   // 전에 화면 공유를 거절했어도 다시 물어본다
 }
 
+// 「수업 화면 닫기」: 수업 화면 탭을 닫고 화면 공유도 끝낸다
+function closePresent() {
+  if (capture) capture.getTracks().forEach((t) => t.stop());
+  capture = null;
+  setMirrorEl(null);
+  mirrorOn = null;
+  if (presentCh) presentCh.postMessage({ type: "close" });
+  try { if (presentWin && !presentWin.closed) presentWin.close(); } catch (_) {}
+  presentWin = null;
+  presentOn = false;
+  drawMirrorStatus();
+}
+
 function presentState() {
   const L = lesson;
   return {
@@ -276,7 +289,7 @@ if (presentCh) {
   presentCh.onmessage = (e) => {
     const m = e.data || {};
     if (m.type === "hello") { presentOn = true; sendPresent(true); setMirrorEl(null); updateMirror(); }   // 수업 화면을 새로 열었으면 조작 화면도 다시 넘긴다
-    if (m.type === "bye") { presentOn = false; updateMirror(); }
+    if (m.type === "bye") { presentOn = false; updateMirror(); }   // updateMirror가 끝나면 위쪽 단추도 다시 그린다
     if (m.type === "closed" && presentClose) presentClose();   // 수업 화면에서 Esc·닫기를 누르면 교사 화면에서도 닫는다
     if (m.type === "step" && lesson && lesson.slide_count) setPage(lesson.page + (m.step > 0 ? 1 : -1));   // 수업 화면에서 ← → 를 누름
   };
@@ -295,12 +308,14 @@ function setPresentShow(show, close, el) {
 function bigSim(a) {
   const close = openSimFull(a.title, a.html, () => { if (presentShow && presentShow.kind === "sim") setPresentShow(null); });
   setPresentShow({ kind: "sim", title: a.title, html: a.html }, close, close.body);
+  askCapture();
 }
 
 function bigLink(url, title) {
   const close = openFull(title, linkFrame(url, title), () => { if (presentShow && presentShow.kind === "link") setPresentShow(null); },
     h("a", { class: "ghost-link", href: url, target: "_blank", rel: "noopener noreferrer" }, "새 탭에서 열기"));
   setPresentShow({ kind: "link", title, url }, close, close.body);
+  askCapture();
 }
 
 // 결과·학생·QR은 조작할 것이 없으므로 보이는 그대로 옮겨 적어 보낸다
@@ -343,7 +358,15 @@ let mirrorOn = null;       // 수업 화면에 영상으로 보이는 것 { mode
 let mirrorQueue = Promise.resolve();
 const canMirror = () => !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia && (window.RestrictionTarget || window.CropTarget));
 const captureTrack = () => { const t = capture && capture.getVideoTracks()[0]; return t && t.readyState === "live" ? t : null; };
-const mirrorStatus = h("span", { class: "mirror-status" });
+const mirrorStatus = h("span", { class: "mirror-status row" });
+
+// 교사가 무엇을 눌렀을 때만 화면 공유를 묻는다. force: 전에 거절했어도 다시 묻는다(「조작도 보내기」 단추)
+function askCapture(force) {
+  if (!presentOn || captureTrack() || (captureDenied && !force)) return;
+  captureDenied = false;
+  ensureCapture().then(updateMirror);
+  updateMirror();   // 묻는 중이라는 것을 수업 화면에 알린다
+}
 
 function ensureCapture() {
   if (captureTrack()) return Promise.resolve(true);
@@ -386,13 +409,8 @@ function updateMirror() {
   mirrorQueue = mirrorQueue.then(async () => {
     const want = presentOn && presentWin && !presentWin.closed ? mirrorTarget() : null;
     if (!want) { mirrorOn = null; return; }
-    if (!captureTrack()) {
-      mirrorOn = null;
-      if (captureDenied || !canMirror()) return;
-      sendPresent();   // 묻는 동안에도 쪽은 넘어가게 먼저 보낸다
-      if (await ensureCapture()) updateMirror();   // 허락을 받는 사이 칸이 바뀌었을 수 있으므로 이 차례가 끝난 뒤 처음부터 다시
-      return;
-    }
+    // 화면 공유는 여기서 묻지 않는다(대답을 기다리는 동안 쪽 넘김까지 멈췄던 버그). 교사가 누를 때만 askCapture로 묻는다.
+    if (!captureTrack()) { mirrorOn = null; return; }
     const t = captureTrack();
     if (want.el !== mirrorEl) {
       try {
@@ -435,16 +453,18 @@ function setMirrorEl(el) {
   if (el) { el.classList.add("mirroring"); if (mirrorIO) mirrorIO.observe(el); }
 }
 
-// 위쪽 막대: 수업 화면이 열려 있을 때 조작을 보내는 중인지 보이고, 꺼져 있으면 켜는 단추
+// 위쪽 막대: 수업 화면이 열려 있으면 「수업 화면 닫기」와, 조작을 보내는 중인지(꺼져 있으면 켜는 단추)
 function drawMirrorStatus() {
   requestAnimationFrame(setTopHeight);   // 단추 글자가 바뀌어 위쪽 막대 높이가 달라질 수 있다
-  mirrorStatus.hidden = !presentOn || !canMirror();
-  if (mirrorStatus.hidden) return;
-  if (captureTrack()) mirrorStatus.replaceChildren(h("span", { class: "pill on", title: "시뮬레이션·링크에서 조작한 것이 수업 화면에 그대로 보입니다. 끄려면 크롬 위쪽의 「공유 중지」를 누르세요." }, "● 조작 보내는 중"));
-  else if (captureAsking) mirrorStatus.replaceChildren(h("span", { class: "pill" }, "화면 공유를 허용해 주세요…"));
-  else mirrorStatus.replaceChildren(h("button", { class: "ghost present-btn", type: "button",
-    title: "시뮬레이션·유튜브를 이 화면에서 조작한 그대로 수업 화면에 보냅니다. 「이 탭」 공유를 허용하세요.",
-    onclick() { captureDenied = false; ensureCapture().then(updateMirror); } }, "조작도 보내기"));
+  mirrorStatus.hidden = !presentOn;
+  if (!presentOn) return mirrorStatus.replaceChildren();
+  const state = !canMirror() ? null
+    : captureTrack() ? h("span", { class: "pill on", title: "시뮬레이션·링크에서 조작한 것이 수업 화면에 그대로 보입니다. 끄려면 크롬 위쪽의 「공유 중지」를 누르세요." }, "● 조작 보내는 중")
+    : captureAsking ? h("span", { class: "pill" }, "화면 공유를 허용해 주세요…")
+    : h("button", { class: "primary present-btn", type: "button",
+      title: "시뮬레이션·유튜브를 이 화면에서 조작한 그대로 수업 화면에 보냅니다. 「이 탭」 공유를 허용하세요.",
+      onclick() { askCapture(true); } }, "조작도 보내기");
+  mirrorStatus.replaceChildren(h("button", { class: "ghost present-btn", type: "button", title: "수업 화면 탭을 닫습니다", onclick: closePresent }, "수업 화면 닫기"), state);
 }
 
 

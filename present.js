@@ -134,6 +134,11 @@ if (ch) {
       render();
     }
     if (m.type === "who") { attach(); ch.postMessage({ type: "hello" }); }
+    if (m.type === "close") {   // 교사 화면의 「수업 화면 닫기」
+      window.close();
+      // 창을 스스로 닫지 못하는 경우(주소를 직접 열었을 때)
+      setTimeout(() => { document.body.replaceChildren(h("div", { class: "present-empty" }, "수업 화면을 끝냈습니다. 이 탭을 닫으세요.")); }, 300);
+    }
   };
   ch.postMessage({ type: "hello" });
   addEventListener("pagehide", () => ch.postMessage({ type: "bye" }));
