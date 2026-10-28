@@ -20,7 +20,9 @@ const NET_HINT = "학교 와이파이에서만 안 되면 휴대폰 데이터(LT
 // 만든 사람 표시. 고쳐 쓰거나 나눌 때도 지우지 말아 주세요(LICENSE.md).
 const CREDIT = { name: "이효송", year: 2026 };
 
-const KIND_NAME = { slide: "슬라이드 질문", survey: "설문", quiz: "퀴즈", sim: "시뮬레이션" };
+// 슬라이드 질문·설문은 이제 하나(「질문」)로 보인다. 예전 활동의 kind 값은 그대로 둔다
+const KIND_NAME = { slide: "질문", survey: "질문", quiz: "퀴즈", sim: "시뮬레이션" };
+const INFO_NAME = "설명";   // 카드 안의 설명 칸(답 없음, questions의 type "info")
 const TYPE_NAME = { choice: "하나 고르기", multi: "여러 개 고르기", short: "짧은 글", long: "긴 글", file: "파일 올리기" };
 
 // 학생이 답으로 올리는 파일. setup.sql 의 submissions 저장소와 같은 종류·크기만 받는다.
@@ -337,8 +339,15 @@ function activityDescription(activity) {
     [...new Set(questions.map((q) => q.description).filter(Boolean))].join("\n\n");
 }
 
+// 카드 안의 「설명」 칸(type info)은 답을 받지 않는다. 답을 받는 질문만
+function askedQuestions(activity) {
+  return (activity.questions || []).filter((q) => q.type !== "info");
+}
+
+// 설명 칸만 있는 카드(예전 「설명 카드」 포함): 학생은 답하지 않는다
 function isInfoActivity(activity) {
-  return activity.kind === "survey" && activity.questions?.length === 1 && activity.questions[0].type === "info";
+  const qs = activity.questions || [];
+  return activity.kind !== "sim" && qs.length > 0 && qs.every((q) => q.type === "info");
 }
 
 function activityName(activity) {
@@ -348,7 +357,7 @@ function activityName(activity) {
 // 응답 모아 보기: 고르는 질문은 막대, 글은 목록. docs = [{ name, answers }]
 function summaryView(questions, docs, opts) {
   opts = opts || {};
-  return questions.map((q, i) => {
+  return questions.filter((q) => q.type !== "info").map((q, i) => {
     const answered = docs.filter((d) => !isEmptyAnswer(d.answers[q.id]));
     const head = h("p", { class: "sum-q" }, (i + 1) + ". " + q.text);
     if (q.type === "file") {

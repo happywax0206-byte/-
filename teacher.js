@@ -688,7 +688,8 @@ function runBlock(a) {
       h("div", {}, h("p", { class: "muted small" }, "설명 카드 · " + whereText(a)), h("h2", {}, a.title)),
       h("button", { type: "button", class: a.shared ? "ghost" : "primary", async onclick() { await setActivity(a, { shared: !a.shared }); } }, a.shared ? "공개 끝내기" : "학생에게 공개")),
     h("p", { class: a.shared ? "pill on" : "pill" }, a.shared ? "학생에게 공개 중" : "학생에게는 보이지 않음"),
-    linkedDescription(a.questions[0].text));
+    activityDescription(a) ? linkedDescription(activityDescription(a)) : null,
+    a.questions.map((q) => linkedDescription(q.text)));
   const docs = docsOf(a);
   const scored = docs.filter((d) => d.r.total);
   const avg = scored.length ? (scored.reduce((s, d) => s + d.r.score / d.r.total, 0) / scored.length * 100).toFixed(0) + "점" : null;
@@ -713,12 +714,12 @@ function runBlock(a) {
 function responseTable(a) {
   return h("div", { class: "table-wrap" }, h("table", {},
     h("thead", {}, h("tr", {}, h("th", {}, "학번"), h("th", {}, "이름"), a.kind === "quiz" ? h("th", {}, "점수") : null,
-      a.questions.map((q, i) => h("th", {}, (i + 1) + ". " + q.text)), h("th", {}, "저장"))),
+      askedQuestions(a).map((q, i) => h("th", {}, (i + 1) + ". " + q.text)), h("th", {}, "저장"))),
     h("tbody", {}, students.map((s) => {
       const r = responses.find((x) => x.activity_id === a.id && x.student_id === s.id);
       return h("tr", { class: r ? "" : "missing" }, h("td", {}, s.class_no), h("td", {}, s.name),
         a.kind === "quiz" ? h("td", {}, r && r.total ? r.score + "/" + r.total : "") : null,
-        a.questions.map((q) => h("td", {}, !r ? "" : q.type === "file" ? fileLinks(r.answers[q.id], openFile) : answerText(r.answers[q.id]))),
+        askedQuestions(a).map((q) => h("td", {}, !r ? "" : q.type === "file" ? fileLinks(r.answers[q.id], openFile) : answerText(r.answers[q.id]))),
         h("td", {}, r ? fmtTime(r.updated_at) : "미제출"));
     }))));
 }
@@ -839,20 +840,16 @@ async function moveActivity(fromId, toId, after) {
 
 function drawBuild() {
   const list = activityList();
-  const kindList = lesson.kind === "survey" ? { survey: "정답 없는 설문", quiz: "정답·자동 채점" } : { slide: "쪽 아래에 붙는 질문", survey: "정답 없는 설문", quiz: "정답·자동 채점" };
-  const kinds = h("div", { class: "kinds" }, Object.entries(kindList).map(([k, sub]) =>
+  // 질문 카드 하나에 설명·고르기·글·파일 칸을 섞어 넣는다. 「질문 +」는 정답 없는 카드, 「퀴즈 +」는 정답·자동 채점 카드
+  const kindList = [[lesson.slide_count ? "slide" : "survey", "질문 +", "설명·질문·설문 (정답 없음)"], ["quiz", "퀴즈 +", "정답·자동 채점"]];
+  const kinds = h("div", { class: "kinds" }, kindList.map(([k, name, sub]) =>
     h("button", {
       type: "button", class: "kind",
       onclick() {
-        editing = { kind: k, title: "", page: lesson.slide_count ? lesson.page : null, show_answer: true, named: false, shared: false, questions: [newQuestion(k === "survey" ? "long" : "choice")] };
+        editing = { kind: k, title: "", page: lesson.slide_count ? lesson.page : null, show_answer: true, named: false, shared: false, questions: [newQuestion("choice")] };
         drawBuild();
       },
-    }, h("strong", {}, KIND_NAME[k]), h("span", {}, sub))),
-    h("button", { type: "button", class: "kind", onclick() {
-      editing = { kind: "survey", title: "", page: lesson.slide_count ? lesson.page : null, show_answer: false, named: false, shared: false,
-        questions: [{ id: newId(), type: "info", text: "" }] };
-      drawBuild();
-    } }, h("strong", {}, "설명 카드"), h("span", {}, "글과 외부 링크만 표시")),
+    }, h("strong", {}, name), h("span", {}, sub))),
     h("button", { type: "button", class: "kind", onclick() {
       editing = { kind: "sim", title: "", page: lesson.slide_count ? lesson.page : null, sim_full: false, sim_box: null, html: "", questions: [] };
       drawBuild();
@@ -1042,51 +1039,32 @@ function editor() {
   const e = editing;
   if (e.kind === "sim") return simEditor();
   const redraw = () => { const y = scrollY; drawBuild(); scrollTo(0, y); };
-  if (isInfoActivity(e)) {
-    const msg = h("p", { class: "error" });
-    const title = h("input", { type: "text", maxlength: 100, value: e.title, placeholder: "예: 활동 안내", oninput() { e.title = title.value; } });
-    const body = h("textarea", { rows: 10, maxlength: 5000, placeholder: "설명과 링크를 입력하세요. https:// 주소는 학생 화면에서 클릭할 수 있습니다.", oninput() { e.questions[0].text = body.value; } }, e.questions[0].text || "");
-    return h("section", { class: "card stack editor" },
-      h("h2", {}, e.id ? "설명 카드 고치기" : "설명 카드 만들기"),
-      h("label", {}, "제목", title), placeControls(e, redraw),
-      lesson.slide_count && e.page != null ? h("p", { class: "muted small" }, "끝 쪽을 적으면 그 사이 쪽마다 같은 카드가 보입니다.") : null,
-      h("label", {}, "설명문", body),
-      h("p", { class: "muted small" }, "학생은 이 카드에 답을 입력하지 않습니다."), msg,
-      h("div", { class: "row between" },
-        e.id ? h("button", { class: "ghost danger", type: "button", async onclick() {
-          if (!confirm("설명 카드를 지울까요?")) return;
-          const { error } = await sb.from("activities").delete().eq("id", e.id);
-          if (error) { msg.textContent = error.message; return; }
-          activities = activities.filter((a) => a.id !== e.id); editing = null; drawBuild();
-        } }, "카드 지우기") : h("span", {}),
-        h("div", { class: "row" },
-          h("button", { class: "ghost", type: "button", onclick() { editing = null; drawBuild(); } }, "닫기"),
-          h("button", { class: "primary", type: "button", async onclick() {
-            e.title = e.title.trim(); e.questions[0].text = e.questions[0].text.trim();
-            if (!e.title || !e.questions[0].text) { msg.textContent = "제목과 설명문을 입력하세요."; return; }
-            const row = { kind: "survey", title: e.title, page: lesson.slide_count ? e.page : null, show_answer: false, named: false, questions: e.questions };
-            if (!putPageTo(row, e, msg)) return;
-            if (!e.id) { row.lesson_id = lesson.id; row.sort = activities.length; }
-            const saved = await save("activities", row, e.id);
-            if (!saved) return;
-            const { data } = await sb.from("activities").select("*").eq("lesson_id", lesson.id);
-            activities = sortActivities(data || []); editing = JSON.parse(JSON.stringify(saved)); drawBuild(); flash("저장했습니다.");
-          } }, "저장"))));
-  }
   if (e.description === undefined) e.description = activityDescription(e);
   const hasResponses = e.id && responses.some((r) => r.activity_id === e.id);
   const msg = h("p", { class: "error" });
 
   const title = h("input", { type: "text", maxlength: 100, value: e.title, placeholder: "예: 예상해 보기", oninput() { e.title = title.value; } });
-  const description = h("textarea", { rows: 5, maxlength: 2000, placeholder: "설문 전체에 대한 설명을 입력하세요. 웹 주소는 학생 화면에서 링크가 됩니다.", oninput() { e.description = description.value; } }, e.description || "");
+  const description = h("textarea", { rows: 4, maxlength: 2000, placeholder: "카드 맨 위에 보일 설명을 입력하세요. 웹 주소는 학생 화면에서 링크가 됩니다.", oninput() { e.description = description.value; } }, e.description || "");
 
+  // 칸 종류: 설명(답 없음) + 질문 종류들. 질문 번호는 설명 칸을 빼고 센다
+  const blockTypes = Object.assign({ info: INFO_NAME }, TYPE_NAME);
+  let num = 0;
   const qs = e.questions.map((q, i) => {
+    const info = q.type === "info";
     const typeSel = h("select", {
-      "aria-label": "질문 종류",
-      onchange() { q.type = typeSel.value; if (q.type === "choice" || q.type === "multi") { q.options = q.options && q.options.length ? q.options : ["", ""]; } if (q.type === "file") q.accept = q.accept || "any"; delete q.answer; redraw(); },
-    }, Object.entries(TYPE_NAME).map(([k, v]) => h("option", { value: k, selected: q.type === k }, v)));
+      "aria-label": "칸 종류",
+      onchange() {
+        q.type = typeSel.value;
+        if (q.type === "choice" || q.type === "multi") { q.options = q.options && q.options.length ? q.options : ["", ""]; }
+        if (q.type === "file") q.accept = q.accept || "any";
+        if (q.type !== "info" && q.text && q.text.length > 300) q.text = q.text.slice(0, 300);
+        delete q.answer; redraw();
+      },
+    }, Object.entries(blockTypes).map(([k, v]) => h("option", { value: k, selected: q.type === k }, v)));
     const move = (d) => { const j = i + d; if (j < 0 || j >= e.questions.length) return; [e.questions[i], e.questions[j]] = [e.questions[j], e.questions[i]]; redraw(); };
-    const text = h("input", { type: "text", maxlength: 300, value: q.text, placeholder: "질문을 입력하세요", oninput() { q.text = text.value; } });
+    const text = info
+      ? h("textarea", { rows: 5, maxlength: 5000, placeholder: "설명과 링크를 입력하세요. https:// 주소는 학생 화면에서 클릭할 수 있습니다.", oninput() { q.text = text.value; } }, q.text || "")
+      : h("input", { type: "text", maxlength: 300, value: q.text, placeholder: "질문을 입력하세요", oninput() { q.text = text.value; } });
     const choice = q.type === "choice" || q.type === "multi";
     const opts = choice ? h("textarea", {
       rows: Math.max(3, q.options.length + 1),
@@ -1116,29 +1094,34 @@ function editor() {
     const acceptSel = q.type === "file" ? h("select", { "aria-label": "받을 파일", onchange() { q.accept = acceptSel.value; } },
       h("option", { value: "any", selected: q.accept !== "image" }, "사진·문서 (PDF, 한글, 워드, 엑셀, PPT 등)"),
       h("option", { value: "image", selected: q.accept === "image" }, "사진만 (휴대폰에서 바로 찍기)")) : null;
-    const explain = e.kind === "quiz" ? h("input", { type: "text", maxlength: 300, value: q.explain || "", placeholder: "해설 (선택)", oninput() { q.explain = explain.value.trim() || undefined; } }) : null;
-    return h("article", { class: "q-edit stack" },
-      h("div", { class: "row" }, h("strong", {}, "질문 " + (i + 1)), typeSel, h("span", { class: "spacer" }),
+    const explain = e.kind === "quiz" && !info ? h("input", { type: "text", maxlength: 300, value: q.explain || "", placeholder: "해설 (선택)", oninput() { q.explain = explain.value.trim() || undefined; } }) : null;
+    return h("article", { class: "q-edit stack" + (info ? " info" : "") },
+      h("div", { class: "row" }, h("strong", {}, info ? "설명" : "질문 " + (++num)), typeSel, h("span", { class: "spacer" }),
         h("button", { class: "link", type: "button", onclick() { move(-1); } }, "위로"),
         h("button", { class: "link", type: "button", onclick() { move(1); } }, "아래로"),
         h("button", { class: "link danger", type: "button", onclick() { if (e.questions.length > 1) { e.questions.splice(i, 1); redraw(); } } }, "삭제")),
-      h("label", {}, "질문", text),
+      h("label", {}, info ? "설명문 (학생은 읽기만 합니다)" : "질문", text),
       choice ? h("label", {}, "보기 (한 줄에 하나씩)", opts) : null,
       acceptSel ? h("label", {}, "받을 파일", acceptSel) : null,
       acceptSel ? h("p", { class: "muted small" }, "학생은 " + FILE_COUNT + "개까지, 한 개에 " + fileSize(FILE_MAX) + "까지 올립니다. 파일은 교사만 열어 볼 수 있고, 「학생에게 공개」해도 친구들에게는 파일 이름만 보입니다.") : null,
       answerPick,
       explain ? h("label", {}, "해설", explain) : null,
-      e.kind === "quiz" && !choice ? h("p", { class: "muted small" }, "글로 답하는 질문은 자동 채점하지 않습니다.") : null);
+      e.kind === "quiz" && !choice && !info ? h("p", { class: "muted small" }, "글로 답하는 질문은 자동 채점하지 않습니다.") : null);
   });
 
   async function saveActivity() {
     e.title = e.title.trim();
     if (!e.title) { msg.textContent = "제목을 입력하세요."; return; }
-    for (const [i, q] of e.questions.entries()) {
+    let n = 0;
+    for (const q of e.questions) {
+      const info = q.type === "info";
+      const name = info ? "위에서 " + (e.questions.indexOf(q) + 1) + "번째 설명 칸" : (++n) + "번 질문";
       q.text = (q.text || "").trim();
       delete q.description;
       delete q.intro;
-      if (!q.text) { msg.textContent = (i + 1) + "번 질문을 입력하세요."; return; }
+      if (!q.text) { msg.textContent = name + "을 입력하세요."; return; }
+      if (info) { delete q.options; delete q.answer; delete q.accept; delete q.explain; continue; }
+      const i = n - 1;
       if (q.type === "choice" || q.type === "multi") {
         q.options = q.options.map((x) => x.trim()).filter(Boolean);
         if (q.options.length < 2) { msg.textContent = (i + 1) + "번 질문의 보기를 두 개 이상 적으세요."; return; }
@@ -1170,19 +1153,21 @@ function editor() {
   }
 
   return h("section", { class: "card stack editor" },
-    h("p", { class: "muted small" }, KIND_NAME[e.kind] + (e.id ? " 고치기" : " 새로 만들기")),
+    h("p", { class: "muted small" }, KIND_NAME[e.kind] + " 카드" + (e.id ? " 고치기" : " 새로 만들기") +
+      " · 설명과 여러 질문을 한 카드에 섞어 넣을 수 있습니다" + (e.kind === "quiz" ? " (고르기 질문은 정답으로 자동 채점)" : "")),
     hasResponses ? h("p", { class: "banner" }, "이미 학생 응답이 있습니다. 질문이나 보기를 바꾸면 기존 응답과 맞지 않을 수 있습니다.") : null,
     h("div", { class: "row wrap" },
       h("label", { class: "grow" }, "제목", title),
       placeControls(e, redraw)),
-      lesson.slide_count && e.page != null ? h("p", { class: "muted small grow" }, "끝 쪽을 적으면 그 사이 쪽마다 같은 질문이 보이고, 학생이 쓴 답도 이어서 보입니다.") : null,
-    h("label", {}, "설문 설명문 (선택)", description),
+      lesson.slide_count && e.page != null ? h("p", { class: "muted small grow" }, "끝 쪽을 적으면 그 사이 쪽마다 같은 카드가 보이고, 학생이 쓴 답도 이어서 보입니다.") : null,
+    h("label", {}, "카드 설명문 (선택)", description),
     h("div", { class: "row wrap" },
       e.kind === "quiz" ? h("label", { class: "check" }, h("input", { type: "checkbox", checked: e.show_answer, onchange(ev) { e.show_answer = ev.target.checked; } }), "제출 뒤 정답과 해설 보여 주기") : null,
       h("label", { class: "check" }, h("input", { type: "checkbox", checked: e.named, onchange(ev) { e.named = ev.target.checked; } }), "학생에게 공개할 때 이름 표시")),
     qs,
-    h("div", { class: "row" }, Object.entries(TYPE_NAME).map(([k, v]) =>
-      h("button", { class: "ghost", type: "button", onclick() { e.questions.push(newQuestion(k)); redraw(); } }, "+ " + v))),
+    h("div", { class: "row wrap" }, Object.entries(blockTypes).map(([k, v]) =>
+      h("button", { class: "ghost", type: "button", onclick() { e.questions.push(k === "info" ? { id: newId(), type: "info", text: "" } : newQuestion(k)); redraw(); } }, "+ " + v))),
+    isInfoActivity(e) ? h("p", { class: "muted small" }, "설명 칸만 있으면 학생은 읽기만 하고 답을 입력하지 않습니다.") : null,
     msg,
     h("div", { class: "row between" },
       e.id ? h("button", { class: "ghost danger", type: "button", onclick: removeActivity }, "활동 지우기") : h("span", {}),
@@ -2041,12 +2026,12 @@ async function removeOrphanFiles() {
 
 // ---------- CSV ----------
 function downloadCSV(acts, fileName) {
-  acts = acts.filter((a) => a.kind !== "sim");
+  acts = acts.filter((a) => a.kind !== "sim" && !isInfoActivity(a));
   const cell = (v) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
   const head = ["학번", "이름"];
   acts.forEach((a) => {
     if (a.kind === "quiz") head.push(a.title + " · 점수");
-    a.questions.forEach((q, i) => head.push(a.title + " · " + (i + 1) + ". " + q.text));
+    askedQuestions(a).forEach((q, i) => head.push(a.title + " · " + (i + 1) + ". " + q.text));
     head.push(a.title + " · 저장 시각");
   });
   const lines = [head.map(cell).join(",")];
@@ -2055,7 +2040,7 @@ function downloadCSV(acts, fileName) {
     acts.forEach((a) => {
       const r = responses.find((x) => x.activity_id === a.id && x.student_id === s.id);
       if (a.kind === "quiz") row.push(r && r.total ? r.score + "/" + r.total : "");
-      a.questions.forEach((q) => row.push(r ? answerText(r.answers[q.id]) : ""));
+      askedQuestions(a).forEach((q) => row.push(r ? answerText(r.answers[q.id]) : ""));
       row.push(r ? new Date(r.updated_at).toLocaleString("ko-KR") : "");
     });
     lines.push(row.map(cell).join(","));

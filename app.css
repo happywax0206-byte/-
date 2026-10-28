@@ -204,6 +204,7 @@ main.lesson .slide { cursor: zoom-in; }
 .drag-handle:active { cursor: grabbing; }
 .act-group-head { margin: .4rem 0 -.2rem; font-size: .82rem; font-weight: 700; color: var(--muted); }
 .q-edit { border: 1px solid var(--line); border-radius: 12px; padding: 1rem; }
+.q-edit.info { background: var(--bg); border-left: 3px solid var(--accent); }
 
 /* 슬라이드 미리보기 */
 .thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: .5rem; }

@@ -544,7 +544,8 @@ function buildForm(c) {
     c.refresh = () => {};
     c.form.replaceChildren(
       h("div", { class: "card-head" }, h("h2", {}, a.title), h("span", { class: "badge" }, "설명 카드")),
-      linkedDescription(a.questions[0].text));
+      activityDescription(a) ? linkedDescription(activityDescription(a)) : null,
+      ...a.questions.map((q) => linkedDescription(q.text)));
     return;
   }
   const quizDone = a.kind === "quiz" && !!a.mine;
@@ -571,10 +572,14 @@ function buildForm(c) {
     err.textContent = "";
     c.refresh();
   };
-  const dirty = () => a.questions.some((q) => JSON.stringify(values[q.id] ?? "") !== JSON.stringify((a.mine || {})[q.id] ?? ""));
+  const asked = askedQuestions(a);
+  const dirty = () => asked.some((q) => JSON.stringify(values[q.id] ?? "") !== JSON.stringify((a.mine || {})[q.id] ?? ""));
 
-  const rows = a.questions.map((q, i) => {
-    const label = (i + 1) + ". " + q.text;
+  let num = 0;
+  const rows = a.questions.map((q) => {
+    // 설명 칸: 답을 받지 않고 글(링크 포함)만 보인다
+    if (q.type === "info") return linkedDescription(q.text);
+    const label = (++num) + ". " + q.text;
     let control;
     if (q.type === "choice" || q.type === "multi") {
       const picked = () => [].concat(values[q.id] ?? []);
@@ -609,11 +614,11 @@ function buildForm(c) {
   });
 
   async function save() {
-    const missing = a.questions.findIndex((q) => isEmptyAnswer(values[q.id]));
+    const missing = asked.findIndex((q) => isEmptyAnswer(values[q.id]));
     if (missing >= 0) { err.textContent = (missing + 1) + "번 질문에 답해 주세요."; return; }
     if (a.kind === "quiz" && !confirm("퀴즈는 한 번만 제출할 수 있습니다. 제출할까요?")) return;
     const answers = {};
-    a.questions.forEach((q) => { answers[q.id] = typeof values[q.id] === "string" ? values[q.id].trim() : values[q.id]; });
+    asked.forEach((q) => { answers[q.id] = typeof values[q.id] === "string" ? values[q.id].trim() : values[q.id]; });
     sending = true;
     c.refresh();
     const { data, error } = await sb.rpc("student_save", { p_token: token, p_activity: a.id, p_answers: answers });
