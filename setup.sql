@@ -428,7 +428,7 @@ begin
   if not is_teacher() then raise exception 'not a teacher'; end if;
   select count(*) into n from (select ip from code_fails where at > now() - interval '10 minutes'
                                group by ip having count(distinct code) >= case when ip = 'unknown' then 200 else 20 end) x;
-  delete from code_fails;
+  delete from code_fails where true;   -- Supabase는 조건(where) 없는 delete를 막는다(pg_safeupdate)
   return jsonb_build_object('ok', true, 'blocked', n);
 end $$;
 revoke all on function code_unblock() from public, anon;
