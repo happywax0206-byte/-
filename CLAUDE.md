@@ -21,6 +21,7 @@
 
 - 최상위 `let/const`를 쓰는 함수는 파일 끝에서 시작할 것(student.js `start()`가 위에 있어 ReferenceError 났었음).
 - DOM `replaceChildren`/`append`에 `null`을 넘기지 말 것(글자 "null"이 들어감, `h()`와 다름).
+- SQL에서 조건(where) 없는 `delete`/`update`를 쓰지 말 것: Supabase(pg_safeupdate)가 함수 안에서도 거부한다. 전부 지울 때는 `where true`(PGlite 시험으로는 안 잡힘).
 - `students` 표에 칸을 더하면 setup.sql의 `grant select (...) on students` 목록도 고칠 것(교사는 token·pin_hash를 못 봄).
 
 ## 사용자 차례로 남은 일
