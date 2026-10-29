@@ -750,10 +750,11 @@ function buildForm(c) {
   const a = c.a;
   if (isInfoActivity(a)) {
     c.refresh = () => {};
-    c.form.replaceChildren(
+    // replaceChildren은 null을 글자 "null"로 넣으므로 빈 것은 빼고 넣는다
+    c.form.replaceChildren(...[
       h("div", { class: "card-head" }, h("h2", {}, a.title), h("span", { class: "badge" }, "설명 카드")),
       activityDescription(a) ? linkedDescription(activityDescription(a)) : null,
-      ...a.questions.map((q) => linkedDescription(q.text)));
+      ...a.questions.map((q) => linkedDescription(q.text))].filter(Boolean));
     return;
   }
   const quizDone = a.kind === "quiz" && !!a.mine;
