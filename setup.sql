@@ -75,6 +75,13 @@ alter table activities drop constraint if exists activities_kind_check;
 alter table activities add constraint activities_kind_check check (kind in ('slide', 'survey', 'quiz', 'sim'));
 alter table activities drop constraint if exists activities_html_size;
 alter table activities add constraint activities_html_size check (html is null or length(html) <= 500000);
+-- 나중에 더한 칸: 학생에게 카드를 숨김(교사 화면에는 그대로 보임)
+alter table activities add column if not exists hidden boolean not null default false;
+-- 나중에 더한 칸: 친구들에게 응답을 공개한 질문 id 목록. 비어 있으면 학생은 자기 답만 본다.
+-- (예전 shared 칸은 「활동 전체 응답 공개」였고 이제 쓰지 않는다. 공개는 질문마다 새로 고른다)
+alter table activities add column if not exists shared_q jsonb not null default '[]';
+alter table activities drop constraint if exists activities_shared_q_size;
+alter table activities add constraint activities_shared_q_size check (jsonb_typeof(shared_q) = 'array' and octet_length(shared_q::text) <= 5000);
 
 -- 학생: 웹앱 전체에 한 명당 하나(학번 + 이름 + 4자리 비밀번호). 어느 수업에 들어와도 같은 비밀번호를 쓴다.
 create table if not exists students (
@@ -346,7 +353,8 @@ begin
     'screen', case when m.screen is not null then jsonb_build_object('ask', m.screen -> 'ask', 'state', m.screen -> 'state', 'key', m.screen -> 'key', 'at', m.screen -> 'at') end);
   va := coalesce((
       select jsonb_agg(jsonb_build_object(
-        'id', a.id, 'kind', a.kind, 'title', a.title, 'page', a.page, 'page_to', a.page_to, 'named', a.named, 'shared', a.shared,
+        'id', a.id, 'kind', a.kind, 'title', a.title, 'page', a.page, 'page_to', a.page_to, 'named', a.named,
+        'shared', jsonb_array_length(a.shared_q) > 0, 'shared_q', a.shared_q,
         'sim_full', a.sim_full, 'sim_box', a.sim_box, 'html_ver', case when a.kind = 'sim' then md5(coalesce(a.html, '')) end,
         'questions', case
           when a.kind = 'quiz' and a.show_answer and r.student_id is not null then a.questions
@@ -356,16 +364,19 @@ begin
       ) order by a.page nulls last, a.sort, a.created_at)
       from activities a
       left join responses r on r.activity_id = a.id and r.student_id = s.id
-      where a.lesson_id = l.id), '[]'::jsonb);
+      where a.lesson_id = l.id and not a.hidden), '[]'::jsonb);
+  -- 친구 응답: 교사가 공개한 질문(shared_q)의 답만 잘라서 보낸다
   vo := coalesce((
       select jsonb_object_agg(a.id, (
           select coalesce(jsonb_agg(jsonb_build_object(
                    'name', case when a.named then o.class_no || ' ' || o.name end,
-                   'answers', x.answers) order by x.updated_at), '[]'::jsonb)
+                   'answers', y.answers) order by x.updated_at), '[]'::jsonb)
           from responses x join students o on o.id = x.student_id
-          where x.activity_id = a.id))
+          cross join lateral (select coalesce(jsonb_object_agg(e.key, e.value), '{}'::jsonb) as answers
+                              from jsonb_each(x.answers) e where a.shared_q ? e.key) y
+          where x.activity_id = a.id and y.answers <> '{}'::jsonb))
       from activities a
-      where a.lesson_id = l.id and a.shared), '{}'::jsonb);
+      where a.lesson_id = l.id and not a.hidden and jsonb_array_length(a.shared_q) > 0), '{}'::jsonb);
   if not coalesce(p_parts, false) then
     v := vl || jsonb_build_object('activities', coalesce((
       select jsonb_agg(case when vo ? (e ->> 'id') then e || jsonb_build_object('others', vo -> (e ->> 'id')) else e end order by n)
@@ -401,7 +412,7 @@ begin
   select * into s from students where token = p_token and p_token is not null;
   if not found then return jsonb_build_object('error', 'logged_out'); end if;
   select * into a from activities where id = p_activity;
-  if not found or a.kind = 'sim' or not exists (select 1 from lesson_students where lesson_id = a.lesson_id and student_id = s.id) then
+  if not found or a.kind = 'sim' or a.hidden or not exists (select 1 from lesson_students where lesson_id = a.lesson_id and student_id = s.id) then
     return jsonb_build_object('error', 'no_activity');
   end if;
   select * into l from lessons where id = a.lesson_id;
@@ -453,7 +464,7 @@ declare
 begin
   select * into s from students where token = p_token and p_token is not null;
   if not found then return null; end if;
-  select * into a from activities where id = p_activity and kind = 'sim';
+  select * into a from activities where id = p_activity and kind = 'sim' and not hidden;
   if not found or not exists (select 1 from lesson_students where lesson_id = a.lesson_id and student_id = s.id) then return null; end if;
   return a.html;
 end $$;
@@ -804,7 +815,7 @@ begin
   select * into s from students where token = p_token and p_token is not null;
   if not found then return jsonb_build_object('error', 'logged_out'); end if;
   select * into a from activities where id = p_activity;
-  if not found or a.kind = 'sim'
+  if not found or a.kind = 'sim' or a.hidden
      or not exists (select 1 from lesson_students where lesson_id = a.lesson_id and student_id = s.id)
      or not exists (select 1 from jsonb_array_elements(a.questions) q where q ->> 'type' = 'file') then
     return jsonb_build_object('error', 'no_activity');

@@ -718,14 +718,17 @@ function cardFor(a) {
     buildForm(c);
   }
   c.refresh();
-  const othersSig = JSON.stringify(a.shared ? [a.others, a.questions] : null);
+  // 친구들의 응답: 선생님이 고른 질문(shared_q)만. 서버도 그 질문의 답만 보낸다
+  const only = a.shared_q || null;
+  const show = a.shared && !isInfoActivity(a) && (!only || only.length > 0);
+  const othersSig = JSON.stringify(show ? [a.others, a.questions, only, a.named] : null);
   if (othersSig !== c.othersSig) {
     c.othersSig = othersSig;
-    c.others.replaceChildren(...(a.shared ? [
+    c.others.replaceChildren(...(show ? [
       h("div", { class: "others" },
         h("h3", {}, "친구들의 응답"),
-        h("p", { class: "muted small" }, "선생님이 공개했습니다 · " + (a.named ? "이름과 함께" : "이름 없이") + " · " + a.others.length + "명"),
-        summaryView(a.questions, a.others)),
+        h("p", { class: "muted small" }, "선생님이 공개한 질문만 보입니다 · " + (a.named ? "이름과 함께" : "이름 없이") + " · " + (a.others || []).length + "명"),
+        summaryView(a.questions, a.others || [], { only })),
     ] : []));
   }
   return c.el;

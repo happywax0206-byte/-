@@ -406,11 +406,14 @@ function activityName(activity) {
 }
 
 // 응답 모아 보기: 고르는 질문은 막대, 글은 목록. docs = [{ name, answers }]
+// opts.only: 이 질문 id들만 보인다(번호는 그대로) · opts.tools(q): 질문 제목 옆에 붙일 것(교사의 「응답 공개」 단추)
 function summaryView(questions, docs, opts) {
   opts = opts || {};
   return questions.filter((q) => q.type !== "info").map((q, i) => {
+    if (opts.only && !opts.only.includes(q.id)) return null;
     const answered = docs.filter((d) => !isEmptyAnswer(d.answers[q.id]));
-    const head = h("p", { class: "sum-q" }, (i + 1) + ". " + q.text);
+    const head = opts.tools ? h("div", { class: "row between sum-head" }, h("p", { class: "sum-q" }, (i + 1) + ". " + q.text), opts.tools(q))
+      : h("p", { class: "sum-q" }, (i + 1) + ". " + q.text);
     if (q.type === "file") {
       return h("div", { class: "sum-block" }, head,
         answered.length ? answered.map((d) => h("p", { class: "note" }, d.name ? h("strong", {}, d.name + " · ") : null, fileLinks(d.answers[q.id], opts.openFile)))

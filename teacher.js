@@ -1351,36 +1351,52 @@ function editBtn(a) {
   return tab === "preview" ? h("button", { class: "ghost", type: "button", onclick() { editing = JSON.parse(JSON.stringify(a)); goTab("build"); } }, "편집") : null;
 }
 
+// 「학생에게 숨기기」: 카드 자체를 학생 화면에서 빼거나 다시 보인다(교사 화면에는 그대로)
+function hideBtn(a) {
+  return h("button", { type: "button", class: a.hidden ? "primary" : "ghost", async onclick() { await setActivity(a, { hidden: !a.hidden }); } },
+    a.hidden ? "학생에게 보이기" : "학생에게 숨기기");
+}
+// 학생은 기본적으로 자기 답만 본다. 교사가 질문마다 「응답 공개」를 누르면 그 질문의 친구들 답이 보인다
+function sharedQ(a) { return Array.isArray(a.shared_q) ? a.shared_q : []; }
+function shareQBtn(a, q) {
+  const on = sharedQ(a).includes(q.id);
+  return h("button", { type: "button", class: on ? "small-btn" : "ghost small-btn", title: "이 질문에 대한 모든 학생의 응답을 학생 화면에 보입니다",
+    async onclick() {
+      await setActivity(a, { shared_q: on ? sharedQ(a).filter((x) => x !== q.id) : [...sharedQ(a).filter((x) => a.questions.some((y) => y.id === x)), q.id] });
+    } }, on ? "응답 공개 중 · 끝내기" : "응답 공개");
+}
+
 function runBlock(a) {
+  const seen = h("p", { class: a.hidden ? "pill" : "pill on" }, a.hidden ? "학생에게 숨김" : "학생 화면에 보임");
   if (a.kind === "sim") return h("section", { class: "card stack" },
     h("div", { class: "row between" },
       h("div", {}, h("p", { class: "muted small" }, "시뮬레이션 · " + whereText(a)), h("h2", {}, a.title)),
-      h("div", { class: "row" }, editBtn(a), h("button", { class: "primary", type: "button", onclick() { bigSim(a); } }, "크게 실행"))),
-    h("p", { class: "pill" }, !lesson.slide_count ? "학생 화면: 카드로 보임"
+      h("div", { class: "row" }, editBtn(a), hideBtn(a), h("button", { class: "primary", type: "button", onclick() { bigSim(a); } }, "크게 실행"))),
+    h("p", { class: a.hidden ? "pill" : "pill on" }, a.hidden ? "학생에게 숨김"
+      : !lesson.slide_count ? "학생 화면: 카드로 보임"
       : a.sim_full ? "학생 화면: 슬라이드 대신 크게 보임"
       : validSimBox(a.sim_box) ? "학생 화면: 슬라이드 위 정한 자리에 보임" : "학생 화면: 슬라이드 아래 카드로 보임"));
   if (isInfoActivity(a)) return h("section", { class: "card stack" },
     h("div", { class: "row between" },
       h("div", {}, h("p", { class: "muted small" }, "설명 카드 · " + whereText(a)), h("h2", {}, a.title)),
-      h("div", { class: "row" }, editBtn(a), h("button", { type: "button", class: a.shared ? "ghost" : "primary", async onclick() { await setActivity(a, { shared: !a.shared }); } }, a.shared ? "공개 끝내기" : "학생에게 공개"))),
-    h("p", { class: a.shared ? "pill on" : "pill" }, a.shared ? "학생에게 공개 중" : "학생에게는 보이지 않음"),
+      h("div", { class: "row" }, editBtn(a), hideBtn(a))),
+    seen,
     activityDescription(a) ? linkedDescription(activityDescription(a)) : null,
     a.questions.map((q) => linkedDescription(q.text)));
   const docs = docsOf(a);
   const scored = docs.filter((d) => d.r.total);
   const avg = scored.length ? (scored.reduce((s, d) => s + d.r.score / d.r.total, 0) / scored.length * 100).toFixed(0) + "점" : null;
+  const nShared = askedQuestions(a).filter((q) => sharedQ(a).includes(q.id)).length;
   return h("section", { class: "card stack" },
     h("div", { class: "row between" },
       h("div", {},
         h("p", { class: "muted small" }, KIND_NAME[a.kind] + " · " + whereText(a)),
         h("h2", {}, a.title)),
-      h("div", { class: "row" }, editBtn(a), h("button", {
-        type: "button", class: a.shared ? "ghost" : "primary",
-        async onclick() { await setActivity(a, { shared: !a.shared }); },
-      }, a.shared ? "공개 끝내기" : "학생에게 공개"))),
-    h("p", { class: a.shared ? "pill on" : "pill" }, a.shared ? "학생에게 공개 중 (" + (a.named ? "이름과 함께" : "이름 없이") + ")" : "학생에게는 보이지 않음"),
-    h("p", { class: "muted small" }, "응답 " + docs.length + " / " + students.length + "명" + (avg ? " · 평균 " + avg : "")),
-    summaryView(a.questions, docs, { openFile }),
+      h("div", { class: "row" }, editBtn(a), hideBtn(a))),
+    h("div", { class: "row" }, seen,
+      h("p", { class: nShared ? "pill on" : "pill" }, nShared ? "응답 공개: 질문 " + nShared + "개 (" + (a.named ? "이름과 함께" : "이름 없이") + ")" : "응답: 각자 자기 답만 봄")),
+    h("p", { class: "muted small" }, "응답 " + docs.length + " / " + students.length + "명" + (avg ? " · 평균 " + avg : "") + " · 친구들에게 보여 줄 질문만 「응답 공개」를 누르세요."),
+    summaryView(a.questions, docs, { openFile, tools: (q) => shareQBtn(a, q) }),
     h("div", { class: "row" },
       h("button", { class: "ghost", type: "button", onclick() { bigView(a.title, h("div", { class: "big-view" }, summaryView(a.questions, docsOf(a), { openFile }))); } }, "크게 보기"),
       h("button", { class: "ghost", type: "button", onclick() { openModal(a.title + " · 학생별", responseTable(a)); } }, "학생별 표"),
@@ -1427,10 +1443,20 @@ async function setLesson(change) {
 }
 
 async function setActivity(a, change) {
+  const before = {};
+  for (const k of Object.keys(change)) before[k] = a[k];
   Object.assign(a, change);
   refreshRun();
   const { error } = await sb.from("activities").update(change).eq("id", a.id);
-  if (error) fatal(error);
+  if (!error) return;
+  if (/hidden|shared_q/.test(error.message)) {
+    // 칸이 아직 없는 데이터베이스: 되돌리고 알린다
+    Object.assign(a, before);
+    refreshRun();
+    alert("「학생에게 숨기기」와 「응답 공개」를 쓰려면 먼저 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요.");
+    return;
+  }
+  fatal(error);
 }
 
 function joinUrl(l) {
@@ -1801,7 +1827,7 @@ function editor() {
       h("label", {}, info ? "설명문 (학생은 읽기만 합니다)" : "질문", text),
       choice ? h("label", {}, "보기 (한 줄에 하나씩)", opts) : null,
       acceptSel ? h("label", {}, "받을 파일", acceptSel) : null,
-      acceptSel ? h("p", { class: "muted small" }, "학생은 " + FILE_COUNT + "개까지, 한 개에 " + fileSize(FILE_MAX) + "까지 올립니다. 파일은 교사만 열어 볼 수 있고, 「학생에게 공개」해도 친구들에게는 파일 이름만 보입니다.") : null,
+      acceptSel ? h("p", { class: "muted small" }, "학생은 " + FILE_COUNT + "개까지, 한 개에 " + fileSize(FILE_MAX) + "까지 올립니다. 파일은 교사만 열어 볼 수 있고, 「응답 공개」해도 친구들에게는 파일 이름만 보입니다.") : null,
       answerPick,
       explain ? h("label", {}, "해설", explain) : null,
       quiz && !choice ? h("p", { class: "muted small" }, "글로 답하는 질문은 자동 채점하지 않습니다.") : null);
@@ -1868,7 +1894,7 @@ function editor() {
     h("label", {}, "카드 설명문 (선택)", description),
     h("div", { class: "row wrap" },
       hasQuiz ? h("label", { class: "check" }, h("input", { type: "checkbox", checked: e.show_answer, onchange(ev) { e.show_answer = ev.target.checked; } }), "제출 뒤 정답과 해설 보여 주기") : null,
-      h("label", { class: "check" }, h("input", { type: "checkbox", checked: e.named, onchange(ev) { e.named = ev.target.checked; } }), "학생에게 공개할 때 이름 표시")),
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: e.named, onchange(ev) { e.named = ev.target.checked; } }), "친구들에게 응답을 공개할 때 이름 표시")),
     qs,
     h("div", { class: "row wrap" },
       h("button", { class: "primary", type: "button", onclick() { e.questions.push(newQuestion("choice")); redraw(); } }, "질문 +"),
@@ -2182,7 +2208,7 @@ function drawSettings() {
       ...("transition" in lesson && lesson.transition ? { transition: lesson.transition } : {}) }).eq("id", copy.id);
     if (activities.length) {
       const r = await sb.from("activities").insert(activities.map((a) => ({
-        lesson_id: copy.id, kind: a.kind, title: a.title, page: a.page, show_answer: a.show_answer, named: a.named, questions: a.questions, sort: a.sort,
+        lesson_id: copy.id, kind: a.kind, title: a.title, page: a.page, show_answer: a.show_answer, named: a.named, hidden: a.hidden || undefined, questions: a.questions, sort: a.sort,
         // 나중에 더한 칸은 데이터베이스에 있을 때만 복사한다(시뮬레이션 html·띄우는 자리, 끝 쪽)
         ...Object.fromEntries(["page_to", "html", "sim_full", "sim_box"].filter((k) => k in a).map((k) => [k, a[k]])),
       })));
