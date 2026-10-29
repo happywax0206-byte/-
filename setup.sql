@@ -626,7 +626,15 @@ begin
   return v;
 end $$;
 
+-- 답이 들어 있는지(빈 글·빈 목록은 답 없음). common.js isEmptyAnswer와 같게
+create or replace function has_answer(v jsonb) returns boolean
+language sql immutable as $$
+  select v is not null and coalesce(case jsonb_typeof(v) when 'string' then btrim(v #>> '{}') <> '' when 'array' then jsonb_array_length(v) > 0
+                                        when 'null' then false else true end, false)
+$$;
+
 -- 학생 응답 저장. 그 수업에 참여한 학생만, 제출이 열려 있을 때만. 퀴즈는 한 번만 제출하고 서버에서 채점한다.
+-- 적어도 한 질문에는 답해야 하고, 「필수 응답」 질문(required, 퀴즈 카드는 모든 질문)은 꼭 답해야 한다(common.js isRequiredQ)
 create or replace function student_save(p_token text, p_activity uuid, p_answers jsonb)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare
@@ -650,6 +658,15 @@ begin
   if not l.open then return jsonb_build_object('error', 'closed'); end if;
   if jsonb_typeof(p_answers) is distinct from 'object' or octet_length(p_answers::text) > 20000 then
     return jsonb_build_object('error', 'too_big');
+  end if;
+  if exists (select 1 from jsonb_array_elements(a.questions) e
+             where coalesce(e ->> 'type', '') <> 'info' and (a.kind = 'quiz' or e -> 'required' = 'true'::jsonb)
+               and not has_answer(p_answers -> (e ->> 'id'))) then
+    return jsonb_build_object('error', 'required');
+  end if;
+  if not exists (select 1 from jsonb_array_elements(a.questions) e
+                 where coalesce(e ->> 'type', '') <> 'info' and has_answer(p_answers -> (e ->> 'id'))) then
+    return jsonb_build_object('error', 'empty');
   end if;
 
   -- 파일 답: 이 학생이 이 활동에 받은 자리(student_upload_ticket)에 실제로 올린 파일만 받는다

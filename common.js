@@ -404,6 +404,11 @@ function askedQuestions(activity) {
   return (activity.questions || []).filter((q) => q.type !== "info");
 }
 
+// 꼭 답해야 하는 질문: 교사가 「필수 응답」을 고른 것. 퀴즈 카드는 한 번만 내므로 모두 필수(setup.sql student_save와 같게)
+function isRequiredQ(activity, q) {
+  return q.type !== "info" && (activity.kind === "quiz" || !!q.required);
+}
+
 // 설명 칸만 있는 카드(예전 「설명 카드」 포함): 학생은 답하지 않는다
 function isInfoActivity(activity) {
   const qs = activity.questions || [];

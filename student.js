@@ -842,7 +842,7 @@ function buildForm(c) {
   const rows = a.questions.map((q) => {
     // 설명 칸: 답을 받지 않고 글(링크 포함)만 보인다
     if (q.type === "info") return linkedDescription(q.text);
-    const label = (++num) + ". " + q.text;
+    const label = (++num) + ". " + q.text + (isRequiredQ(a, q) && a.kind !== "quiz" ? " (필수)" : "");
     let control;
     if (q.type === "choice" || q.type === "multi") {
       const picked = () => [].concat(values[q.id] ?? []);
@@ -877,8 +877,10 @@ function buildForm(c) {
   });
 
   async function save() {
-    const missing = asked.findIndex((q) => isEmptyAnswer(values[q.id]));
-    if (missing >= 0) { err.textContent = (missing + 1) + "번 질문에 답해 주세요."; return; }
+    // 필수 질문(퀴즈는 모두)은 꼭, 나머지는 하나만 답해도 제출된다
+    const missing = asked.findIndex((q) => isRequiredQ(a, q) && isEmptyAnswer(values[q.id]));
+    if (missing >= 0) { err.textContent = (missing + 1) + "번 질문은 꼭 답해야 합니다."; return; }
+    if (asked.every((q) => isEmptyAnswer(values[q.id]))) { err.textContent = "적어도 한 질문에 답해 주세요."; return; }
     if (a.kind === "quiz" && !confirm("퀴즈는 한 번만 제출할 수 있습니다. 제출할까요?")) return;
     const answers = {};
     asked.forEach((q) => { answers[q.id] = typeof values[q.id] === "string" ? values[q.id].trim() : values[q.id]; });
@@ -891,6 +893,8 @@ function buildForm(c) {
     else if (data.error === "ended") return lessonEnded();
     else if (data.error === "already") err.textContent = "이미 제출한 퀴즈입니다.";
     else if (data.error === "bad_file") err.textContent = "올린 파일을 확인하지 못했습니다. 파일을 빼고 다시 올려 주세요.";
+    else if (data.error === "required") err.textContent = "꼭 답해야 하는 질문이 비어 있습니다. 「(필수)」 질문을 확인하세요. (선생님이 방금 바꿨다면 새로고침하세요)";
+    else if (data.error === "empty") err.textContent = "적어도 한 질문에 답해 주세요.";
     else if (data.error === "logged_out") return logout("다시 입장해 주세요.");
     else if (data.error) err.textContent = "저장하지 못했습니다. (" + data.error + ")";
     else {

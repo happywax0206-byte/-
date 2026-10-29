@@ -2004,8 +2004,11 @@ function editor() {
       if (!q.quiz) { delete q.answer; delete q.explain; }
       redraw();
     } }), "퀴즈 (정답·채점)");
+    // 필수 응답: 학생은 이 질문에 답해야 제출할 수 있다(아니면 한 질문만 답해도 제출). 퀴즈 카드는 한 번만 내므로 모두 필수
+    const reqCheck = info ? null : h("label", { class: "check", title: hasQuiz ? "퀴즈가 있는 카드는 한 번만 제출하므로 모든 질문에 답해야 제출됩니다" : "체크하면 학생이 이 질문에 답해야 제출할 수 있습니다" },
+      h("input", { type: "checkbox", checked: hasQuiz || !!q.required, disabled: hasQuiz, onchange(ev) { if (ev.target.checked) q.required = true; else delete q.required; } }), "필수 응답");
     return h("article", { class: "q-edit stack" + (info ? " info" : quiz ? " quiz" : "") },
-      h("div", { class: "row wrap" }, h("strong", {}, info ? "설명" : (quiz ? "퀴즈 " : "질문 ") + (++num)), typeSel, quizCheck, h("span", { class: "spacer" }),
+      h("div", { class: "row wrap" }, h("strong", {}, info ? "설명" : (quiz ? "퀴즈 " : "질문 ") + (++num)), typeSel, quizCheck, reqCheck, h("span", { class: "spacer" }),
         h("button", { class: "link", type: "button", onclick() { move(-1); } }, "위로"),
         h("button", { class: "link", type: "button", onclick() { move(1); } }, "아래로"),
         h("button", { class: "link danger", type: "button", onclick() { if (e.questions.length > 1) { e.questions.splice(i, 1); redraw(); } } }, "삭제")),
@@ -2031,6 +2034,7 @@ function editor() {
       if (!q.text) { msg.textContent = name + "을 입력하세요."; return; }
       if (info || !q.quiz) { delete q.quiz; delete q.answer; delete q.explain; }
       else q.quiz = true;
+      if (info || !q.required) delete q.required; else q.required = true;
       if (info) { delete q.options; delete q.accept; continue; }
       const i = n - 1;
       if (q.type === "choice" || q.type === "multi") {
