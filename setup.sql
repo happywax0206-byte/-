@@ -242,6 +242,14 @@ language sql stable security definer set search_path = public as $$
   select exists (select 1 from lesson_students m where m.student_id = p_student and can_edit_lesson(m.lesson_id))
 $$;
 
+-- 학생 계정 완전 삭제(모든 수업의 응답이 함께 지워짐)는 그 학생이 들어온 모든 수업을 고칠 수 있을 때만
+-- (한 수업에 초대된 공동작업자가 다른 선생님 수업의 응답까지 지우지 못하게)
+create or replace function can_delete_student(p_student uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select can_edit_student(p_student)
+     and not exists (select 1 from lesson_students m where m.student_id = p_student and not can_edit_lesson(m.lesson_id))
+$$;
+
 -- 저장소 폴더 이름(글자)이 볼 수 있는 수업의 id인지
 create or replace function can_lesson_path(p text) returns boolean
 language plpgsql stable security definer set search_path = public as $$
@@ -294,7 +302,7 @@ create policy teacher_delete on activities for delete to authenticated using (ca
 create policy teacher_read   on students for select to authenticated using (can_student(id));
 create policy teacher_insert on students for insert to authenticated with check (can_edit_student(id));
 create policy teacher_update on students for update to authenticated using (can_edit_student(id)) with check (can_edit_student(id));
-create policy teacher_delete on students for delete to authenticated using (can_edit_student(id));
+create policy teacher_delete on students for delete to authenticated using (can_delete_student(id));
 -- 학생 열쇠(token)와 비밀번호 암호(pin_hash)는 교사도 읽거나 바꾸지 못한다(공동작업 교사가 그 학생으로 다른 선생님 수업에
 -- 들어가거나, 4자리 비밀번호를 알아내지 못하게). 교사는 아래 칸만 보고, 비밀번호 초기화는 reset_student 함수로만 한다.
 -- 학생 표에 칸을 더하면 교사가 봐야 하는 칸은 여기 목록에도 더한다.
@@ -965,6 +973,7 @@ grant execute on function lesson_rights() to authenticated;
 grant execute on function can_edit_lesson(uuid) to authenticated;
 grant execute on function can_edit_activity(uuid) to authenticated;
 grant execute on function can_edit_student(uuid) to authenticated;
+grant execute on function can_delete_student(uuid) to authenticated;
 grant execute on function can_edit_lesson_path(text) to authenticated;
 revoke all on function add_member(uuid, text) from public;
 revoke all on function remove_member(uuid, text) from public;
@@ -1060,7 +1069,11 @@ begin
   if a.kind = 'quiz' and exists (select 1 from responses where student_id = s.id and activity_id = a.id) then
     return jsonb_build_object('error', 'already');
   end if;
-  if coalesce(p_ext, '') !~ '^[a-z0-9]{1,5}$' then return jsonb_build_object('error', 'bad_file'); end if;
+  -- 확장자는 앱이 받는 종류만(common.js FILE_TYPES와 같게). 「.exe」 같은 자리를 받아 교사가 내려받게 하지 못하게
+  if coalesce(p_ext, '') not in ('jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'pdf', 'txt', 'doc', 'docx', 'xls', 'xlsx',
+                                 'ppt', 'pptx', 'hwp', 'hwpx', 'zip', 'mp3', 'm4a', 'mp4', 'mov') then
+    return jsonb_build_object('error', 'bad_file');
+  end if;
   delete from upload_tickets where created_at < now() - interval '1 day';
   if (select count(*) from upload_tickets where student_id = s.id and created_at > now() - interval '1 hour') >= 40 then
     return jsonb_build_object('error', 'too_many');
@@ -1096,8 +1109,13 @@ drop policy if exists submissions_teacher_read on storage.objects;
 drop policy if exists submissions_teacher_delete on storage.objects;
 create policy submissions_student_insert on storage.objects for insert to anon, authenticated
   with check (bucket_id = 'submissions' and submission_ticket_ok(name));
+-- 학생 읽기는 올리는 그 순간(저장소가 방금 넣은 줄을 확인할 때)에만 필요하다. 예전에는 자리를 받은 뒤 15분 동안 누구나
+-- 폴더 목록을 보고 내려받을 수 있었다(수업 id를 아는 학생, 또는 맨 위 폴더 목록으로 아무나). 이제 목록 보기는 막고,
+-- 올린 지 2분이 지난 파일은 학생 쪽에서 읽을 수 없다(교사 읽기는 아래 정책)
 create policy submissions_student_read on storage.objects for select to anon, authenticated
-  using (bucket_id = 'submissions' and submission_ticket_ok(name));
+  using (bucket_id = 'submissions' and submission_ticket_ok(name)
+         and created_at > now() - interval '2 minutes'
+         and coalesce(current_setting('storage.operation', true), '') not ilike '%list%');
 -- 교사는 볼 수 있는 수업의 폴더(수업id/…)만
 create policy submissions_teacher_read on storage.objects for select to authenticated using (bucket_id = 'submissions' and can_lesson_path((storage.foldername(name))[1]));
 create policy submissions_teacher_delete on storage.objects for delete to authenticated using (bucket_id = 'submissions' and can_edit_lesson_path((storage.foldername(name))[1]));

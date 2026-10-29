@@ -2362,8 +2362,9 @@ function drawStudents() {
           class: "link danger", type: "button",
           async onclick() {
             if (!confirm(nameOf(s) + " 학생 계정을 완전히 지울까요?\n모든 수업에서 빠지고, 모든 수업의 응답이 지워집니다. 장난으로 만든 이름을 지울 때 쓰세요.")) return;
-            const { error } = await sb.from("students").delete().eq("id", s.id);
+            const { data, error } = await sb.from("students").delete().eq("id", s.id).select("id");
             if (error) return alert(error.message);
+            if (!data || !data.length) return alert("지우지 못했습니다. 이 학생은 내가 고칠 수 없는 다른 수업에도 들어가 있어서, 계정을 지우면 그 수업의 응답까지 지워집니다.\n이 수업에서만 빼려면 「이 수업에서 빼기」를 누르세요.");
             await loadResponses();
             drawStudents();
           },
@@ -3187,9 +3188,15 @@ async function slideFilesOf(l) {
 // ---------- 학생이 올린 파일 ----------
 // 저장소는 비공개라 10분짜리 주소를 받아 연다. 그림·PDF·글은 새 탭에서 보고, 나머지는 원래 이름으로 내려받는다.
 async function openFile(f) {
-  const view = /^(image\/(jpeg|png|gif|webp)|application\/pdf|text\/plain)$/.test(fileTypeOf(f.path));
+  // 파일 종류는 서버가 정한 자리(path)의 확장자로만 본다. 학생이 적어 보낸 이름(f.name)은 「숙제.hwp.exe」처럼 속일 수 있으므로
+  // 내려받는 이름의 확장자도 path 것으로 바꾸고, 앱이 받는 종류가 아니면 열지 않는다
+  const ext = fileExt(f.path);
+  if (!FILE_TYPES[ext]) return alert("이 앱이 받지 않는 종류의 파일이라 열지 않습니다(." + ext + ").");
+  const base = String(f.name || "파일").replace(/\.[^.]*$/, "").replace(/[\\/:*?"<>|\u0000-\u001f‪-‮⁦-⁩]/g, "_").slice(0, 100) || "파일";
+  const view = /^(image\/(jpeg|png|gif|webp)|application\/pdf|text\/plain)$/.test(FILE_TYPES[ext]);
   const win = view ? window.open("", "_blank") : null;   // 팝업 차단을 피하려고 누른 즉시 연다
-  const { data, error } = await sb.storage.from("submissions").createSignedUrl(f.path, 600, view ? undefined : { download: f.name });
+  if (win) win.opener = null;   // 열린 탭이 이 교사 화면을 다른 주소로 바꾸지 못하게
+  const { data, error } = await sb.storage.from("submissions").createSignedUrl(f.path, 600, view ? undefined : { download: base + "." + ext });
   if (error) {
     if (win) win.close();
     return alert("파일을 열지 못했습니다: " + error.message + (/not found/i.test(error.message) ? " · 수업이나 활동을 지우면서 함께 지워졌을 수 있습니다." : ""));
@@ -3244,7 +3251,12 @@ async function removeOrphanFiles() {
 // ---------- CSV ----------
 function downloadCSV(acts, fileName) {
   acts = acts.filter((a) => a.kind !== "sim" && !isInfoActivity(a));
-  const cell = (v) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
+  // = + - @ 로 시작하는 학생 글은 엑셀이 수식으로 실행한다(다른 칸을 밖으로 보내는 링크 등). 앞에 '를 붙여 글자로만 보이게 한다(숫자는 그대로)
+  const cell = (v) => {
+    let s = String(v ?? "");
+    if (/^[=+\-@\t\r]/.test(s) && !/^[+-]?\d+(\.\d+)?$/.test(s)) s = "'" + s;
+    return '"' + s.replace(/"/g, '""') + '"';
+  };
   const head = ["학번", "이름"];
   acts.forEach((a) => {
     if (a.kind === "quiz") head.push(a.title + " · 점수");
