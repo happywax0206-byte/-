@@ -1,4 +1,4 @@
-// 교사 화면(버전 2): 로그인 → 수업 고르기 → [수업 진행] [학생 화면] [학생 관리] · 오른쪽 「설정」 안에 [질문·설문 만들기] [수업 설정] [프로필·공동작업자] (끌어서 옮길 수 있음)
+// 교사 화면(버전 2): 로그인 → 수업 고르기 → 수업모드 [수업 진행] [학생 화면] [학생 관리] / 편집모드 [질문·설문 만들기] [수업 미리 보기] [수업 설정] · 오른쪽 「⚙ 설정」 안에 [프로필·공동작업자] [관리] [버그 제보]
 // 수업 진행·학생 관리 탭은 3초마다 응답을 다시 읽어 온다.
 
 const app = document.getElementById("app");
@@ -27,12 +27,13 @@ async function init() {
   if (error || !ok) {
     return app.replaceChildren(h("main", { class: "narrow" }, h("section", { class: "card stack" },
       h("h1", {}, "교사로 등록되지 않은 계정입니다"),
-      h("p", {}, (me.email || "") + " 이메일은 아직 초대받지 않았습니다. 수업을 만든 선생님께 「프로필·공동작업자」 탭에서 이 이메일로 초대해 달라고 하세요. 초대받은 뒤 새로고침하면 됩니다."),
+      h("p", {}, (me.email || "") + " 이메일은 아직 초대받지 않았습니다. 수업을 만든 선생님께 「⚙ 설정 → 프로필·공동작업자」에서 이 이메일로 초대해 달라고 하세요. 초대받은 뒤 새로고침하면 됩니다."),
       h("p", { class: "muted small" }, "이 웹앱을 처음 설치하는 선생님이면 setup.sql 맨 아래에 이 이메일을 넣고 다시 실행하세요."),
       error ? h("p", { class: "error" }, error.message) : null,
       h("button", { class: "ghost", type: "button", async onclick() { await sb.auth.signOut(); location.reload(); } }, "로그아웃"))));
   }
   await loadProfile();
+  await loadBugCount();
   await loadLessons(localStorage.getItem("cra-lesson"));
   document.addEventListener("keydown", (e) => {
     if (!isRunTab() || !lesson || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
@@ -114,6 +115,115 @@ function drawPeople() {
       : h("section", { class: "card stack" }, h("h2", {}, "공동작업자"), h("p", { class: "muted" }, "위쪽에서 수업을 고르면 그 수업의 공동작업자를 보고 초대할 수 있습니다."))));
 }
 
+// ---------- 버그 제보 ----------
+// 어느 교사든 보낼 수 있다. 받는 사람(setup.sql의 bug_to)은 모든 제보를, 다른 교사는 자기가 보낸 것만 본다.
+// 메일은 서버(데이터베이스)가 보내므로 받는 사람이 접속해 있지 않아도 간다.
+const BUG_MAIL = { ok: ["메일 보냄", "ok"], sent: ["메일 보내는 중", "info"], fail: ["메일 실패", "warn"], no_key: ["메일 키 없음", "warn"], error: ["메일 기능 꺼짐", "warn"] };
+
+function drawBugs() {
+  const text = h("textarea", { rows: 7, maxlength: 4000, required: true, placeholder: "예) 수업 진행 탭에서 다음 쪽 단추를 눌렀는데 슬라이드가 안 바뀌어요. 학생 화면은 바뀝니다." });
+  const msg = h("p", { class: "msg" });
+  const btn = h("button", { class: "primary", type: "submit" }, "보내기");
+  const listBox = h("div", { class: "stack" }, h("p", { class: "muted" }, "읽어 오는 중…"));
+  const where = bugFrom || (lesson ? lesson.title + " (" + lesson.code + ")" : "");
+  main.replaceChildren(h("div", { class: "stack narrowish" },
+    h("form", {
+      class: "card stack",
+      async onsubmit(e) {
+        e.preventDefault();
+        if (!text.value.trim()) return;
+        btn.disabled = true;
+        msg.textContent = "보내는 중…";
+        const { data, error } = await sb.rpc("report_bug", { p_body: text.value, p_place: where || null, p_agent: navigator.userAgent.slice(0, 300) });
+        btn.disabled = false;
+        if (error) {
+          msg.textContent = /report_bug|function|schema cache/i.test(error.message)
+            ? "아직 보낼 수 없습니다: 관리하는 선생님이 Supabase에서 setup.sql을 다시 실행해야 합니다."
+            : "보내지 못했습니다: " + error.message;
+          return;
+        }
+        if (data.error) {
+          msg.textContent = { too_many: "오늘은 더 보낼 수 없습니다(하루 20번까지). 내일 다시 보내 주세요.", too_long: "4000자까지만 보낼 수 있습니다.", empty: "내용을 적어 주세요." }[data.error] || data.error;
+          return;
+        }
+        text.value = "";
+        msg.textContent = "보냈습니다. 알려 주셔서 고맙습니다!";
+        await loadBugCount();
+        loadBugList(listBox);
+      },
+    },
+      h("h2", {}, "버그 제보"),
+      h("p", { class: "muted small" }, "잘 안 되는 것, 이상하게 보이는 것, 바라는 점을 적어 보내 주세요. 언제·어느 화면에서·무엇을 눌렀을 때 그랬는지 적어 주시면 고치기 쉽습니다."),
+      text,
+      h("p", { class: "muted small" }, "함께 보내는 것: 내 이름·이메일" + (where ? ", 보던 화면(" + where + ")" : "") + ", 브라우저 종류. 학생 정보는 보내지 않습니다."),
+      h("div", { class: "row" }, btn), msg),
+    h("section", { class: "card stack" }, listBox)));
+  text.focus();
+  loadBugList(listBox);
+}
+
+async function loadBugList(box) {
+  const { data, error } = await sb.rpc("bug_inbox");
+  if (!box.isConnected) return;
+  if (error) {
+    box.replaceChildren(h("h2", {}, "보낸 제보"), h("p", { class: "muted" }, "setup.sql을 다시 실행하면 여기에 제보 목록이 보입니다."));
+    return;
+  }
+  bugAdmin = data.admin;
+  const list = data.list || [];
+  const last = list[0];
+  box.replaceChildren(...[
+    h("div", { class: "row between wrap" }, h("h2", {}, data.admin ? "받은 제보 (" + list.length + ")" : "내가 보낸 제보"),
+      h("button", { class: "ghost", type: "button", onclick() { loadBugList(box); } }, "⟳ 새로고침")),
+    data.admin && last && last.mail !== "ok" && last.mail !== "sent" ? bugMailHelp(last.mail) : null,
+    list.length ? null : h("p", { class: "muted" }, data.admin ? "아직 받은 제보가 없습니다." : "아직 보낸 제보가 없습니다."),
+    ...list.map((b) => bugItem(b, data.admin, box))].filter(Boolean));
+  // 받는 사람이 목록을 봤으면 빨간 점을 지운다(이번 목록에서는 「새」 표시를 그대로 둔다)
+  if (data.admin && list.some((b) => !b.seen)) {
+    const r = await sb.rpc("bug_seen");
+    if (!r.error) { bugUnseen = 0; refreshGear(); }
+  }
+}
+
+function bugItem(b, admin, box) {
+  const mail = BUG_MAIL[b.mail];
+  return h("article", { class: "bug-item" + (admin && !b.seen ? " new" : "") },
+    h("div", { class: "row between wrap" },
+      h("div", {},
+        admin && !b.seen ? h("span", { class: "tag info" }, "새") : null, " ",
+        h("strong", {}, admin ? (b.name ? b.name + " 선생님" : b.email) : "나"), " ",
+        h("span", { class: "muted small" }, new Date(b.created_at).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" }))),
+      h("div", { class: "row" },
+        admin && mail ? h("span", { class: "tag " + mail[1] }, mail[0]) : null,
+        admin ? h("a", { class: "ghost small-btn", href: "mailto:" + b.email + "?subject=" + encodeURIComponent("Re: 버그 제보"), title: b.email }, "답장") : null,
+        admin ? h("button", {
+          class: "ghost danger small-btn", type: "button",
+          async onclick() {
+            if (!confirm("이 제보를 지울까요?")) return;
+            const r = await sb.rpc("bug_delete", { p_id: b.id });
+            if (r.error) alert("지우지 못했습니다: " + r.error.message); else loadBugList(box);
+          },
+        }, "지우기") : null)),
+    h("p", { class: "bug-body" }, b.body),
+    h("p", { class: "muted small" }, [admin ? b.email : null, b.place ? "화면: " + b.place : null, admin && b.agent ? "브라우저: " + b.agent : null].filter(Boolean).join(" · ")));
+}
+
+// 받는 사람에게만: 메일이 안 갔을 때 무엇을 하면 되는지
+function bugMailHelp(state) {
+  return h("div", { class: "banner warn stack" },
+    h("strong", {}, state === "no_key" ? "제보가 메일로는 가지 않고 있습니다(메일 키 없음)."
+      : state === "error" ? "제보가 메일로는 가지 않고 있습니다(Supabase에서 pg_net을 켜지 못함)."
+        : "가장 최근 제보의 메일을 보내지 못했습니다."),
+    state === "error"
+      ? h("p", { class: "small" }, "Supabase 대시보드 → Database → Extensions에서 pg_net을 켠 뒤 setup.sql을 다시 실행하세요.")
+      : h("ol", { class: "small" },
+        h("li", {}, h("a", { href: "https://resend.com/signup", target: "_blank", rel: "noopener" }, "resend.com"), "에 ", h("strong", {}, me && me.email), " 으로 가입합니다(무료)."),
+        h("li", {}, "API Keys → Create API Key (권한: Sending access) → 나온 키(re_로 시작)를 복사합니다."),
+        h("li", {}, "Supabase SQL Editor에서 아래 한 줄의 키 자리를 바꿔 Run 합니다:",
+          h("pre", { class: "small" }, "insert into app_secrets values ('resend_key', 're_여기에_키') on conflict (key) do update set value = excluded.value;")),
+        state === "fail" ? h("li", {}, "이미 넣었다면 키가 맞는지, Resend 가입 이메일이 이 이메일과 같은지 확인하세요.") : null));
+}
+
 // ---------- 관리: 쓰고 있는 사이트의 무료 용량 ----------
 // 무료 플랜 한도(2026년 10월 supabase.com/pricing, GitHub Pages 문서 기준). 바뀌면 여기 숫자만 고친다.
 const FREE = { db: 500e6, disk: 2e9, storage: 1e9, egress: 5e9, cached: 5e9, mau: 50000, pages: 1e9, builds: 10 };
@@ -124,7 +234,7 @@ const DETAIL_MAX = 8, DETAIL_MIN = 0.02;
 const DB_NAMES = {
   "public.responses": "학생 답", "public.activities": "질문·설문·시뮬레이션", "public.lesson_students": "수업 참여·실시간 화면",
   "public.students": "학생 계정", "public.lessons": "수업", "public.upload_tickets": "파일 올리기 자리", "public.teachers": "교사 목록",
-  "public.lesson_members": "공동작업자", "storage.objects": "저장소 파일 목록",
+  "public.lesson_members": "공동작업자", "public.bug_reports": "버그 제보", "storage.objects": "저장소 파일 목록",
 };
 let manageOpen = null;   // 펼쳐 본 칸
 let manageData = null;   // { gauges, grid, detail }
@@ -471,7 +581,7 @@ async function loadLessons(selectId) {
   if (error) return fatal(error);
   lessons = data;
   lesson = lessons.find((l) => l.id === selectId) || lessons[0] || null;
-  if (!lesson && tab !== "people" && tab !== "manage") tab = "settings";
+  if (!lesson && !GEAR.includes(tab)) tab = "settings";
   await loadLesson();
 }
 
@@ -584,10 +694,11 @@ function draw() {
   }, lessons.map((l) => h("option", { value: l.id, selected: lesson && l.id === lesson.id }, (l.kind === "survey" ? "[설문] " : "") + (isMine(l) ? "" : "[공동] ") + l.title + " (" + l.code + ")")),
     h("option", { value: "new", selected: !lesson }, "+ 새 수업 만들기"));
   if (!TABS[tab]) tab = "run";
-  if (!lesson && tab !== "people" && tab !== "manage") tab = "settings";
+  if (!lesson && !GEAR.includes(tab)) tab = "settings";
   main = h("main", { class: "wide" });
   tabNav = buildTabNav();
   profileEl = buildProfile();
+  gearEl = buildGear();
   app.replaceChildren(
     h("header", { class: "top" },
       h("div", { class: "top-title" }, h("span", { class: "eyebrow" }, "교사용"), pick, buildModeSwitch()),
@@ -595,10 +706,10 @@ function draw() {
       h("div", { class: "top-right" },
         lesson ? mirrorStatus : null,
         lesson ? h("button", { class: "ghost present-btn", type: "button", title: "학생에게 보여 줄 슬라이드만 새 탭에 띄웁니다", onclick: openPresent }, "▣ 수업 화면 띄우기") : null,
-        profileEl)),
+        gearEl, profileEl)),
     main);
   setTopHeight();
-  ({ run: drawRun, preview: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings, people: drawPeople, manage: drawManage })[tab]();
+  ({ run: drawRun, preview: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings, people: drawPeople, manage: drawManage, bugs: drawBugs })[tab]();
   schedule();
   updateMirror();
 }
@@ -613,20 +724,28 @@ function setTopHeight() {
 // 수업모드에서는 수업할 때 쓰는 탭, 편집모드에서는 미리 준비하는 탭만 위쪽에 보인다.
 // 모드 단추는 지금 모드를 보여 주고, 누르면 다른 모드로 바뀐다(그 모드에서 마지막으로 본 탭으로).
 // 탭은 끌어서 같은 모드 안에서 순서를 바꿀 수 있고, 그 순서는 이 브라우저에 기억한다(cra-tab-order).
-const TABS = { run: "수업 진행", live: "학생 화면", students: "학생 관리", build: "질문·설문 만들기", preview: "수업 미리 보기", settings: "수업 설정", people: "프로필·공동작업자", manage: "관리" };
-const MODES = { class: { name: "수업모드", tabs: ["run", "live", "students"] }, edit: { name: "편집모드", tabs: ["build", "preview", "settings", "people", "manage"] } };
+// 「⚙ 설정」 단추 안의 탭(GEAR)은 어느 모드에도 속하지 않고, 열면 그 전에 있던 모드의 탭 줄이 그대로 보인다.
+const TABS = { run: "수업 진행", live: "학생 화면", students: "학생 관리", build: "질문·설문 만들기", preview: "수업 미리 보기", settings: "수업 설정", people: "프로필·공동작업자", manage: "관리", bugs: "버그 제보" };
+const MODES = { class: { name: "수업모드", tabs: ["run", "live", "students"] }, edit: { name: "편집모드", tabs: ["build", "preview", "settings"] } };
+const GEAR = ["people", "manage", "bugs"];
 const isRunTab = () => tab === "run" || tab === "preview";   // 수업 진행 화면을 쓰는 탭(미리 보기는 그 일부만)
 let tabNav = null;        // 위쪽 막대의 탭 칸
 let tabDrag = null;       // 끌고 있는 탭
 const tabMark = h("span", { class: "tab-mark" });   // 끌어다 놓을 자리 표시
 loadTabOrder();
-const modeOf = (k) => MODES.edit.tabs.includes(k) ? "edit" : "class";
+const modeOf = (k) => GEAR.includes(k) ? (localStorage.getItem("cra-mode") === "class" && lesson ? "class" : "edit")
+  : MODES.edit.tabs.includes(k) ? "edit" : "class";
 
 async function goTab(k) {
   const needLive = k === "live" && tab !== "live";
+  if (GEAR.includes(k) && !GEAR.includes(tab)) localStorage.setItem("cra-mode", modeOf(tab));   // 설정을 열기 전 모드를 그대로 보인다
   tab = k; localStorage.setItem("cra-tab", k);
-  localStorage.setItem("cra-tab-" + modeOf(k), k);
+  if (!GEAR.includes(k)) {
+    localStorage.setItem("cra-tab-" + modeOf(k), k);
+    localStorage.setItem("cra-mode", modeOf(k));
+  }
   profileOpen = false;
+  gearOpen = false;
   if (needLive) await loadResponses();   // 다른 탭에서는 쓰고 있는 답을 받지 않았으므로 먼저 받는다
   draw();
 }
@@ -650,7 +769,7 @@ function loadTabOrder() {
 
 function tabButton(k) {
   // disabled 대신 aria-disabled: 수업이 없을 때도 끌어서 옮길 수는 있게
-  const off = !lesson && k !== "settings" && k !== "people" && k !== "manage";
+  const off = !lesson && k !== "settings" && !GEAR.includes(k);
   return h("button", {
     type: "button", class: tab === k ? "tab on" : "tab", "data-tab": k, draggable: "true", "aria-disabled": off ? "true" : null,
     title: "끌어서 순서를 바꿀 수 있습니다",
@@ -748,14 +867,65 @@ function refreshProfile() {
   profileEl = next;
 }
 
-// 프로필 목록 밖을 누르거나 Esc를 누르면 닫는다
+// 「⚙ 설정」 단추: 누르면 프로필·공동작업자, 관리, 버그 제보.
+// 버그 제보를 받는 사람(setup.sql의 bug_to)에게는 아직 안 본 제보가 있으면 빨간 점과 작은 말풍선이 뜬다.
+let gearOpen = false;
+let gearEl = null;
+let bugAdmin = false;     // 내가 버그 제보를 받는 사람인지
+let bugUnseen = 0;        // 아직 안 본 제보 수
+let bugBubbleOff = false; // 말풍선을 닫았는지(이 화면을 새로고침할 때까지)
+let bugFrom = "";         // 버그 제보를 열기 전에 보던 화면(제보에 함께 적음)
+
+function buildGear() {
+  const dot = bugAdmin && bugUnseen > 0;
+  const item = (k) => h("button", {
+    class: tab === k ? "tab on" : "tab", type: "button",
+    onclick() {
+      if (k === "bugs" && tab !== "bugs") bugFrom = (TABS[tab] || tab) + (lesson ? " · " + lesson.title + " (" + lesson.code + ")" : "");
+      goTab(k);
+    },
+  }, TABS[k], k === "bugs" && dot ? h("span", { class: "gear-count" }, bugUnseen) : null);
+  return h("div", { class: "gear-set" },
+    h("button", {
+      class: "ghost gear-btn" + (GEAR.includes(tab) ? " on" : ""), type: "button", "aria-haspopup": "true", "aria-expanded": gearOpen ? "true" : "false",
+      title: dot ? "새 버그 제보 " + bugUnseen + "개" : "프로필·공동작업자, 관리, 버그 제보",
+      onclick() { gearOpen = !gearOpen; refreshGear(); },
+    }, "⚙ 설정" + (GEAR.includes(tab) ? " · " + TABS[tab] : ""), dot ? h("span", { class: "gear-dot", "aria-label": "새 버그 제보" }) : null),
+    gearOpen ? h("div", { class: "profile-menu" }, GEAR.map(item)) : null,
+    dot && !gearOpen && !bugBubbleOff && tab !== "bugs" ? h("div", { class: "bug-bubble", role: "status" },
+      h("button", { class: "link", type: "button", onclick() { goTab("bugs"); } }, "버그 제보가 있습니다" + (bugUnseen > 1 ? " (" + bugUnseen + ")" : "")),
+      h("button", { class: "bubble-x", type: "button", title: "닫기", "aria-label": "닫기", onclick() { bugBubbleOff = true; refreshGear(); } }, "×")) : null);
+}
+
+function refreshGear() {
+  if (!gearEl || !gearEl.isConnected) return;
+  const next = buildGear();
+  gearEl.replaceWith(next);
+  gearEl = next;
+}
+
+// 안 본 제보 수. setup.sql을 아직 다시 실행하지 않았으면 조용히 넘어간다.
+async function loadBugCount() {
+  const { data, error } = await sb.rpc("bug_count");
+  if (error || !data) return;
+  const changed = data.admin !== bugAdmin || data.unseen !== bugUnseen;
+  if (data.unseen > bugUnseen) bugBubbleOff = false;   // 새 제보가 오면 말풍선을 다시 띄운다
+  bugAdmin = data.admin; bugUnseen = data.unseen;
+  if (changed) refreshGear();
+}
+// 켜 둔 동안에도 3분마다(화면을 보고 있을 때만) 새 제보를 확인한다
+setInterval(() => { if (me && document.visibilityState === "visible") loadBugCount(); }, 180000);
+
+// 프로필·설정 목록 밖을 누르거나 Esc를 누르면 닫는다
 document.addEventListener("click", (e) => {
   if (!e.target.isConnected) return;   // 방금 다시 그린 단추를 누른 것
   if (profileOpen && profileEl && !profileEl.contains(e.target)) { profileOpen = false; refreshProfile(); }
+  if (gearOpen && gearEl && !gearEl.contains(e.target)) { gearOpen = false; refreshGear(); }
 });
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (profileOpen) { profileOpen = false; refreshProfile(); }
+  if (gearOpen) { gearOpen = false; refreshGear(); }
 });
 addEventListener("resize", setTopHeight);
 // 창이 커지거나 슬라이드를 전체 화면으로 띄우면 더 큰 슬라이드 그림으로 바꾼다

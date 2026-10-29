@@ -857,10 +857,159 @@ create policy submissions_teacher_read on storage.objects for select to authenti
 create policy submissions_teacher_delete on storage.objects for delete to authenticated using (bucket_id = 'submissions' and can_lesson_path((storage.foldername(name))[1]));
 
 -- ------------------------------------------------------------
+-- 버그 제보: 교사 화면 「⚙ 설정 → 버그 제보」에서 보낸 글.
+-- 받는 사람(bug_to, 맨 아래에서 정함)은 교사 화면 설정 단추의 빨간 점으로 보고, 메일로도 받는다.
+-- 메일은 Resend(resend.com, 무료)로 보낸다. 키는 공개 저장소에 넣으면 안 되므로 이 파일에 없고,
+-- SQL Editor에서 한 번만 따로 실행한다:
+--   insert into app_secrets values ('resend_key', 're_로_시작하는_키') on conflict (key) do update set value = excluded.value;
+-- 키가 없거나 메일이 실패해도 제보는 저장되고 교사 화면에서는 보인다.
+-- ------------------------------------------------------------
+do $$ begin
+  create extension if not exists pg_net with schema extensions;   -- 데이터베이스가 직접 메일 API를 부른다(아무도 접속해 있지 않아도 감)
+exception when others then raise notice 'pg_net을 켜지 못했습니다(메일 없이 저장만): %', sqlerrm;
+end $$;
+
+-- 앱 비밀 값(메일 키, 받는 사람). 정책이 없어 브라우저에서는 읽을 수 없고 아래 함수만 쓴다.
+create table if not exists app_secrets (
+  key   text primary key,
+  value text not null
+);
+alter table app_secrets enable row level security;
+revoke all on app_secrets from anon, authenticated;
+
+create table if not exists bug_reports (
+  id         uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  email      text not null,                                        -- 보낸 교사
+  name       text,
+  body       text not null check (length(body) between 1 and 4000),
+  place      text check (length(place) <= 300),                    -- 어느 화면에서(탭·수업)
+  agent      text check (length(agent) <= 300),                    -- 브라우저
+  seen       boolean not null default false,                       -- 받는 사람이 교사 화면에서 봤는지
+  mail       text,                                                 -- 메일: sent(보내는 중) ok fail no_key error
+  mail_req   bigint                                                -- pg_net 요청 번호(결과 확인용)
+);
+alter table bug_reports enable row level security;   -- 정책 없음: 아래 함수로만 쓴다
+create index if not exists bug_reports_email on bug_reports (email, created_at desc);
+
+create or replace function bug_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select my_email() <> '' and exists (select 1 from app_secrets where key = 'bug_to' and lower(value) = my_email())
+$$;
+
+-- 제보 보내기: 교사만, 한 사람이 하루 20번까지
+create or replace function report_bug(p_body text, p_place text default null, p_agent text default null) returns jsonb
+language plpgsql volatile security definer set search_path = public, extensions as $$
+declare
+  r bug_reports;
+  k text;
+  to_addr text;
+  rid bigint;
+begin
+  if not is_teacher() then raise exception 'not a teacher'; end if;
+  if length(trim(coalesce(p_body, ''))) = 0 then return jsonb_build_object('error', 'empty'); end if;
+  if length(trim(p_body)) > 4000 then return jsonb_build_object('error', 'too_long'); end if;
+  if (select count(*) from bug_reports where email = my_email() and created_at > now() - interval '1 day') >= 20 then
+    return jsonb_build_object('error', 'too_many');
+  end if;
+  insert into bug_reports (email, name, body, place, agent)
+    values (my_email(), (select name from teachers where email = my_email()), trim(p_body), left(p_place, 300), left(p_agent, 300))
+    returning * into r;
+  select value into k from app_secrets where key = 'resend_key';
+  select value into to_addr from app_secrets where key = 'bug_to';
+  if k is null or to_addr is null then
+    update bug_reports set mail = 'no_key' where id = r.id;
+    return jsonb_build_object('ok', true, 'mail', 'no_key');
+  end if;
+  begin
+    -- 실제로 보내는 것은 이 요청이 끝난 뒤 데이터베이스가 따로 한다
+    select net.http_post(
+      url := 'https://api.resend.com/emails',
+      headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Bearer ' || k),
+      body := jsonb_build_object(
+        'from', '수업 응답 앱 <onboarding@resend.dev>',
+        'to', jsonb_build_array(to_addr),
+        'reply_to', r.email,
+        'subject', '[수업 응답 앱] 버그 제보: ' || left(regexp_replace(r.body, '\s+', ' ', 'g'), 40),
+        'text', '보낸 사람: ' || coalesce(r.name || ' 선생님 ', '') || '<' || r.email || '>' || chr(10)
+          || '보낸 때: ' || to_char(r.created_at at time zone 'Asia/Seoul', 'YYYY-MM-DD HH24:MI') || chr(10)
+          || '화면: ' || coalesce(r.place, '-') || chr(10)
+          || '브라우저: ' || coalesce(r.agent, '-') || chr(10) || chr(10)
+          || r.body || chr(10) || chr(10)
+          || '― 이 메일에 답장하면 보낸 선생님께 갑니다. 교사 화면 「⚙ 설정 → 버그 제보」에서도 볼 수 있습니다.'),
+      timeout_milliseconds := 10000) into rid;
+    update bug_reports set mail = 'sent', mail_req = rid where id = r.id;
+    return jsonb_build_object('ok', true, 'mail', 'sent');
+  exception when others then
+    update bug_reports set mail = 'error' where id = r.id;
+    return jsonb_build_object('ok', true, 'mail', 'error');
+  end;
+end $$;
+
+-- 빨간 점용: 받는 사람이면 아직 안 본 제보 수(가벼워서 자주 불러도 됨)
+create or replace function bug_count() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select case when bug_admin()
+    then jsonb_build_object('admin', true, 'unseen', (select count(*) from bug_reports where not seen))
+    else jsonb_build_object('admin', false, 'unseen', 0) end
+$$;
+
+-- 제보 목록: 받는 사람은 모두(최근 200개), 다른 교사는 자기가 보낸 것만(최근 30개)
+create or replace function bug_inbox() returns jsonb
+language plpgsql volatile security definer set search_path = public, extensions as $$
+declare
+  admin boolean := bug_admin();
+begin
+  if not is_teacher() then raise exception 'not a teacher'; end if;
+  if admin then
+    begin
+      -- 보내는 중이던 메일의 결과를 pg_net 기록(6시간 보관)에서 옮겨 적는다
+      update bug_reports b set mail = case when x.status_code between 200 and 299 then 'ok' else 'fail' end
+        from net._http_response x where x.id = b.mail_req and b.mail = 'sent';
+    exception when others then null;
+    end;
+  end if;
+  return jsonb_build_object('admin', admin, 'list', coalesce((
+    select jsonb_agg(to_jsonb(b) - 'mail_req' order by b.created_at desc) from (
+      select * from bug_reports where admin or email = my_email()
+      order by created_at desc limit case when admin then 200 else 30 end) b), '[]'::jsonb));
+end $$;
+
+-- 받는 사람이 봤다고 적기 / 지우기
+create or replace function bug_seen() returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not bug_admin() then raise exception 'not allowed'; end if;
+  update bug_reports set seen = true where not seen;
+end $$;
+
+create or replace function bug_delete(p_id uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not bug_admin() then raise exception 'not allowed'; end if;
+  delete from bug_reports where id = p_id;
+end $$;
+
+revoke all on function bug_admin() from public;
+revoke all on function report_bug(text, text, text) from public;
+revoke all on function bug_count() from public;
+revoke all on function bug_inbox() from public;
+revoke all on function bug_seen() from public;
+revoke all on function bug_delete(uuid) from public;
+grant execute on function bug_admin() to authenticated;
+grant execute on function report_bug(text, text, text) to authenticated;
+grant execute on function bug_count() to authenticated;
+grant execute on function bug_inbox() to authenticated;
+grant execute on function bug_seen() to authenticated;
+grant execute on function bug_delete(uuid) to authenticated;
+
+-- ------------------------------------------------------------
 -- 교사 이메일: happywax0206@gmail.com 을 자기 이메일(소문자)로 바꾸세요. 여러 명이면 줄을 더하면 됩니다.
--- 함께 쓸 선생님은 여기에 적지 않아도 됩니다: 교사 화면 「프로필·공동작업자」 탭에서 이메일로 초대하면 됩니다.
+-- 함께 쓸 선생님은 여기에 적지 않아도 됩니다: 교사 화면 「⚙ 설정 → 프로필·공동작업자」에서 이메일로 초대하면 됩니다.
 -- ------------------------------------------------------------
 insert into teachers (email) values ('happywax0206@gmail.com') on conflict do nothing;
+-- 버그 제보를 받을 사람(교사 화면의 빨간 점 + 메일). Resend 계정도 이 이메일로 만들어야 메일이 간다.
+insert into app_secrets (key, value) values ('bug_to', 'happywax0206@gmail.com') on conflict (key) do update set value = excluded.value;
 
 -- 바뀐 표·함수를 웹앱이 바로 알아보도록 목록을 새로 읽게 한다
 notify pgrst, 'reload schema';

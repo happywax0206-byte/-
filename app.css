@@ -197,6 +197,26 @@ main.lesson .slide { cursor: zoom-in; }
 .profile-menu .tab { text-align: left; width: 100%; }
 .profile-name { margin: .3rem .5rem 0; font-weight: 700; }
 .profile-menu .muted { margin: 0 .5rem .3rem; }
+/* 「⚙ 설정」 단추: 새 버그 제보가 있으면 빨간 점 + 작은 말풍선 */
+.gear-set { position: relative; }
+.gear-btn { position: relative; white-space: nowrap; }
+.gear-btn.on { border-color: var(--accent); color: var(--accent-ink); background: var(--accent-soft); font-weight: 700; }
+.gear-dot { position: absolute; top: -4px; right: -4px; width: 12px; height: 12px; border-radius: 50%; background: var(--bad); box-shadow: 0 0 0 2px var(--card); }
+.gear-count { display: inline-block; margin-left: .4rem; min-width: 1.3rem; padding: 0 .35rem; border-radius: 999px; background: var(--bad); color: #fff; font-size: .75rem; font-weight: 700; line-height: 1.3rem; text-align: center; }
+.tab.on .gear-count { background: #fff; color: var(--bad); }
+.bug-bubble { position: absolute; right: 0; top: calc(100% + 9px); z-index: 19; display: flex; align-items: center; gap: .1rem; padding: .2rem .2rem .2rem .5rem; background: var(--bad); border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.18); white-space: nowrap; animation: bubble-in .3s ease-out; }
+.bug-bubble::before { content: ""; position: absolute; right: 18px; top: -6px; border: 6px solid transparent; border-top: 0; border-bottom-color: var(--bad); }
+.bug-bubble button { min-height: 28px; color: #fff; font-size: .85rem; font-weight: 700; padding: 0 .3rem; }
+.bug-bubble .bubble-x { background: none; border: 0; font-size: 1.05rem; opacity: .8; }
+.bug-bubble .bubble-x:hover { opacity: 1; }
+@keyframes bubble-in { from { opacity: 0; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .bug-bubble { animation: none; } }
+.bug-item { border-top: 1px solid var(--line); padding-top: .75rem; }
+.bug-item.new { border-left: 4px solid var(--bad); padding-left: .75rem; }
+.bug-body { white-space: pre-wrap; overflow-wrap: anywhere; margin: .4rem 0; }
+.banner pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #fff; padding: .5rem; border-radius: 6px; user-select: all; }
+.small-btn { min-height: 32px; padding: 0 .7rem; font-size: .85rem; border-radius: 8px; }
+a.small-btn { display: inline-flex; align-items: center; text-decoration: none; }
 .profile-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; display: flex; flex-direction: column; gap: .2rem; min-width: 13rem; padding: .4rem; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.15); }
 .teacher .top-title select { min-height: 40px; padding: .3rem .6rem; font-weight: 700; max-width: min(55vw, 30rem); text-overflow: ellipsis; }
 
