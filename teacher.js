@@ -2296,6 +2296,14 @@ function studentAnswers(s) {
   return close;
 }
 
+// 마지막 접속 시각: 오늘이면 「14:05」, 자정이 지나 다른 날이면 「10월 28일 14:05」(해가 다르면 「2025년 10월 28일 14:05」)
+function fmtAccess(t) {
+  const d = new Date(t), now = new Date();
+  const hm = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  if (d.toDateString() === now.toDateString()) return hm;
+  return (d.getFullYear() !== now.getFullYear() ? d.getFullYear() + "년 " : "") + (d.getMonth() + 1) + "월 " + d.getDate() + "일 " + hm;
+}
+
 function drawStudents() {
   const now = Date.now();
   const rows = students.map((s) => {
@@ -2308,7 +2316,7 @@ function drawStudents() {
     return h("tr", { class: locked ? "locked" : "" },
       h("td", {}, s.class_no), h("td", {}, s.name),
       h("td", {}, mine.length + " / " + activities.filter((a) => a.kind !== "sim" && !isInfoActivity(a)).length), h("td", {}, fmtTime(last)), h("td", {}, status),
-      h("td", { class: "small" }, s.access_at ? fmtTime(s.access_at) + (s.access_kind === "out" ? " 나감" : " 들어옴") : "—"),
+      h("td", { class: "small" }, s.access_at ? fmtAccess(s.access_at) + (s.access_kind === "out" ? " 나감" : " 들어옴") : "—"),
       h("td", { class: "actions" },
         h("button", { class: "primary", type: "button", onclick() { studentAnswers(s); } }, "답 모아 보기"),
         h("button", {
