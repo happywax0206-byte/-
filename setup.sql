@@ -891,6 +891,18 @@ create table if not exists bug_reports (
 );
 alter table bug_reports enable row level security;   -- 정책 없음: 아래 함수로만 쓴다
 create index if not exists bug_reports_email on bug_reports (email, created_at desc);
+-- 나중에 더한 칸: 받는 사람이 단 답글을 보낸 교사가 아직 안 봤는지(그 교사 화면에 빨간 점)
+alter table bug_reports add column if not exists reply_unseen boolean not null default false;
+
+-- 버그 제보에 받는 사람이 단 답글. 보낸 교사도 자기 제보 아래에서 본다.
+create table if not exists bug_replies (
+  id         uuid primary key default gen_random_uuid(),
+  bug_id     uuid not null references bug_reports(id) on delete cascade,
+  body       text not null check (length(body) between 1 and 2000),
+  created_at timestamptz not null default now()
+);
+alter table bug_replies enable row level security;   -- 정책 없음: 아래 함수로만 쓴다
+create index if not exists bug_replies_bug on bug_replies (bug_id, created_at);
 
 create or replace function bug_admin() returns boolean
 language sql stable security definer set search_path = public as $$
@@ -946,12 +958,12 @@ begin
   end;
 end $$;
 
--- 빨간 점용: 받는 사람이면 아직 안 본 제보 수(가벼워서 자주 불러도 됨)
+-- 빨간 점용: 받는 사람이면 아직 안 본 제보 수, 누구든 내 제보에 달린 안 본 답글 수(가벼워서 자주 불러도 됨)
 create or replace function bug_count() returns jsonb
 language sql stable security definer set search_path = public as $$
-  select case when bug_admin()
-    then jsonb_build_object('admin', true, 'unseen', (select count(*) from bug_reports where not seen))
-    else jsonb_build_object('admin', false, 'unseen', 0) end
+  select jsonb_build_object('admin', bug_admin(),
+    'unseen', case when bug_admin() then (select count(*) from bug_reports where not seen) else 0 end,
+    'replies', (select count(*) from bug_reports where email = my_email() and reply_unseen))
 $$;
 
 -- 제보 목록: 받는 사람은 모두(최근 200개), 다른 교사는 자기가 보낸 것만(최근 30개)
@@ -970,17 +982,41 @@ begin
     end;
   end if;
   return jsonb_build_object('admin', admin, 'list', coalesce((
-    select jsonb_agg(to_jsonb(b) - 'mail_req' order by b.created_at desc) from (
+    select jsonb_agg(to_jsonb(b) - 'mail_req' || jsonb_build_object('replies', coalesce((
+        select jsonb_agg(jsonb_build_object('id', x.id, 'body', x.body, 'created_at', x.created_at) order by x.created_at)
+        from bug_replies x where x.bug_id = b.id), '[]'::jsonb)) order by b.created_at desc) from (
       select * from bug_reports where admin or email = my_email()
       order by created_at desc limit case when admin then 200 else 30 end) b), '[]'::jsonb));
 end $$;
 
--- 받는 사람이 봤다고 적기 / 지우기
+-- 목록을 봤다고 적기: 받는 사람은 새 제보를, 누구든 내 제보에 달린 답글을
 create or replace function bug_seen() returns void
 language plpgsql security definer set search_path = public as $$
 begin
+  if not is_teacher() then raise exception 'not a teacher'; end if;
+  if bug_admin() then update bug_reports set seen = true where not seen; end if;
+  update bug_reports set reply_unseen = false where email = my_email() and reply_unseen;
+end $$;
+
+-- 답글 달기·지우기: 받는 사람만
+create or replace function bug_reply(p_id uuid, p_body text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+begin
   if not bug_admin() then raise exception 'not allowed'; end if;
-  update bug_reports set seen = true where not seen;
+  if length(trim(coalesce(p_body, ''))) = 0 then return jsonb_build_object('error', 'empty'); end if;
+  if length(trim(p_body)) > 2000 then return jsonb_build_object('error', 'too_long'); end if;
+  if not exists (select 1 from bug_reports where id = p_id) then return jsonb_build_object('error', 'gone'); end if;
+  insert into bug_replies (bug_id, body) values (p_id, trim(p_body));
+  -- 내가 보낸 제보에 내가 답한 것이면 빨간 점을 띄우지 않는다
+  update bug_reports set reply_unseen = (email <> my_email()) where id = p_id;
+  return jsonb_build_object('ok', true);
+end $$;
+
+create or replace function bug_reply_delete(p_reply uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not bug_admin() then raise exception 'not allowed'; end if;
+  delete from bug_replies where id = p_reply;
 end $$;
 
 create or replace function bug_delete(p_id uuid) returns void
@@ -1002,6 +1038,10 @@ grant execute on function bug_count() to authenticated;
 grant execute on function bug_inbox() to authenticated;
 grant execute on function bug_seen() to authenticated;
 grant execute on function bug_delete(uuid) to authenticated;
+revoke all on function bug_reply(uuid, text) from public;
+revoke all on function bug_reply_delete(uuid) from public;
+grant execute on function bug_reply(uuid, text) to authenticated;
+grant execute on function bug_reply_delete(uuid) to authenticated;
 
 -- ------------------------------------------------------------
 -- 교사 이메일: happywax0206@gmail.com 을 자기 이메일(소문자)로 바꾸세요. 여러 명이면 줄을 더하면 됩니다.

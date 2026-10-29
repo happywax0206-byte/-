@@ -178,24 +178,28 @@ async function loadBugList(box) {
     data.admin && last && last.mail !== "ok" && last.mail !== "sent" ? bugMailHelp(last.mail) : null,
     list.length ? null : h("p", { class: "muted" }, data.admin ? "아직 받은 제보가 없습니다." : "아직 보낸 제보가 없습니다."),
     ...list.map((b) => bugItem(b, data.admin, box))].filter(Boolean));
-  // 받는 사람이 목록을 봤으면 빨간 점을 지운다(이번 목록에서는 「새」 표시를 그대로 둔다)
-  if (data.admin && list.some((b) => !b.seen)) {
+  // 목록을 봤으면 빨간 점을 지운다(이번 목록에서는 「새」 표시를 그대로 둔다)
+  const mine = (me && me.email || "").toLowerCase();
+  if ((data.admin && list.some((b) => !b.seen)) || list.some((b) => b.reply_unseen && b.email === mine)) {
     const r = await sb.rpc("bug_seen");
-    if (!r.error) { bugUnseen = 0; refreshGear(); }
+    if (!r.error) { bugUnseen = 0; bugReplies = 0; refreshGear(); }
   }
 }
 
+const bugTime = (t) => new Date(t).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" });
+
 function bugItem(b, admin, box) {
   const mail = BUG_MAIL[b.mail];
-  return h("article", { class: "bug-item" + (admin && !b.seen ? " new" : "") },
+  const newReply = !admin && b.reply_unseen;
+  return h("article", { class: "bug-item" + ((admin && !b.seen) || newReply ? " new" : "") },
     h("div", { class: "row between wrap" },
       h("div", {},
-        admin && !b.seen ? h("span", { class: "tag info" }, "새") : null, " ",
+        admin && !b.seen ? h("span", { class: "tag info" }, "새") : null,
+        newReply ? h("span", { class: "tag info" }, "새 답글") : null, " ",
         h("strong", {}, admin ? (b.name ? b.name + " 선생님" : b.email) : "나"), " ",
-        h("span", { class: "muted small" }, new Date(b.created_at).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" }))),
+        h("span", { class: "muted small" }, bugTime(b.created_at))),
       h("div", { class: "row" },
         admin && mail ? h("span", { class: "tag " + mail[1] }, mail[0]) : null,
-        admin ? h("a", { class: "ghost small-btn", href: "mailto:" + b.email + "?subject=" + encodeURIComponent("Re: 버그 제보"), title: b.email }, "답장") : null,
         admin ? h("button", {
           class: "ghost danger small-btn", type: "button",
           async onclick() {
@@ -205,7 +209,51 @@ function bugItem(b, admin, box) {
           },
         }, "지우기") : null)),
     h("p", { class: "bug-body" }, b.body),
-    h("p", { class: "muted small" }, [admin ? b.email : null, b.place ? "화면: " + b.place : null, admin && b.agent ? "브라우저: " + b.agent : null].filter(Boolean).join(" · ")));
+    h("p", { class: "muted small" }, [admin ? b.email : null, b.place ? "화면: " + b.place : null, admin && b.agent ? "브라우저: " + b.agent : null].filter(Boolean).join(" · ")),
+    (b.replies || []).map((x) => h("div", { class: "bug-reply" },
+      h("div", { class: "row between" },
+        h("span", { class: "small" }, h("strong", {}, "↳ 답글"), " ", h("span", { class: "muted" }, bugTime(x.created_at))),
+        admin ? h("button", {
+          class: "link danger small", type: "button", title: "이 답글 지우기",
+          async onclick() {
+            if (!confirm("이 답글을 지울까요?")) return;
+            const r = await sb.rpc("bug_reply_delete", { p_reply: x.id });
+            if (r.error) alert("지우지 못했습니다: " + r.error.message); else loadBugList(box);
+          },
+        }, "지우기") : null),
+      h("p", { class: "bug-body" }, x.body))),
+    admin ? bugReplyForm(b, box) : null);
+}
+
+// 받는 사람만: 제보 아래 답글 칸. 처음에는 단추만 보이고, 누르면 글 칸이 열린다.
+function bugReplyForm(b, box) {
+  const wrap = h("div", { class: "bug-reply-form" });
+  const open = () => {
+    const text = h("textarea", { rows: 3, maxlength: 2000, placeholder: "답글은 제보한 선생님의 「버그 제보」 화면에 보입니다." });
+    const msg = h("p", { class: "msg" });
+    const send = h("button", {
+      class: "primary small-btn", type: "button",
+      async onclick() {
+        if (!text.value.trim()) return text.focus();
+        send.disabled = true;
+        const { data, error } = await sb.rpc("bug_reply", { p_id: b.id, p_body: text.value });
+        send.disabled = false;
+        if (error) {
+          msg.textContent = /bug_reply|function|schema cache/i.test(error.message)
+            ? "답글을 쓰려면 Supabase에서 setup.sql을 다시 실행하세요." : "올리지 못했습니다: " + error.message;
+          return;
+        }
+        if (data.error) { msg.textContent = { too_long: "2000자까지만 쓸 수 있습니다.", gone: "이미 지워진 제보입니다.", empty: "내용을 적어 주세요." }[data.error] || data.error; return; }
+        loadBugList(box);
+      },
+    }, "답글 달기");
+    wrap.replaceChildren(text, h("div", { class: "row" }, send,
+      h("button", { class: "ghost small-btn", type: "button", onclick: close }, "취소")), msg);
+    text.focus();
+  };
+  const close = () => wrap.replaceChildren(h("button", { class: "ghost small-btn", type: "button", onclick: open }, "↳ 답글"));
+  close();
+  return wrap;
 }
 
 // 받는 사람에게만: 메일이 안 갔을 때 무엇을 하면 되는지
@@ -869,31 +917,35 @@ function refreshProfile() {
 
 // 「⚙ 설정」 단추: 누르면 프로필·공동작업자, 관리, 버그 제보.
 // 버그 제보를 받는 사람(setup.sql의 bug_to)에게는 아직 안 본 제보가 있으면 빨간 점과 작은 말풍선이 뜬다.
+// 제보한 교사에게는 받는 사람이 답글을 달면 똑같이 뜬다.
 let gearOpen = false;
 let gearEl = null;
 let bugAdmin = false;     // 내가 버그 제보를 받는 사람인지
-let bugUnseen = 0;        // 아직 안 본 제보 수
+let bugUnseen = 0;        // 아직 안 본 제보 수(받는 사람)
+let bugReplies = 0;       // 내 제보에 달린 안 본 답글 수
 let bugBubbleOff = false; // 말풍선을 닫았는지(이 화면을 새로고침할 때까지)
 let bugFrom = "";         // 버그 제보를 열기 전에 보던 화면(제보에 함께 적음)
 
 function buildGear() {
-  const dot = bugAdmin && bugUnseen > 0;
+  const n = (bugAdmin ? bugUnseen : 0) + bugReplies;
+  const dot = n > 0;
+  const say = bugAdmin && bugUnseen > 0 ? "버그 제보가 있습니다" : "버그 제보에 답글이 달렸습니다";
   const item = (k) => h("button", {
     class: tab === k ? "tab on" : "tab", type: "button",
     onclick() {
       if (k === "bugs" && tab !== "bugs") bugFrom = (TABS[tab] || tab) + (lesson ? " · " + lesson.title + " (" + lesson.code + ")" : "");
       goTab(k);
     },
-  }, TABS[k], k === "bugs" && dot ? h("span", { class: "gear-count" }, bugUnseen) : null);
+  }, TABS[k], k === "bugs" && dot ? h("span", { class: "gear-count" }, n) : null);
   return h("div", { class: "gear-set" },
     h("button", {
       class: "ghost gear-btn" + (GEAR.includes(tab) ? " on" : ""), type: "button", "aria-haspopup": "true", "aria-expanded": gearOpen ? "true" : "false",
-      title: dot ? "새 버그 제보 " + bugUnseen + "개" : "프로필·공동작업자, 관리, 버그 제보",
+      title: dot ? say : "프로필·공동작업자, 관리, 버그 제보",
       onclick() { gearOpen = !gearOpen; refreshGear(); },
-    }, "⚙ 설정" + (GEAR.includes(tab) ? " · " + TABS[tab] : ""), dot ? h("span", { class: "gear-dot", "aria-label": "새 버그 제보" }) : null),
+    }, "⚙ 설정" + (GEAR.includes(tab) ? " · " + TABS[tab] : ""), dot ? h("span", { class: "gear-dot", "aria-label": say }) : null),
     gearOpen ? h("div", { class: "profile-menu" }, GEAR.map(item)) : null,
     dot && !gearOpen && !bugBubbleOff && tab !== "bugs" ? h("div", { class: "bug-bubble", role: "status" },
-      h("button", { class: "link", type: "button", onclick() { goTab("bugs"); } }, "버그 제보가 있습니다" + (bugUnseen > 1 ? " (" + bugUnseen + ")" : "")),
+      h("button", { class: "link", type: "button", onclick() { goTab("bugs"); } }, say + (n > 1 ? " (" + n + ")" : "")),
       h("button", { class: "bubble-x", type: "button", title: "닫기", "aria-label": "닫기", onclick() { bugBubbleOff = true; refreshGear(); } }, "×")) : null);
 }
 
@@ -908,9 +960,10 @@ function refreshGear() {
 async function loadBugCount() {
   const { data, error } = await sb.rpc("bug_count");
   if (error || !data) return;
-  const changed = data.admin !== bugAdmin || data.unseen !== bugUnseen;
-  if (data.unseen > bugUnseen) bugBubbleOff = false;   // 새 제보가 오면 말풍선을 다시 띄운다
-  bugAdmin = data.admin; bugUnseen = data.unseen;
+  const replies = data.replies || 0;
+  const changed = data.admin !== bugAdmin || data.unseen !== bugUnseen || replies !== bugReplies;
+  if (data.unseen > bugUnseen || replies > bugReplies) bugBubbleOff = false;   // 새 제보·답글이 오면 말풍선을 다시 띄운다
+  bugAdmin = data.admin; bugUnseen = data.unseen; bugReplies = replies;
   if (changed) refreshGear();
 }
 // 켜 둔 동안에도 3분마다(화면을 보고 있을 때만) 새 제보를 확인한다
