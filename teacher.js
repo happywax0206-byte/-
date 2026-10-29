@@ -2388,11 +2388,15 @@ function drawSettings() {
   }
 
   async function remove() {
-    const typed = prompt("수업을 지우면 활동, 학생, 응답, 슬라이드가 모두 지워집니다.\n지우려면 수업 코드 「" + lesson.code + "」를 입력하세요.");
+    const others = isMine(lesson) ? "" : "다른 선생님이 만든 수업입니다(관리자 권한으로 지움).\n";
+    const typed = prompt(others + "수업을 지우면 활동, 학생, 응답, 슬라이드가 모두 지워집니다.\n지우려면 수업 코드 「" + lesson.code + "」를 입력하세요.");
     if ((typed || "").trim().toUpperCase() !== lesson.code) return;
-    await removeSlideFiles(lesson);
-    const { error } = await sb.from("lessons").delete().eq("id", lesson.id);
+    const slideFiles = await slideFilesOf(lesson);   // 수업이 있어야 함께 쓰는 그림인지 알 수 있으므로 먼저 찾아 둔다
+    const { data, error } = await sb.from("lessons").delete().eq("id", lesson.id).select("id");
     if (error) return alert(error.message);
+    // 보안 규칙이 막으면 오류 없이 0개가 지워진다(관리자인데 setup.sql을 다시 실행하기 전)
+    if (!data || !data.length) return alert("이 수업을 지울 권한이 없습니다." + (isMine(lesson) ? "" : " setup.sql을 Supabase에서 다시 실행해 주세요."));
+    if (slideFiles.length) await sb.storage.from("slides").remove(slideFiles);
     await removeSubmissionFiles(lesson.id);
     await loadLessons(null);
   }
@@ -2412,7 +2416,7 @@ function drawSettings() {
       h("div", { class: "row" },
         h("button", { class: "ghost", type: "button", onclick: showJoin }, "QR 크게 보기"),
         h("button", { class: "ghost", type: "button", onclick: duplicate }, "다른 반용으로 복제"),
-        isMine(lesson) ? h("button", { class: "ghost danger", type: "button", onclick: remove }, "수업 지우기") : null)) : null));
+        isMine(lesson) || (profile && profile.admin) ? h("button", { class: "ghost danger", type: "button", onclick: remove }, "수업 지우기") : null)) : null));
 }
 
 // 공동작업자: 수업을 만든 교사가 이메일로 초대한 교사는 이 수업을 함께 보고 고치고 진행한다(지우기는 만든 교사만)
@@ -3123,16 +3127,17 @@ function htmlSlideImage(title) {
 }
 
 // 수업을 지울 때 그 수업의 슬라이드 그림도 지운다(복제한 다른 수업이 같은 그림을 쓰면 남긴다)
-async function removeSlideFiles(l) {
-  if (!l.slide_count || !l.slide_dir.includes("/" + l.id + "/")) return;
+// 수업을 지울 때 함께 지울 슬라이드 그림(다른 수업이 같은 폴더를 쓰면 없음)
+async function slideFilesOf(l) {
+  if (!l.slide_count || !l.slide_dir.includes("/" + l.id + "/")) return [];
   const { data: shared, error } = await sb.rpc("slide_dir_shared", { p_lesson: l.id });
-  if ((!error && shared) || lessons.some((x) => x.id !== l.id && x.slide_dir.split("?")[0] === l.slide_dir.split("?")[0])) return;
+  if ((!error && shared) || lessons.some((x) => x.id !== l.id && x.slide_dir.split("?")[0] === l.slide_dir.split("?")[0])) return [];
   // 그림을 올린 교사의 폴더(교사가 여러 명일 수 있으므로 주소에서 읽는다)
   const m = /\/public\/slides\/(.+\/)\{n\}/.exec(l.slide_dir);
-  if (!m) return;
+  if (!m) return [];
   const folder = decodeURIComponent(m[1]);
   const { data } = await sb.storage.from("slides").list(folder.replace(/\/$/, ""), { limit: 1000 });
-  if (data && data.length) await sb.storage.from("slides").remove(data.map((o) => folder + o.name));
+  return data && data.length ? data.map((o) => folder + o.name) : [];
 }
 
 // ---------- 학생이 올린 파일 ----------

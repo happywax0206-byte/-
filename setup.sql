@@ -251,7 +251,7 @@ begin
   return coalesce(p, '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' and can_edit_lesson(p::uuid);
 end $$;
 
--- 예전에는 교사면 모든 수업을 다뤘다. 이제는 내 수업과 초대받은 수업만. 수업 지우기는 만든 교사만.
+-- 예전에는 교사면 모든 수업을 다뤘다. 이제는 내 수업과 초대받은 수업만. 수업 지우기는 만든 교사와 관리자만.
 drop policy if exists teacher_all on lessons;
 drop policy if exists teacher_all on activities;
 drop policy if exists teacher_all on students;
@@ -281,7 +281,7 @@ drop policy if exists teacher_delete on lesson_students;
 create policy lesson_select on lessons for select to authenticated using (can_lesson(id));
 create policy lesson_insert on lessons for insert to authenticated with check (is_teacher() and owner = auth.uid());
 create policy lesson_update on lessons for update to authenticated using (can_edit_lesson(id)) with check (can_edit_lesson(id));
-create policy lesson_delete on lessons for delete to authenticated using (is_teacher() and owner = auth.uid());
+create policy lesson_delete on lessons for delete to authenticated using (is_teacher() and (owner = auth.uid() or is_admin()));
 create policy teacher_read   on activities for select to authenticated using (can_lesson(lesson_id));
 create policy teacher_insert on activities for insert to authenticated with check (can_edit_lesson(lesson_id));
 create policy teacher_update on activities for update to authenticated using (can_edit_lesson(lesson_id)) with check (can_edit_lesson(lesson_id));
