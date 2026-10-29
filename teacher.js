@@ -290,7 +290,7 @@ const DB_NAMES = {
   "public.lesson_members": "공동작업자", "public.bug_reports": "버그 제보", "public.bug_replies": "버그 제보 답글", "public.app_secrets": "앱 비밀 값", "storage.objects": "저장소 파일 목록",
 };
 let manageOpen = null;   // 펼쳐 본 칸
-let manageData = null;   // { gauges, grid, detail }
+let manageData = null;   // { gauges, grid, dash }
 
 function fmtBytes(b) {
   const num = (x, d) => String(+x.toFixed(d));   // 500.0 → 500
@@ -326,7 +326,7 @@ function gauge(g, onOpen) {
   }
   return h("button", { type: "button", class: "card gauge" + (manageOpen === g.key ? " on" : ""), "aria-expanded": String(manageOpen === g.key),
     "aria-label": g.title + " " + (known ? g.fmt(g.used) + " / " + g.fmt(g.total) : "알 수 없음") + " · 누르면 자세히", onclick() { onOpen(g.key); } },
-    h("span", { class: "gauge-title" }, g.title),
+    h("span", { class: "gauge-title" }, siteOf(g) ? g.title.slice(siteOf(g).length + 1) : g.title),
     h("span", { class: "gauge-box" }, svg,
       h("span", { class: "gauge-text" },
         h("strong", {}, known ? pctText(pct) : "?"),
@@ -358,12 +358,30 @@ function detailPanel(g) {
     g.how ? h("p", { class: "muted small" }, g.how) : null);
 }
 
+// 칸을 사이트별로 묶는다. 사이트는 칸 이름의 첫 낱말(「Supabase 전송량」 → Supabase)
+const SITES = [
+  { name: "Supabase", what: "데이터·파일·교사 로그인", link: (m) => m.dash },
+  { name: "GitHub", what: "웹사이트 화면 파일", link: () => "https://github.com/" + GITHUB_REPO },
+  { name: "Resend", what: "버그 제보 메일", link: () => "https://resend.com/emails" },
+];
+const siteOf = (g) => (SITES.find((s) => g.title.startsWith(s.name + " ")) || { name: "" }).name;
+
 function drawManageGrid() {
   if (!manageData || !manageData.grid.isConnected) return;
   const open = (k) => { manageOpen = manageOpen === k ? null : k; drawManageGrid(); };
-  manageData.grid.replaceChildren(...manageData.gauges.map((g) => gauge(g, open)));
-  const g = manageData.gauges.find((x) => x.key === manageOpen);
-  manageData.detail.replaceChildren(...(g ? [detailPanel(g)] : []));
+  const groups = SITES.concat([{ name: "", what: "" }]).map((s) => {
+    const list = manageData.gauges.filter((g) => siteOf(g) === s.name);
+    if (!list.length) return null;
+    const href = s.link && s.link(manageData);
+    const g = list.find((x) => x.key === manageOpen);
+    return h("section", { class: "card stack usage-site" },
+      h("div", { class: "row between wrap" },
+        h("h2", {}, s.name || "그 밖", s.what ? h("span", { class: "muted small" }, " · " + s.what) : null),
+        href ? h("a", { class: "small", href, target: "_blank", rel: "noopener" }, s.name + " 열기 ↗") : null),
+      h("div", { class: "usage-grid" }, list.map((x) => gauge(x, open))),
+      g ? detailPanel(g) : null);
+  }).filter(Boolean);
+  manageData.grid.replaceChildren(...groups);
 }
 
 // 확장 프로그램(저장소의 extension 폴더)에게 Supabase 대시보드의 Usage 숫자를 부탁한다. 설치되어 있지 않으면 null.
@@ -469,8 +487,7 @@ function dashboardStatus(el, d, dash) {
 
 async function drawManage(force) {
   force = force === true;
-  const grid = h("div", { class: "usage-grid" }, h("p", { class: "muted" }, "읽어 오는 중…"));
-  const detail = h("div");
+  const grid = h("div", { class: "stack" }, h("p", { class: "muted" }, "읽어 오는 중…"));
   const banner = h("div");
   const dashEl = h("div");
   const when = h("span", { class: "muted small" });
@@ -482,7 +499,7 @@ async function drawManage(force) {
         h("div", { class: "row" }, when, h("button", { class: "ghost", type: "button", onclick() { drawManage(true); } }, "⟳ 다시 읽기"))),
       h("p", { class: "muted small" }, "이 웹앱이 쓰는 사이트(Supabase: 데이터·파일, GitHub: 화면)의 무료 한도 중 얼마나 썼는지입니다. 칸을 누르면 무엇이 많이 쓰는지 큰 것부터 보입니다. 60%를 넘으면 주황, 85%를 넘으면 빨강. 한도는 2026년 10월 무료 플랜 기준입니다."),
       dashEl),
-    banner, grid, detail,
+    banner, grid,
     h("section", { class: "card stack" },
       h("h3", {}, "알아 둘 것"),
       h("ul", { class: "small" },
@@ -491,7 +508,7 @@ async function drawManage(force) {
         h("li", {}, "데이터베이스 크기는 결제 주기의 하루 평균으로 따지고, 넘으면 다음 주기까지 요청이 막힐 수 있습니다. 디스크가 95% 차면 읽기 전용이 됩니다."),
         h("li", {}, "Supabase 무료 프로젝트는 1주일 넘게 아무도 쓰지 않으면 멈춥니다(대시보드에서 Restore)."),
         h("li", {}, "이 앱이 쓰지 않아 늘 0인 무료 항목: Realtime(동시 연결 200·메시지 200만), Edge Functions(50만 회), 다른 서비스 로그인(제3자 MAU 5만). 「수업 화면 띄우기」 연결은 브라우저 안에서만 오가고, 학생 화면 보기 영상도 Supabase를 거치지 않습니다.")))));
-  manageData = { gauges: [], grid, detail };
+  manageData = { gauges: [], grid, dash };
 
   const ghGet = (path) => fetch("https://api.github.com/repos/" + GITHUB_REPO + path).then((r) => (r.ok ? r.json() : null)).catch(() => null);
   const dashP = ref ? askDashboard(ref, force) : Promise.resolve(null);

@@ -421,6 +421,9 @@ body.present .credit { display: none; }
 /* 관리: 무료 용량 반원 막대 */
 .usage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .75rem; }
 .usage-grid > .banner { grid-column: 1 / -1; }
+.usage-site h2 { margin: 0; }
+.usage-site .card { background: #f8f9fb; }
+.usage-site .gauge.on { background: var(--card); }
 .gauge-box { position: relative; width: 100%; max-width: 240px; }
 .gauge-arc { display: block; width: 100%; }
 .gauge-text { position: absolute; left: 0; right: 0; bottom: 2%; display: grid; line-height: 1.15; }
