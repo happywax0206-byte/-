@@ -236,6 +236,9 @@ async function poll() {
     else showEntry("연결하지 못했습니다. " + NET_HINT);
   } else if (data.error === "logged_out") {
     return logout("다시 입장해 주세요. 수업이 끝나 로그아웃되었거나, 선생님이 비밀번호를 초기화했거나 학생 정보가 지워졌습니다.");
+  } else if (data.error) {
+    // 이 화면이 모르는 오류(서버가 더 새것일 때): 상태로 그리지 않고 코드 입력으로 돌아간다
+    return showCodeOnly("들어가지 못했습니다(" + data.error + "). 새로고침하거나 선생님께 알려 주세요.");
   } else {
     const full = merge(data);
     if (!full) return poll();   // 바뀐 부분만 왔는데 합칠 예전 상태가 없다: hash 없이 다시 받는다

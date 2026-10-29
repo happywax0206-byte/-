@@ -398,12 +398,22 @@ alter table code_fails enable row level security;   -- 정책 없음: 아래 함
 revoke all on code_fails from anon, authenticated;
 
 -- 요청한 기기의 인터넷 주소(Supabase 앞단 Cloudflare가 적어 준다). 모르면 'unknown'(모두 함께 세므로 한도를 크게)
+-- x-real-ip는 쓰지 않는다(Supabase 안쪽 중계 서버 주소일 수 있어, 그러면 모든 학교가 한 주소로 묶인다)
 create or replace function client_ip() returns text
 language sql stable as $$
-  select coalesce(nullif(h ->> 'cf-connecting-ip', ''), nullif(h ->> 'x-real-ip', ''),
+  select coalesce(nullif(h ->> 'cf-connecting-ip', ''),
                   nullif(trim(split_part(h ->> 'x-forwarded-for', ',', 1)), ''), 'unknown')
   from (select coalesce(nullif(current_setting('request.headers', true), ''), '{}')::json h) x
 $$;
+
+-- 점검용: 서버가 본 내 주소와 어느 칸에서 읽었는지(자기 주소만 보이므로 누구나 불러도 괜찮다)
+create or replace function client_ip_check() returns jsonb
+language sql stable as $$
+  select jsonb_build_object('ip', client_ip(), 'cf', h ? 'cf-connecting-ip', 'xff_parts',
+                            coalesce(array_length(string_to_array(h ->> 'x-forwarded-for', ','), 1), 0))
+  from (select coalesce(nullif(current_setting('request.headers', true), ''), '{}')::jsonb h) x
+$$;
+grant execute on function client_ip_check() to anon, authenticated;
 
 create or replace function code_blocked() returns boolean
 language sql stable security definer set search_path = public as $$
