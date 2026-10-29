@@ -384,10 +384,16 @@ function linkedDescription(value) {
   return box;
 }
 
+// 카드 설명문. 비었거나 글자 "null"·"undefined"로 저장된 것(예전 데이터)은 없는 것으로 본다
+function realText(v) {
+  if (typeof v !== "string") return "";
+  const t = v.trim();
+  return t === "null" || t === "undefined" ? "" : t;
+}
 function activityDescription(activity) {
   const questions = activity.questions || [];
-  return questions.find((q) => q.intro)?.intro ||
-    [...new Set(questions.map((q) => q.description).filter(Boolean))].join("\n\n");
+  return questions.map((q) => realText(q.intro)).find(Boolean) ||
+    [...new Set(questions.map((q) => realText(q.description)).filter(Boolean))].join("\n\n");
 }
 
 // 카드 안의 「설명」 칸(type info)은 답을 받지 않는다. 답을 받는 질문만
@@ -417,7 +423,7 @@ function summaryView(questions, docs, opts) {
       : h("p", { class: "sum-q" }, (i + 1) + ". " + q.text);
     if (q.type === "file") {
       return h("div", { class: "sum-block" }, head,
-        answered.length ? answered.map((d) => h("p", { class: "note" }, d.name ? h("strong", {}, d.name + " · ") : null, fileLinks(d.answers[q.id], opts.openFile), opts.answerTools ? opts.answerTools(q, d) : null))
+        answered.length ? answered.map((d) => h("p", { class: "note" }, opts.answerTools ? opts.answerTools(q, d) : null, d.name ? h("strong", {}, d.name + " · ") : null, fileLinks(d.answers[q.id], opts.openFile)))
           : h("p", { class: "muted small" }, opts.empty || "아직 응답이 없습니다."));
     }
     if (q.type === "choice" || q.type === "multi") {
@@ -432,7 +438,7 @@ function summaryView(questions, docs, opts) {
       }));
     }
     return h("div", { class: "sum-block" }, head,
-      answered.length ? answered.map((d) => h("p", { class: "note" }, d.name ? h("strong", {}, d.name + " · ") : null, answerText(d.answers[q.id]), opts.answerTools ? opts.answerTools(q, d) : null))
+      answered.length ? answered.map((d) => h("p", { class: "note" }, opts.answerTools ? opts.answerTools(q, d) : null, d.name ? h("strong", {}, d.name + " · ") : null, answerText(d.answers[q.id])))
         : h("p", { class: "muted small" }, opts.empty || "아직 응답이 없습니다."));
   });
 }

@@ -1791,7 +1791,7 @@ function editor() {
   const e = editing;
   if (e.kind === "sim") return simEditor();
   const redraw = () => { const y = scrollY; drawBuild(); scrollTo(0, y); };
-  if (e.description === undefined) e.description = activityDescription(e);
+  if (typeof e.description !== "string") e.description = activityDescription(e);
   // 칸마다 q.quiz = 퀴즈(정답·자동 채점) 칸. 예전 퀴즈 활동은 모든 질문이 퀴즈 칸
   if (e.kind === "quiz") e.questions.forEach((q) => { if (q.type !== "info" && q.quiz === undefined) q.quiz = true; });
   const isQuiz = (q) => q.type !== "info" && !!q.quiz;
@@ -1893,7 +1893,7 @@ function editor() {
       } else { delete q.options; delete q.answer; }
       if (q.type === "file") q.accept = q.accept === "image" ? "image" : "any"; else delete q.accept;
     }
-    if (e.questions.length && e.description.trim()) e.questions[0].intro = e.description.trim();
+    if (e.questions.length && realText(e.description)) e.questions[0].intro = realText(e.description);
     // 퀴즈 칸이 하나라도 있으면 카드 전체가 퀴즈(한 번만 제출, 채점). 없으면 질문 카드
     const kind = e.questions.some(isQuiz) ? "quiz" : e.kind !== "quiz" ? e.kind : lesson.slide_count ? "slide" : "survey";
     if (hasResponses && kind !== e.kind && !confirm(kind === "quiz"

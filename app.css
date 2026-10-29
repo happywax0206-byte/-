@@ -150,14 +150,18 @@ main.lesson .slide { cursor: zoom-in; }
 /* 응답 모아 보기 */
 .sum-block { display: grid; gap: .4rem; }
 .sum-q { font-weight: 700; font-size: .95rem; }
-.sum-head .sum-q { flex: 1; min-width: 0; }
+/* 질문 제목 옆 공개 단추: 자리가 모자라면 단추가 아래 줄로 내려간다(제목이 좁아져 글자가 세로로 늘어서지 않게) */
+.sum-head { align-items: flex-start; }
+.sum-head .sum-q { flex: 1 1 14rem; min-width: 0; }
+.sum-head > .row, .sum-head > button { flex: 0 1 auto; }
+.sum-head .row > * { white-space: nowrap; }
 .bar-row { display: grid; grid-template-columns: minmax(6rem, 38%) minmax(0, 1fr) 3rem; gap: .5rem; align-items: center; font-size: .9rem; }
 .bar-label { display: flex; gap: .3rem; min-width: 0; overflow-wrap: anywhere; }
 .bar-track { height: 14px; background: var(--bg); border-radius: 7px; overflow: hidden; }
 .bar { display: block; height: 100%; background: var(--accent); border-radius: 7px; }
 .bar-value { text-align: right; }
 .note { background: var(--bg); border-radius: 10px; padding: .55rem .75rem; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .95rem; }
-.note .share-a { float: right; margin: -.15rem 0 0 .5rem; white-space: nowrap; }
+.note .share-a { float: right; margin: -.15rem 0 .2rem .5rem; white-space: nowrap; }
 .big-view { display: grid; gap: 1.5rem; font-size: 1.3rem; }
 .big-view .sum-q { font-size: 1.4rem; }
 .big-view .bar-row { font-size: 1.2rem; }
