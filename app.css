@@ -402,6 +402,7 @@ body.present .credit { display: none; }
 .member strong { margin-right: .4rem; }
 .member .pill { display: inline-block; vertical-align: middle; }
 .member p { margin: .1rem 0 0; }
+.online-dot { display: inline-block; width: .6rem; height: .6rem; margin-left: .4rem; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 2px #dcfce7; vertical-align: middle; }
 .tip .join-url { word-break: break-all; }
 /* 학생 화면 전체 보기(학생이 동의할 때만) */
 .screen-overlay { z-index: 60; }

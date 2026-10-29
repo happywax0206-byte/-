@@ -33,6 +33,7 @@ async function init() {
       h("button", { class: "ghost", type: "button", async onclick() { await sb.auth.signOut(); location.reload(); } }, "로그아웃"))));
   }
   await loadProfile();
+  ping();
   await loadBugCount();
   await loadLessons(localStorage.getItem("cra-lesson"));
   document.addEventListener("keydown", (e) => {
@@ -969,6 +970,16 @@ async function loadBugCount() {
 }
 // 켜 둔 동안에도 3분마다(화면을 보고 있을 때만) 새 제보를 확인한다
 setInterval(() => { if (me && document.visibilityState === "visible") loadBugCount(); }, 180000);
+
+// 「지금 접속 중」 신호: 화면을 보고 있는 동안 1분마다(공동작업자 칸의 초록 점). setup.sql 전이면 조용히 넘어간다.
+let pingAt = 0;
+function ping() {
+  if (!me || document.visibilityState !== "visible" || Date.now() - pingAt < 50000) return;
+  pingAt = Date.now();
+  sb.rpc("teacher_ping").then(() => {}, () => {});
+}
+setInterval(ping, 60000);
+document.addEventListener("visibilitychange", ping);
 
 // 프로필·설정 목록 밖을 누르거나 Esc를 누르면 닫는다
 document.addEventListener("click", (e) => {
@@ -2329,7 +2340,9 @@ function membersCard() {
   const box = h("section", { class: "card stack" }, h("h2", {}, "공동작업자"), h("p", { class: "muted small" }, "불러오는 중…"));
   const forLesson = lesson;
   const person = (p, tag, extra) => h("div", { class: "member" },
-    h("div", {}, h("strong", {}, p.name ? p.name + " 선생님" : p.email), tag ? h("span", { class: "pill" }, tag) : null,
+    h("div", {}, h("strong", {}, p.name ? p.name + " 선생님" : p.email,
+        p.online || p.me ? h("span", { class: "online-dot", title: "지금 접속 중", "aria-label": "지금 접속 중" }) : null),
+      tag ? h("span", { class: "pill" }, tag) : null,
       h("p", { class: "muted small" }, [p.name ? p.email : null, teacherDetail(p) || null].filter(Boolean).join(" · ") || "프로필을 아직 적지 않았습니다")),
     extra);
   const teacherUrl = new URL("teacher.html", location.href).href;
@@ -2385,6 +2398,11 @@ function membersCard() {
     ].flat().filter(Boolean));
   }
   refresh();
+  // 접속 표시(초록 점)를 30초마다 새로. 초대 칸에 글을 쓰는 중이면 건너뛴다.
+  const timer = setInterval(() => {
+    if (!box.isConnected || lesson !== forLesson) return clearInterval(timer);
+    if (document.visibilityState === "visible" && !box.contains(document.activeElement)) refresh();
+  }, 30000);
   return box;
 }
 

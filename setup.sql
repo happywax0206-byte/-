@@ -15,6 +15,8 @@ alter table teachers add column if not exists name text check (length(name) <= 3
 alter table teachers add column if not exists school text check (length(school) <= 50);
 alter table teachers add column if not exists subject text check (length(subject) <= 30);
 alter table teachers add column if not exists invited boolean not null default false;
+-- 교사 화면을 켜 두고 보고 있으면 1분마다 적는 시각(공동작업자 칸의 「접속 중」 초록 점)
+alter table teachers add column if not exists seen_at timestamptz;
 
 -- 수업(반) 하나. 수업 코드는 서버가 겹치지 않게 만든다.
 create table if not exists lessons (
@@ -684,7 +686,14 @@ begin
   return my_profile();
 end $$;
 
+-- 교사 화면이 보이는 동안 1분마다 부른다: 「지금 접속 중」 표시용
+create or replace function teacher_ping() returns void
+language sql security definer set search_path = public as $$
+  update teachers set seen_at = now() where email = my_email()
+$$;
+
 -- 이 수업을 만든 교사와 공동작업자(프로필과 함께). joined: 그 이메일로 계정을 만들었는지
+-- online: 2분 안에 교사 화면에서 신호가 왔는지(teacher_ping)
 create or replace function lesson_people(p_lesson uuid) returns jsonb
 language plpgsql stable security definer set search_path = public as $$
 declare
@@ -695,10 +704,12 @@ begin
   select * into l from lessons where id = p_lesson;
   select lower(u.email) into oe from auth.users u where u.id = l.owner;
   return jsonb_build_object(
-    'owner', (select jsonb_build_object('email', oe, 'name', t.name, 'school', t.school, 'subject', t.subject, 'me', l.owner = auth.uid())
+    'owner', (select jsonb_build_object('email', oe, 'name', t.name, 'school', t.school, 'subject', t.subject, 'me', l.owner = auth.uid(),
+                'online', coalesce(t.seen_at > now() - interval '2 minutes', false))
               from (select 1) x left join teachers t on t.email = oe),
     'members', coalesce((
       select jsonb_agg(jsonb_build_object('email', m.email, 'name', t.name, 'school', t.school, 'subject', t.subject, 'me', m.email = my_email(),
+               'online', coalesce(t.seen_at > now() - interval '2 minutes', false),
                'joined', exists (select 1 from auth.users u where lower(u.email) = m.email and u.email_confirmed_at is not null))
              order by m.added_at)
       from lesson_members m left join teachers t on t.email = m.email
@@ -750,6 +761,8 @@ $$;
 revoke all on function my_profile() from public;
 revoke all on function save_profile(text, text, text) from public;
 revoke all on function lesson_people(uuid) from public;
+revoke all on function teacher_ping() from public;
+grant execute on function teacher_ping() to authenticated;
 revoke all on function add_member(uuid, text) from public;
 revoke all on function remove_member(uuid, text) from public;
 revoke all on function slide_dir_shared(uuid) from public;
