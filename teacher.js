@@ -1566,7 +1566,7 @@ function endLesson() {
   if (readOnly()) return alert(READ_ONLY_MSG);
   const close = openModal("수업 끝내기", h("div", { class: "stack" },
     h("p", {}, h("strong", {}, "수업을 종료합니까?")),
-    h("p", { class: "muted small" }, "종료하면 학생이 더 이상 이 수업에 들어올 수 없고, 들어와 있던 학생도 곧 나가집니다. 학생이 쓴 답은 그대로 남고, 「수업 다시 열기」로 되돌릴 수 있습니다."),
+    h("p", { class: "muted small" }, "종료하면 학생이 더 이상 이 수업에 들어올 수 없고, 들어와 있던 학생도 곧 나가집니다. 이 수업 학생들은 모든 기기에서 로그아웃되어 다음에는 비밀번호로 다시 입장합니다(같이 쓰는 기기에 로그인이 남지 않게). 학생이 쓴 답은 그대로 남고, 「수업 다시 열기」로 되돌릴 수 있습니다."),
     h("div", { class: "row", style: "justify-content: flex-end" },
       h("button", { class: "ghost", type: "button", onclick() { close(); } }, "취소"),
       h("button", { class: "primary end-lesson", type: "button", async onclick() { close(); await setLesson({ ended: true }); flash("수업을 종료했습니다."); } }, "종료"))));

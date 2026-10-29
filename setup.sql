@@ -310,6 +310,23 @@ language plpgsql as $$ begin new.owner := old.owner; return new; end $$;
 drop trigger if exists lessons_keep_owner on lessons;
 create trigger lessons_keep_owner before update on lessons for each row execute function lessons_keep_owner();
 
+-- 수업을 끝내면 그 수업 학생들의 열쇠(token)를 지워 모든 기기에서 로그아웃시킨다(같이 쓰는 컴퓨터·태블릿에 로그인이 남지 않게).
+-- 다음에는 학번·이름·비밀번호로 다시 들어온다. 마지막 접속도 그 순간 「나감」으로 적는다
+create or replace function lessons_end_logout() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.ended and not old.ended then
+    update students set token = null
+      where token is not null and id in (select student_id from lesson_students where lesson_id = new.id);
+    update lesson_students set access_at = now(), access_kind = 'out', last_seen = null
+      where lesson_id = new.id and access_kind = 'in';
+  end if;
+  return new;
+end $$;
+revoke all on function lessons_end_logout() from public;
+drop trigger if exists lessons_end_logout on lessons;
+create trigger lessons_end_logout after update of ended on lessons for each row execute function lessons_end_logout();
+
 -- 새 수업 만들기: 겹치지 않는 수업 코드를 서버가 정한다(헷갈리는 0, O, 1, I 는 쓰지 않음)
 -- p_kind: 'lesson'(슬라이드 수업) 또는 'survey'(설문만)
 drop function if exists create_lesson(text);
@@ -435,11 +452,12 @@ declare
   ho text;
   v jsonb;
 begin
+  -- 수업이 끝났는지를 먼저 본다: 끝내면 학생 열쇠도 지워지므로(아래 lessons_end_logout), 그 학생에게는 「로그아웃」 대신 「수업 끝남」을 알린다
+  select * into l from lessons where code = upper(tidy(p_code));
+  if found and l.ended then return jsonb_build_object('error', 'ended'); end if;
   select * into s from students where token = p_token and p_token is not null;
   if not found then return jsonb_build_object('error', 'logged_out'); end if;
-  select * into l from lessons where code = upper(tidy(p_code));
-  if not found then return jsonb_build_object('error', 'no_lesson'); end if;
-  if l.ended then return jsonb_build_object('error', 'ended'); end if;
+  if l.id is null then return jsonb_build_object('error', 'no_lesson'); end if;
   select * into m from lesson_students where lesson_id = l.id and student_id = s.id;
   if not found then
     if (select count(*) from lesson_students where lesson_id = l.id) >= 200 then return jsonb_build_object('error', 'full'); end if;
@@ -451,7 +469,8 @@ begin
      or (m.access_kind = 'in' and coalesce(greatest(m.last_seen, m.access_at) < now() - interval '2 minutes', true)) then
     update lesson_students set access_at = now(), access_kind = 'in', last_seen = now() where lesson_id = l.id and student_id = s.id;
   -- 접속 중 표시: 10초에 한 번만 적는다
-  elsif m.last_seen is null or m.last_seen < now() - interval '10 seconds' then
+  elsif (m.last_seen is null or m.last_seen < now() - interval '10 seconds')
+        and not (m.access_kind = 'out' and m.access_at >= now() - interval '3 seconds') then
     update lesson_students set last_seen = now() where lesson_id = l.id and student_id = s.id;
   end if;
 

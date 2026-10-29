@@ -8,6 +8,11 @@ const POLL_MS = 3000;
 const TOKEN_KEY = "cra-token";
 const ENDED_MSG = "선생님이 수업을 끝냈습니다. 더 이상 이 수업에 들어올 수 없습니다.";
 const ME_KEY = "cra-me";
+// 여러 사람이 같이 쓰는 기기(학교 컴퓨터·태블릿): 열쇠·이름·쓰던 답을 이 탭에만(sessionStorage) 둔다. 창이나 탭을 닫으면 지워져 다음 사람이 앞 학생으로 들어가지 않는다.
+// 한 번 고르면 이 기기는 다음에도 「같이 쓰는 기기」 칸이 체크되어 나온다
+const SHARED_KEY = "cra-shared-device";
+const sharedDevice = () => localStorage.getItem(SHARED_KEY) === "1";
+const keep = () => (sharedDevice() ? sessionStorage : localStorage);
 
 let code = "";          // 수업 코드
 let token = null;       // 입장 열쇠(이 기기에 저장)
@@ -23,8 +28,11 @@ const cards = new Map(); // 활동 id → 화면 카드
 function start() {
   code = (params.get("c") || localStorage.getItem("cra-last-code") || "").trim();
   // 예전 판은 수업마다 열쇠를 따로 저장했다: 있으면 그대로 옮겨 쓴다
-  token = localStorage.getItem(TOKEN_KEY) || (code ? localStorage.getItem("cra-token:" + code.toLowerCase()) : null);
-  if (token) localStorage.setItem(TOKEN_KEY, token);
+  token = keep().getItem(TOKEN_KEY);
+  if (!token && !sharedDevice()) {
+    token = code ? localStorage.getItem("cra-token:" + code.toLowerCase()) : null;
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+  }
   if (token && code) poll();
   else if (token) showCodeOnly();
   else showEntry();
@@ -43,7 +51,7 @@ function showCodeOnly(notice) {
   stopPolling();
   shell = null;
   cards.clear();
-  const me = localStorage.getItem(ME_KEY) || "";
+  const me = keep().getItem(ME_KEY) || "";
   const codeIn = h("input", { type: "text", value: params.get("c") ? "" : code, autocomplete: "off", maxlength: 20, placeholder: "예: K7P2Q", autocapitalize: "characters", required: true });
   const msg = h("p", { class: "msg" }, notice || "");
   app.replaceChildren(h("main", { class: "narrow" },
@@ -75,6 +83,9 @@ function showEntry(notice) {
   // 처음 들어오는 학생은 두 칸을 한꺼번에 채워 한 번에 입장한다. 이미 비밀번호가 있는 학생은 비워 두면 된다
   // (채워도 서버는 이미 정한 비밀번호와만 비교하므로 바뀌지 않는다).
   const pin2Row = h("label", {}, "비밀번호 한 번 더 ", h("span", { class: "muted small" }, "(처음 들어올 때만)"), pin2In);
+  const sharedIn = h("input", { type: "checkbox", checked: sharedDevice() });
+  const sharedRow = h("label", { class: "check" }, sharedIn,
+    h("span", {}, "여러 사람이 같이 쓰는 기기예요 ", h("span", { class: "muted small" }, "(학교 컴퓨터·태블릿: 창을 닫으면 자동으로 나가집니다)")));
   const msg = h("p", { class: "msg" }, notice || "");
   const btn = h("button", { class: "primary big", type: "submit" }, "입장하기");
 
@@ -111,8 +122,11 @@ function showEntry(notice) {
         token = data.token;
         code = data.code;
         localStorage.setItem("cra-last-code", code);
-        localStorage.setItem(TOKEN_KEY, token);
-        localStorage.setItem(ME_KEY, data.class_no + " " + data.name);
+        if (sharedIn.checked) localStorage.setItem(SHARED_KEY, "1"); else localStorage.removeItem(SHARED_KEY);
+        localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(ME_KEY);
+        sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(ME_KEY);
+        keep().setItem(TOKEN_KEY, token);
+        keep().setItem(ME_KEY, data.class_no + " " + data.name);
         following = true;
         poll();
       } else msg.textContent = "알 수 없는 오류입니다. 다시 시도하세요.";
@@ -123,6 +137,7 @@ function showEntry(notice) {
     h("label", {}, "이름", nameIn),
     h("label", {}, "비밀번호 (숫자 4자리)", pinIn),
     pin2Row,
+    sharedRow,
     h("div", { class: "tip" },
       h("strong", {}, "처음 들어오나요?"),
       h("p", {}, "비밀번호를 두 칸에 똑같이 입력하세요. 처음 입력한 번호가 내 비밀번호가 됩니다. 다른 수업에서도 같은 학번·이름·비밀번호를 씁니다. 휴대폰 비밀번호나 생일은 쓰지 마세요.")),
@@ -150,11 +165,26 @@ function sendLeave() {
 }
 window.addEventListener("pagehide", () => { if (shell) sendLeave(); });
 
+// 수업이 끝남: 서버가 학생 열쇠를 지웠으므로 이 기기에서도 나간다. 주소의 수업 코드도 지워 다른 수업 코드를 넣을 수 있게 한다
+function lessonEnded() {
+  params.delete("c");
+  history.replaceState(null, "", location.pathname);
+  localStorage.removeItem("cra-last-code");
+  if (shell) sendLeave();   // 예전 서버(열쇠를 지우지 않음)에서도 「나감」을 적는다
+  shell = null;
+  code = "";
+  logout(ENDED_MSG);
+}
+
 function logout(notice) {
   if (shell) sendLeave();
   if (scr.stream) screenStop(true);
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(ME_KEY);
+  for (const st of [localStorage, sessionStorage]) {
+    st.removeItem(TOKEN_KEY);
+    st.removeItem(ME_KEY);
+    // 저장하지 않고 쓰던 답도 이 기기에서 지운다(다음 사람에게 남지 않게)
+    if (token) Object.keys(st).filter((k) => k.startsWith("cra-draft:" + token + ":")).forEach((k) => st.removeItem(k));
+  }
   if (code) localStorage.removeItem("cra-token:" + code.toLowerCase());
   token = null;
   state = null;
@@ -196,12 +226,12 @@ async function poll() {
   }
   if (!error && data.error === "no_lesson") return showCodeOnly("수업 코드를 찾지 못했습니다. 선생님께 받은 코드를 확인하세요.");
   if (!error && data.error === "full") return showCodeOnly("이 수업은 인원이 가득 찼습니다. 선생님께 알려 주세요.");
-  if (!error && data.error === "ended") { if (shell) sendLeave(); return showCodeOnly(ENDED_MSG); }
+  if (!error && data.error === "ended") return lessonEnded();
   if (error) {
     if (shell) shell.conn.hidden = false;
     else showEntry("연결하지 못했습니다. " + NET_HINT);
   } else if (data.error === "logged_out") {
-    return logout("다시 입장해 주세요. 선생님이 비밀번호를 초기화했거나 학생 정보가 지워졌습니다.");
+    return logout("다시 입장해 주세요. 수업이 끝나 로그아웃되었거나, 선생님이 비밀번호를 초기화했거나 학생 정보가 지워졌습니다.");
   } else {
     const full = merge(data);
     if (!full) return poll();   // 바뀐 부분만 왔는데 합칠 예전 상태가 없다: hash 없이 다시 받는다
@@ -777,7 +807,7 @@ function buildForm(c) {
   const quizDone = a.kind === "quiz" && !!a.mine;
   // 고치는 중인 내용(이 기기에 저장). 서버에 더 나중에 저장된 것이 있으면 그것을 쓴다.
   let draft = null;
-  try { draft = JSON.parse(localStorage.getItem(draftKey(a)) || "null"); } catch (e) { draft = null; }
+  try { draft = JSON.parse(keep().getItem(draftKey(a)) || "null"); } catch (e) { draft = null; }
   if (draft && a.saved_at && draft.at < Date.parse(a.saved_at)) draft = null;
   const values = Object.assign({}, a.mine || {}, draft ? draft.values : {});
   if (draft && !quizDone) { liveDrafts[a.id] = values; sendLive(); } else delete liveDrafts[a.id];
@@ -791,7 +821,7 @@ function buildForm(c) {
   let sending = false;
 
   const saveDraft = () => {
-    localStorage.setItem(draftKey(a), JSON.stringify({ at: Date.now(), values }));
+    keep().setItem(draftKey(a), JSON.stringify({ at: Date.now(), values }));
     liveDrafts[a.id] = values;
     liveFocus = a.id;
     sendLive();
@@ -851,13 +881,13 @@ function buildForm(c) {
     sending = false;
     if (error) err.textContent = "저장하지 못했습니다. 다시 시도하세요. (" + error.message + ")";
     else if (data.error === "closed") err.textContent = "지금은 제출이 닫혀 있습니다. 선생님이 열면 다시 저장하세요.";
-    else if (data.error === "ended") return showCodeOnly(ENDED_MSG);
+    else if (data.error === "ended") return lessonEnded();
     else if (data.error === "already") err.textContent = "이미 제출한 퀴즈입니다.";
     else if (data.error === "bad_file") err.textContent = "올린 파일을 확인하지 못했습니다. 파일을 빼고 다시 올려 주세요.";
     else if (data.error === "logged_out") return logout("다시 입장해 주세요.");
     else if (data.error) err.textContent = "저장하지 못했습니다. (" + data.error + ")";
     else {
-      localStorage.removeItem(draftKey(a));
+      keep().removeItem(draftKey(a));
       delete liveDrafts[a.id];
       sendLive();
       c.formSig = null;   // 저장한 내용으로 다시 그린다
