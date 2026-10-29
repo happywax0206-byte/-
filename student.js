@@ -6,6 +6,7 @@ const params = new URLSearchParams(location.search);
 const POLL_MS = 3000;
 // 학생 계정은 웹앱 전체에 하나. 한 번 입장한 기기는 열쇠(token)를 기억해서, 새 수업 코드만 넣으면 바로 들어간다.
 const TOKEN_KEY = "cra-token";
+const ENDED_MSG = "선생님이 수업을 끝냈습니다. 더 이상 이 수업에 들어올 수 없습니다.";
 const ME_KEY = "cra-me";
 
 let code = "";          // 수업 코드
@@ -98,6 +99,7 @@ function showEntry(notice) {
       else if (err === "bad_name") msg.textContent = "학번과 이름을 확인하세요(각각 20자까지).";
       else if (err === "bad_pin") msg.textContent = "비밀번호는 숫자 4자리로 입력하세요.";
       else if (err === "full") msg.textContent = "이 수업은 인원이 가득 찼습니다. 선생님께 알려 주세요.";
+      else if (err === "ended") msg.textContent = ENDED_MSG;
       else if (err === "need_confirm") {
         pin2In.focus();
         msg.textContent = data.reset
@@ -194,6 +196,7 @@ async function poll() {
   }
   if (!error && data.error === "no_lesson") return showCodeOnly("수업 코드를 찾지 못했습니다. 선생님께 받은 코드를 확인하세요.");
   if (!error && data.error === "full") return showCodeOnly("이 수업은 인원이 가득 찼습니다. 선생님께 알려 주세요.");
+  if (!error && data.error === "ended") { if (shell) sendLeave(); return showCodeOnly(ENDED_MSG); }
   if (error) {
     if (shell) shell.conn.hidden = false;
     else showEntry("연결하지 못했습니다. " + NET_HINT);
@@ -689,7 +692,7 @@ function fileField(a, q, label, values, locked, changed) {
         const { data, error } = await sb.rpc("student_upload_ticket", { p_token: token, p_activity: a.id, p_ext: ext });
         if (error) throw error;
         if (data.error === "logged_out") return logout("다시 입장해 주세요.");
-        if (data.error) throw new Error({ closed: "지금은 제출이 닫혀 있습니다.", already: "이미 제출한 퀴즈입니다.", too_many: "잠시 뒤에 다시 올리세요(한 시간에 40개까지)." }[data.error] || data.error);
+        if (data.error) throw new Error({ closed: "지금은 제출이 닫혀 있습니다.", ended: ENDED_MSG, already: "이미 제출한 퀴즈입니다.", too_many: "잠시 뒤에 다시 올리세요(한 시간에 40개까지)." }[data.error] || data.error);
         const up = await sb.storage.from("submissions").upload(data.path, f, { contentType: type, upsert: false });
         if (up.error) throw up.error;
         values[q.id] = files().concat({ path: data.path, name: f.name, size: f.size });
@@ -848,6 +851,7 @@ function buildForm(c) {
     sending = false;
     if (error) err.textContent = "저장하지 못했습니다. 다시 시도하세요. (" + error.message + ")";
     else if (data.error === "closed") err.textContent = "지금은 제출이 닫혀 있습니다. 선생님이 열면 다시 저장하세요.";
+    else if (data.error === "ended") return showCodeOnly(ENDED_MSG);
     else if (data.error === "already") err.textContent = "이미 제출한 퀴즈입니다.";
     else if (data.error === "bad_file") err.textContent = "올린 파일을 확인하지 못했습니다. 파일을 빼고 다시 올려 주세요.";
     else if (data.error === "logged_out") return logout("다시 입장해 주세요.");

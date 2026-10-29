@@ -81,6 +81,8 @@ button:disabled { cursor: default; opacity: .55; }
 .ghost:hover:not(:disabled) { border-color: var(--accent); }
 .link { background: none; border: 0; color: var(--accent); padding: 0 .4rem; }
 .danger { color: var(--bad); }
+.primary.end-lesson { background: var(--bad); }
+.primary.end-lesson:hover:not(:disabled) { background: #8f1c13; }
 .big { min-height: 52px; font-size: 1.05rem; width: 100%; }
 
 /* 알림 */

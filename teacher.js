@@ -809,7 +809,7 @@ function draw() {
       else lesson = lessons.find((l) => l.id === pick.value);
       await loadLesson();
     },
-  }, lessons.map((l) => h("option", { value: l.id, selected: lesson && l.id === lesson.id }, (l.kind === "survey" ? "[설문] " : "") + lessonTag(l) + l.title + " (" + l.code + ")")),
+  }, lessons.map((l) => h("option", { value: l.id, selected: lesson && l.id === lesson.id }, (l.ended ? "[종료] " : "") + (l.kind === "survey" ? "[설문] " : "") + lessonTag(l) + l.title + " (" + l.code + ")")),
     h("option", { value: "new", selected: !lesson }, "+ 새 수업 만들기"));
   if (!TABS[tab]) tab = "run";
   if (!lesson && !GEAR.includes(tab)) tab = "settings";
@@ -1342,6 +1342,7 @@ function drawRun() {
   const next = h("button", { class: "primary", type: "button", onclick() { setPage(viewPage() + 1); } }, "다음 ▶");
   const openBtn = h("button", { type: "button", onclick() { setLesson({ open: !lesson.open }); } });
   const openText = h("span", {});
+  const endBtn = h("button", { type: "button", onclick() { lesson.ended ? reopenLesson() : endLesson(); } });
   const simStage = h("div", { class: "sim-stage", hidden: true });
   const simLayer = slideLayer(img);
   const stage = h("div", { class: "stage" }, img, simLayer, simStage);
@@ -1362,10 +1363,10 @@ function drawRun() {
         preview ? null : h("button", { class: "ghost", type: "button", onclick() { downloadCSV(activities, lesson.code + "_전체응답"); } }, "전체 응답 CSV")),
       hasSlides && !preview ? h("details", { class: "run-help muted small" }, h("summary", {}, "도움말"), "학생 화면은 여기서 띄운 쪽을 따라갑니다. 키보드 ← → 로도 넘길 수 있습니다. 「수업 화면 띄우기」는 슬라이드만 새 탭에 띄웁니다(그 탭을 프로젝터 화면으로 옮겨 쓰세요). 여기서 시뮬레이션이나 결과를 크게 띄우거나 링크를 누르면 수업 화면에도 바로 보입니다. 화면 공유(「이 탭」)를 허용하면 시뮬레이션·유튜브를 여기서 조작한 그대로 수업 화면에 보입니다.") : null),
     h("aside", { class: "run-right stack" },
-      preview ? null : h("section", { class: "card row between" }, openText, openBtn),
+      preview ? null : h("section", { class: "card row between" }, openText, h("span", { class: "row" }, openBtn, endBtn)),
       preview ? null : roster,
       panel)));
-  run = { img, stage, simStage, simLayer, simKey: "", where, prev, next, openBtn, openText, panel, roster, blocks: new Map() };
+  run = { img, stage, simStage, simLayer, simKey: "", where, prev, next, openBtn, openText, endBtn, panel, roster, blocks: new Map() };
   refreshRun();
 }
 
@@ -1386,10 +1387,13 @@ function refreshRun() {
     run.next.disabled = P >= L.slide_count;
     if (P < L.slide_count) new Image().src = slideSrc(L, P + 1, slideSize(run.img));
   }
-  run.openText.replaceChildren(h("strong", {}, L.open ? "제출 받는 중" : "제출 닫힘"),
+  run.openText.replaceChildren(h("strong", { class: L.ended ? "danger" : "" }, L.ended ? "수업 종료됨" : L.open ? "제출 받는 중" : "제출 닫힘"),
     h("span", { class: "muted small" }, " · 입장 " + students.length + "명"));
   run.openBtn.className = L.open ? "ghost" : "primary";
   run.openBtn.textContent = L.open ? "제출 마감" : "제출 열기";
+  run.openBtn.hidden = !!L.ended;
+  run.endBtn.className = L.ended ? "primary" : "ghost danger";
+  run.endBtn.textContent = L.ended ? "수업 다시 열기" : "수업 끝내기";
 
   const simKey = stageSim ? stageSim.id + ":" + (stageSim.html || "").length + ":" + stageSim.title : "";
   run.img.hidden = !!stageSim;
@@ -1555,6 +1559,24 @@ async function setPage(n) {
   }
   if (n === lesson.page) return;
   await setLesson({ page: n });
+}
+
+// 수업 끝내기: 끝난 수업에는 학생이 들어오지도, 보지도, 답을 저장하지도 못한다(들어와 있던 학생은 3초 안에 나가진다)
+function endLesson() {
+  if (readOnly()) return alert(READ_ONLY_MSG);
+  const close = openModal("수업 끝내기", h("div", { class: "stack" },
+    h("p", {}, h("strong", {}, "수업을 종료합니까?")),
+    h("p", { class: "muted small" }, "종료하면 학생이 더 이상 이 수업에 들어올 수 없고, 들어와 있던 학생도 곧 나가집니다. 학생이 쓴 답은 그대로 남고, 「수업 다시 열기」로 되돌릴 수 있습니다."),
+    h("div", { class: "row", style: "justify-content: flex-end" },
+      h("button", { class: "ghost", type: "button", onclick() { close(); } }, "취소"),
+      h("button", { class: "primary end-lesson", type: "button", async onclick() { close(); await setLesson({ ended: true }); flash("수업을 종료했습니다."); } }, "종료"))));
+}
+
+async function reopenLesson() {
+  if (readOnly()) return alert(READ_ONLY_MSG);
+  if (!confirm("수업을 다시 열까요? 학생이 다시 들어올 수 있습니다.")) return;
+  await setLesson({ ended: false });
+  flash("수업을 다시 열었습니다.");
 }
 
 async function setLesson(change) {

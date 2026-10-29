@@ -40,6 +40,8 @@ alter table lessons drop constraint if exists lessons_transition_size;
 alter table lessons add constraint lessons_transition_size check (transition is null or (jsonb_typeof(transition) = 'object' and octet_length(transition::text) <= 8000));
 -- 나중에 더한 칸: 교사가 「학생 화면」 탭을 마지막으로 본 때. 이때부터 15초 동안만 학생이 쓰고 있는 답을 보낸다
 alter table lessons add column if not exists live_watch_at timestamptz;
+-- 나중에 더한 칸: 수업 끝내기(교사 화면 「수업 끝내기」). 끝난 수업에는 학생이 들어오지도, 보지도, 저장하지도 못한다(「다시 열기」로 되돌림)
+alter table lessons add column if not exists ended boolean not null default false;
 create unique index if not exists lessons_code_key on lessons (code);
 create index if not exists lessons_owner on lessons (owner);
 
@@ -352,7 +354,8 @@ declare
 begin
   select * into l from lessons where code = upper(tidy(p_code));
   if not found then return jsonb_build_object('error', 'no_lesson'); end if;
-  if c = '' or n = '' or length(c) > 20 or length(n) > 20 then return jsonb_build_object('error', 'bad_name'); end if;
+  if l.ended then return jsonb_build_object('error', 'ended'); end if;
+  if c = '' or n = ''or length(c) > 20 or length(n) > 20 then return jsonb_build_object('error', 'bad_name'); end if;
   if coalesce(p_pin, '') !~ '^[0-9]{4}$' then return jsonb_build_object('error', 'bad_pin'); end if;
 
   select * into s from students where class_no = c and name = n for update;
@@ -436,6 +439,7 @@ begin
   if not found then return jsonb_build_object('error', 'logged_out'); end if;
   select * into l from lessons where code = upper(tidy(p_code));
   if not found then return jsonb_build_object('error', 'no_lesson'); end if;
+  if l.ended then return jsonb_build_object('error', 'ended'); end if;
   select * into m from lesson_students where lesson_id = l.id and student_id = s.id;
   if not found then
     if (select count(*) from lesson_students where lesson_id = l.id) >= 200 then return jsonb_build_object('error', 'full'); end if;
@@ -519,6 +523,7 @@ begin
     return jsonb_build_object('error', 'no_activity');
   end if;
   select * into l from lessons where id = a.lesson_id;
+  if l.ended then return jsonb_build_object('error', 'ended'); end if;
   if not l.open then return jsonb_build_object('error', 'closed'); end if;
   if jsonb_typeof(p_answers) is distinct from 'object' or octet_length(p_answers::text) > 20000 then
     return jsonb_build_object('error', 'too_big');
@@ -568,7 +573,7 @@ begin
   select * into s from students where token = p_token and p_token is not null;
   if not found then return null; end if;
   select * into a from activities where id = p_activity and kind = 'sim' and not hidden;
-  if not found or not exists (select 1 from lesson_students where lesson_id = a.lesson_id and student_id = s.id) then return null; end if;
+  if not found or exists (select 1 from lessons where id = a.lesson_id and ended) or not exists (select 1 from lesson_students where lesson_id = a.lesson_id and student_id = s.id) then return null; end if;
   return a.html;
 end $$;
 
@@ -606,6 +611,7 @@ begin
   if not found then return jsonb_build_object('error', 'logged_out'); end if;
   select * into l from lessons where code = upper(tidy(p_code));
   if not found then return jsonb_build_object('error', 'no_lesson'); end if;
+  if l.ended then return jsonb_build_object('error', 'ended'); end if;
   if p_live is null or jsonb_typeof(p_live) <> 'object' or octet_length(p_live::text) > 20000 then
     return jsonb_build_object('error', 'too_big');
   end if;
@@ -629,6 +635,7 @@ begin
   if not found then return jsonb_build_object('error', 'logged_out'); end if;
   select * into l from lessons where code = upper(tidy(p_code));
   if not found then return jsonb_build_object('error', 'no_lesson'); end if;
+  if l.ended then return jsonb_build_object('error', 'ended'); end if;
   select * into m from lesson_students where lesson_id = l.id and student_id = s.id for update;
   if not found then return jsonb_build_object('error', 'no_lesson'); end if;
   v := m.screen;
@@ -1006,6 +1013,7 @@ begin
     return jsonb_build_object('error', 'no_activity');
   end if;
   select * into l from lessons where id = a.lesson_id;
+  if l.ended then return jsonb_build_object('error', 'ended'); end if;
   if not l.open then return jsonb_build_object('error', 'closed'); end if;
   if a.kind = 'quiz' and exists (select 1 from responses where student_id = s.id and activity_id = a.id) then
     return jsonb_build_object('error', 'already');
