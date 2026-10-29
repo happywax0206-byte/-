@@ -752,7 +752,7 @@ begin
     -- 지금 데이터베이스에 붙어 있는 연결 수(웹앱은 API를 거치므로 보통 Supabase 내부 연결만)
     'conn', (select count(*) from pg_stat_activity where backend_type = 'client backend'),
     'conn_max', current_setting('max_connections')::int);
-end $;
+end $$;
 revoke all on function usage_stats() from public;
 grant execute on function usage_stats() to authenticated;
 
