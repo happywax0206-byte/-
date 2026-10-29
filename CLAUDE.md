@@ -27,5 +27,5 @@
 ## 사용자 차례로 남은 일
 
 - Resend 키 넣기(버그 제보 메일): SQL Editor에서 `insert into app_secrets values ('resend_key','re_…') on conflict (key) do update set value = excluded.value;`
-- 휴대폰으로 「파일 올리기」 실제 시험, 공동작업자 「보기만」을 실제 Supabase·브라우저로 확인.
+- 공동작업자 「보기만」을 실제 Supabase·브라우저로 확인.
 - 보안 제안 중 아직 안 고른 것: 4자리 PIN 추측(흔한 PIN 금지·잠금 늘리기), 수업이 꽉 차도 학생 계정이 먼저 만들어지는 것. (「Confirm email」은 켜져 있음 확인, 2026-10-30)

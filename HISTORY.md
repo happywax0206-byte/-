@@ -77,3 +77,4 @@ CLAUDE.md에서 옮겨 온 날짜별 기록. 어떤 기능이 왜·어떻게 그
 - 2026-10-30: 「입장 막힘 풀기」(학생 관리 탭 머리, teacher.js) → 새 함수 `code_unblock()`(교사만, code_fails를 비우고 막혀 있던 주소 수를 돌려줌). 학생 BUSY_MSG에 「선생님께 말하면 바로 풀 수 있습니다」. PGlite로 확인함. **setup.sql 다시 실행 필요**.
 - 2026-10-30: `code_unblock`이 Supabase에서 "DELETE requires a WHERE clause"(pg_safeupdate) → `delete from code_fails where true`. **setup.sql 다시 실행 필요**. 함수 안에서도 조건 없는 delete/update는 쓰지 말 것.
 - 2026-10-30: `client_ip()`에서 x-real-ip 뺌(Supabase 안쪽 중계 주소면 모든 학교가 한 주소로 묶임). 점검용 `client_ip_check()`(anon, 자기 주소와 cf-connecting-ip 유무). student.js poll: 모르는 data.error는 showCodeOnly(화면 깨짐 방지). **setup.sql 다시 실행 필요**.
+- 2026-10-30: 운영 서버 확인: `client_ip_check` → cf-connecting-ip로 실제 공인 주소를 읽음, X-Forwarded-For를 꾸며도 무시, CF-Connecting-IP를 꾸미면 Cloudflare가 요청 자체를 거부(1000). 사용자가 setup.sql 실행·파일 올리기 정상 확인(새 제출 파일 규칙 포함).
