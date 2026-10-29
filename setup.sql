@@ -683,9 +683,28 @@ declare
   admin boolean;
   wal bigint;
   since timestamptz := date_trunc('month', now());
+  auth_mail int;
+  bug_day int;
+  bug_month int;
 begin
   if not is_teacher() then raise exception 'not a teacher'; end if;
   admin := exists (select 1 from teachers where email = my_email() and not invited);
+  -- 로그인 메일(계정 만들기 확인·비밀번호 찾기·이메일 바꾸기·초대): Supabase 기본 메일 서버는 1시간에 2통 정도까지
+  begin
+    select coalesce(sum((confirmation_sent_at > now() - interval '1 hour')::int + (recovery_sent_at > now() - interval '1 hour')::int
+                      + (email_change_sent_at > now() - interval '1 hour')::int + (invited_at > now() - interval '1 hour')::int), 0)
+      into auth_mail from auth.users;
+  exception when others then
+    auth_mail := null;
+  end;
+  -- 버그 제보 메일(Resend 무료: 하루 100통, 한 달 3,000통). Resend는 UTC 날짜로 센다
+  begin
+    select count(*) filter (where created_at >= date_trunc('day', now() at time zone 'utc') at time zone 'utc'),
+           count(*) filter (where created_at >= date_trunc('month', now() at time zone 'utc') at time zone 'utc')
+      into bug_day, bug_month from bug_reports where mail in ('sent', 'ok', 'fail');
+  exception when others then
+    bug_day := null; bug_month := null;
+  end;
   begin
     select sum(size) into wal from pg_ls_waldir();
   exception when others then
@@ -726,30 +745,14 @@ begin
       where x.at >= since), '[]'::jsonb) end,
     'students', (select count(*) from students),
     'lessons', (select count(*) from lessons),
-    -- 기능별로 나누어 보기: 표 전체 크기(색인 포함)와, 한 표 안에서 기능별 칸이 차지하는 크기(압축된 크기)
-    'feat', jsonb_build_object(
-      'lessons', coalesce(pg_total_relation_size(to_regclass('public.lessons')), 0),
-      'transition', (select coalesce(sum(pg_column_size(transition)), 0) from lessons),
-      'activities', coalesce(pg_total_relation_size(to_regclass('public.activities')), 0),
-      'sim_html', (select coalesce(sum(pg_column_size(html)), 0) from activities),
-      'shared', (select coalesce(sum(pg_column_size(shared_q) + pg_column_size(shared_a)), 0) from activities),
-      'responses', coalesce(pg_total_relation_size(to_regclass('public.responses')), 0),
-      'students', coalesce(pg_total_relation_size(to_regclass('public.students')), 0),
-      'lesson_students', coalesce(pg_total_relation_size(to_regclass('public.lesson_students')), 0),
-      'live', (select coalesce(sum(pg_column_size(live)), 0) from lesson_students),
-      'screen', (select coalesce(sum(pg_column_size(screen)), 0) from lesson_students),
-      'upload_tickets', coalesce(pg_total_relation_size(to_regclass('public.upload_tickets')), 0),
-      'teachers', coalesce(pg_total_relation_size(to_regclass('public.teachers')), 0),
-      'lesson_members', coalesce(pg_total_relation_size(to_regclass('public.lesson_members')), 0),
-      'bugs', coalesce(pg_total_relation_size(to_regclass('public.bug_reports')), 0)
-            + coalesce(pg_total_relation_size(to_regclass('public.bug_replies')), 0)
-            + coalesce(pg_total_relation_size(to_regclass('public.app_secrets')), 0),
-      -- 메일 보내기(pg_net)가 남기는 요청·응답 기록(6시간 뒤 저절로 지워짐)
-      'net', (select coalesce(sum(pg_total_relation_size(c.oid)), 0) from pg_class c join pg_namespace n on n.oid = c.relnamespace
-              where n.nspname = 'net' and c.relkind in ('r', 'p')),
-      'auth', (select coalesce(sum(pg_total_relation_size(c.oid)), 0) from pg_class c join pg_namespace n on n.oid = c.relnamespace
-               where n.nspname = 'auth' and c.relkind in ('r', 'p'))));
-end $$;
+    'auth_mail_hour', auth_mail,
+    'mail_day', bug_day,
+    'mail_month', bug_month,
+    'mail_key', exists (select 1 from app_secrets where key = 'resend_key'),
+    -- 지금 데이터베이스에 붙어 있는 연결 수(웹앱은 API를 거치므로 보통 Supabase 내부 연결만)
+    'conn', (select count(*) from pg_stat_activity where backend_type = 'client backend'),
+    'conn_max', current_setting('max_connections')::int);
+end $;
 revoke all on function usage_stats() from public;
 grant execute on function usage_stats() to authenticated;
 
