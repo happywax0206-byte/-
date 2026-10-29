@@ -51,6 +51,8 @@ create table if not exists lesson_members (
   primary key (lesson_id, email)
 );
 create index if not exists lesson_members_email on lesson_members (email);
+-- 나중에 더한 칸: 공동작업자가 고칠 수 있는지(false면 보기만: 슬라이드·질문·학생 답을 볼 수만 있고 아무것도 바꾸지 못한다)
+alter table lesson_members add column if not exists can_edit boolean not null default true;
 
 create table if not exists activities (
   id          uuid primary key default gen_random_uuid(),
@@ -204,9 +206,23 @@ language sql stable security definer set search_path = public as $$
       and (l.owner = auth.uid() or is_admin() or exists (select 1 from lesson_members m where m.lesson_id = l.id and m.email = my_email())))
 $$;
 
+-- 이 수업을 고칠 수 있는지: 내가 만든 수업, 관리자, 또는 「고치기 가능」으로 초대받은 수업
+create or replace function can_edit_lesson(p_lesson uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select is_teacher() and exists (
+    select 1 from lessons l where l.id = p_lesson
+      and (l.owner = auth.uid() or is_admin()
+           or exists (select 1 from lesson_members m where m.lesson_id = l.id and m.email = my_email() and m.can_edit)))
+$$;
+
 create or replace function can_activity(p_activity uuid) returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (select 1 from activities a where a.id = p_activity and can_lesson(a.lesson_id))
+$$;
+
+create or replace function can_edit_activity(p_activity uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from activities a where a.id = p_activity and can_edit_lesson(a.lesson_id))
 $$;
 
 -- 학생 계정은 웹앱 전체에 하나: 내가 볼 수 있는 수업에 들어온 학생만 다룬다
@@ -215,11 +231,24 @@ language sql stable security definer set search_path = public as $$
   select exists (select 1 from lesson_students m where m.student_id = p_student and can_lesson(m.lesson_id))
 $$;
 
+-- 학생 비밀번호 초기화·지우기는 그 학생이 들어온 수업 중 하나라도 고칠 수 있을 때만
+create or replace function can_edit_student(p_student uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from lesson_students m where m.student_id = p_student and can_edit_lesson(m.lesson_id))
+$$;
+
 -- 저장소 폴더 이름(글자)이 볼 수 있는 수업의 id인지
 create or replace function can_lesson_path(p text) returns boolean
 language plpgsql stable security definer set search_path = public as $$
 begin
   return coalesce(p, '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' and can_lesson(p::uuid);
+end $$;
+
+-- 저장소 폴더 이름이 고칠 수 있는 수업의 id인지
+create or replace function can_edit_lesson_path(p text) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return coalesce(p, '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' and can_edit_lesson(p::uuid);
 end $$;
 
 -- 예전에는 교사면 모든 수업을 다뤘다. 이제는 내 수업과 초대받은 수업만. 수업 지우기는 만든 교사만.
@@ -232,14 +261,43 @@ drop policy if exists lesson_select on lessons;
 drop policy if exists lesson_insert on lessons;
 drop policy if exists lesson_update on lessons;
 drop policy if exists lesson_delete on lessons;
+-- 보기(select)는 볼 수 있는 수업, 바꾸기(insert·update·delete)는 고칠 수 있는 수업(보기만 공동작업자 제외)
+drop policy if exists teacher_read on activities;
+drop policy if exists teacher_read on students;
+drop policy if exists teacher_read on responses;
+drop policy if exists teacher_read on lesson_students;
+drop policy if exists teacher_insert on activities;
+drop policy if exists teacher_insert on students;
+drop policy if exists teacher_insert on responses;
+drop policy if exists teacher_insert on lesson_students;
+drop policy if exists teacher_update on activities;
+drop policy if exists teacher_update on students;
+drop policy if exists teacher_update on responses;
+drop policy if exists teacher_update on lesson_students;
+drop policy if exists teacher_delete on activities;
+drop policy if exists teacher_delete on students;
+drop policy if exists teacher_delete on responses;
+drop policy if exists teacher_delete on lesson_students;
 create policy lesson_select on lessons for select to authenticated using (can_lesson(id));
 create policy lesson_insert on lessons for insert to authenticated with check (is_teacher() and owner = auth.uid());
-create policy lesson_update on lessons for update to authenticated using (can_lesson(id)) with check (can_lesson(id));
+create policy lesson_update on lessons for update to authenticated using (can_edit_lesson(id)) with check (can_edit_lesson(id));
 create policy lesson_delete on lessons for delete to authenticated using (is_teacher() and owner = auth.uid());
-create policy teacher_all on activities for all to authenticated using (can_lesson(lesson_id)) with check (can_lesson(lesson_id));
-create policy teacher_all on students   for all to authenticated using (can_student(id)) with check (can_student(id));
-create policy teacher_all on responses  for all to authenticated using (can_activity(activity_id)) with check (can_activity(activity_id));
-create policy teacher_all on lesson_students for all to authenticated using (can_lesson(lesson_id)) with check (can_lesson(lesson_id));
+create policy teacher_read   on activities for select to authenticated using (can_lesson(lesson_id));
+create policy teacher_insert on activities for insert to authenticated with check (can_edit_lesson(lesson_id));
+create policy teacher_update on activities for update to authenticated using (can_edit_lesson(lesson_id)) with check (can_edit_lesson(lesson_id));
+create policy teacher_delete on activities for delete to authenticated using (can_edit_lesson(lesson_id));
+create policy teacher_read   on students for select to authenticated using (can_student(id));
+create policy teacher_insert on students for insert to authenticated with check (can_edit_student(id));
+create policy teacher_update on students for update to authenticated using (can_edit_student(id)) with check (can_edit_student(id));
+create policy teacher_delete on students for delete to authenticated using (can_edit_student(id));
+create policy teacher_read   on responses for select to authenticated using (can_activity(activity_id));
+create policy teacher_insert on responses for insert to authenticated with check (can_edit_activity(activity_id));
+create policy teacher_update on responses for update to authenticated using (can_edit_activity(activity_id)) with check (can_edit_activity(activity_id));
+create policy teacher_delete on responses for delete to authenticated using (can_edit_activity(activity_id));
+create policy teacher_read   on lesson_students for select to authenticated using (can_lesson(lesson_id));
+create policy teacher_insert on lesson_students for insert to authenticated with check (can_edit_lesson(lesson_id));
+create policy teacher_update on lesson_students for update to authenticated using (can_edit_lesson(lesson_id)) with check (can_edit_lesson(lesson_id));
+create policy teacher_delete on lesson_students for delete to authenticated using (can_edit_lesson(lesson_id));
 
 -- 수업을 만든 교사(owner)는 바뀌지 않는다(공동작업자가 수업을 가져가지 못하게)
 create or replace function lessons_keep_owner() returns trigger
@@ -584,7 +642,7 @@ returns jsonb language plpgsql volatile security definer set search_path = publi
 declare
   v jsonb;
 begin
-  if not can_lesson(p_lesson) then raise exception 'not your lesson'; end if;
+  if not can_edit_lesson(p_lesson) then raise exception 'not your lesson'; end if;
   if p_action = 'ask' then
     update lesson_students
       set screen = jsonb_build_object('ask', encode(gen_random_bytes(6), 'hex'), 'state', 'asked', 'at', now())
@@ -726,12 +784,32 @@ begin
               from (select 1) x left join teachers t on t.email = oe),
     'members', coalesce((
       select jsonb_agg(jsonb_build_object('email', m.email, 'name', t.name, 'school', t.school, 'subject', t.subject, 'me', m.email = my_email(),
-               'online', coalesce(t.seen_at > now() - interval '2 minutes', false),
+               'online', coalesce(t.seen_at > now() - interval '2 minutes', false), 'can_edit', m.can_edit,
                'joined', exists (select 1 from auth.users u where lower(u.email) = m.email and u.email_confirmed_at is not null))
              order by m.added_at)
       from lesson_members m left join teachers t on t.email = m.email
-      where m.lesson_id = p_lesson), '[]'::jsonb));
+      where m.lesson_id = p_lesson), '[]'::jsonb),
+    'can_edit', can_edit_lesson(p_lesson));
 end $$;
+
+-- 공동작업자의 고치기 권한 주기·빼기: 수업을 만든 교사만
+create or replace function set_member_edit(p_lesson uuid, p_email text, p_edit boolean) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  l lessons;
+begin
+  select * into l from lessons where id = p_lesson;
+  if not found or not is_teacher() or l.owner <> auth.uid() then return jsonb_build_object('error', 'not_owner'); end if;
+  update lesson_members set can_edit = coalesce(p_edit, true) where lesson_id = p_lesson and email = lower(trim(coalesce(p_email, '')));
+  if not found then return jsonb_build_object('error', 'gone'); end if;
+  return jsonb_build_object('ok', true);
+end $$;
+
+-- 내가 볼 수 있는 수업마다 고칠 수 있는지 {수업id: true/false} (교사 화면이 「보기만」을 알려 주려고)
+create or replace function lesson_rights() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_object_agg(l.id, can_edit_lesson(l.id)), '{}'::jsonb) from lessons l where can_lesson(l.id)
+$$;
 
 -- 공동작업자 초대: 수업을 만든 교사만. 초대한 이메일은 교사 목록에도 넣어 로그인할 수 있게 한다.
 create or replace function add_member(p_lesson uuid, p_email text) returns jsonb
@@ -784,6 +862,14 @@ revoke all on function is_admin() from public;
 grant execute on function is_admin() to authenticated;
 revoke all on function lesson_owners() from public;
 grant execute on function lesson_owners() to authenticated;
+revoke all on function set_member_edit(uuid, text, boolean) from public;
+grant execute on function set_member_edit(uuid, text, boolean) to authenticated;
+revoke all on function lesson_rights() from public;
+grant execute on function lesson_rights() to authenticated;
+grant execute on function can_edit_lesson(uuid) to authenticated;
+grant execute on function can_edit_activity(uuid) to authenticated;
+grant execute on function can_edit_student(uuid) to authenticated;
+grant execute on function can_edit_lesson_path(text) to authenticated;
 revoke all on function add_member(uuid, text) from public;
 revoke all on function remove_member(uuid, text) from public;
 revoke all on function slide_dir_shared(uuid) from public;
@@ -834,7 +920,7 @@ create policy slides_teacher_read on storage.objects for select to authenticated
 -- 올리고 지우기는 내 폴더(교사id/…)이거나, 볼 수 있는 수업의 폴더(만든교사id/수업id/…, 공동작업자)에서만
 create or replace function can_slide_path(p_name text) returns boolean
 language sql stable security definer set search_path = public as $$
-  select is_teacher() and ((storage.foldername(p_name))[1] = auth.uid()::text or can_lesson_path((storage.foldername(p_name))[2]))
+  select is_teacher() and ((storage.foldername(p_name))[1] = auth.uid()::text or can_edit_lesson_path((storage.foldername(p_name))[2]))
 $$;
 grant execute on function can_slide_path(text) to authenticated;
 create policy slides_teacher_insert on storage.objects for insert to authenticated with check (bucket_id = 'slides' and can_slide_path(name));
@@ -915,7 +1001,7 @@ create policy submissions_student_read on storage.objects for select to anon, au
   using (bucket_id = 'submissions' and submission_ticket_ok(name));
 -- 교사는 볼 수 있는 수업의 폴더(수업id/…)만
 create policy submissions_teacher_read on storage.objects for select to authenticated using (bucket_id = 'submissions' and can_lesson_path((storage.foldername(name))[1]));
-create policy submissions_teacher_delete on storage.objects for delete to authenticated using (bucket_id = 'submissions' and can_lesson_path((storage.foldername(name))[1]));
+create policy submissions_teacher_delete on storage.objects for delete to authenticated using (bucket_id = 'submissions' and can_edit_lesson_path((storage.foldername(name))[1]));
 
 -- ------------------------------------------------------------
 -- 버그 제보: 교사 화면 「⚙ 설정 → 버그 제보」에서 보낸 글.

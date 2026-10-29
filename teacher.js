@@ -6,6 +6,7 @@ const POLL_MS = 3000;
 
 let lessons = [];
 let lessonOwners = {};   // 관리자만: 초대받지 않은 수업 id → 만든 선생님 {email, name}
+let lessonRights = {};   // 수업 id → 고칠 수 있는지(false = 보기만 공동작업자)
 let lesson = null;        // 지금 고른 수업(없으면 새 수업 만들기)
 let activities = [];
 let students = [];
@@ -637,6 +638,9 @@ async function loadLessons(selectId) {
     const r = await sb.rpc("lesson_owners");
     if (!r.error && r.data) lessonOwners = r.data;
   }
+  // 공동작업자로 「보기만」 초대받은 수업. setup.sql 전이면 모두 고칠 수 있다고 본다
+  const rights = await sb.rpc("lesson_rights");
+  lessonRights = rights.error || !rights.data ? {} : rights.data;
   lesson = lessons.find((l) => l.id === selectId) || lessons[0] || null;
   if (!lesson && !GEAR.includes(tab)) tab = "settings";
   await loadLesson();
@@ -735,7 +739,20 @@ const isMine = (l) => !!l && l.owner === me.id;   // 내가 만든 수업인지(
 const lessonTag = (l) => {
   if (isMine(l)) return "";
   const o = lessonOwners[l.id];
-  return o ? "[" + (o.name ? o.name + " 선생님" : o.email || "다른 선생님") + "] " : "[공동] ";
+  return o ? "[" + (o.name ? o.name + " 선생님" : o.email || "다른 선생님") + "] " : lessonRights[l.id] === false ? "[공동·보기만] " : "[공동] ";
+};
+// 지금 수업을 보기만 할 수 있는지(만든 선생님이 고치기 권한을 뺀 공동작업자)
+const readOnly = () => !!lesson && lessonRights[lesson.id] === false;
+let allowWrite = false;   // 보기만 수업을 보면서도 내 수업에 쓰는 일(복제)은 보낸다
+const READ_ONLY_MSG = "보기만 할 수 있는 수업입니다. 고치려면 수업을 만든 선생님께 고치기 권한을 달라고 하세요.";
+window.craBlockWrite = (url, method) => {
+  if (!readOnly() || allowWrite || /^(GET|HEAD)$/i.test(method)) return null;
+  const rest = /\/rest\/v1\/(?!rpc\/)/.test(url);
+  const rpc = /\/rest\/v1\/rpc\/teacher_screen/.test(url);
+  const store = /\/storage\/v1\/object\//.test(url) && !/\/object\/(list|sign)\//.test(url);
+  if (!rest && !rpc && !store) return null;
+  return new Response(JSON.stringify({ message: READ_ONLY_MSG, error: READ_ONLY_MSG, statusCode: "403", code: "42501" }),
+    { status: 403, headers: { "Content-Type": "application/json" } });
 };
 const nameOf = (s) => s.class_no + " " + s.name;
 const studentById = (id) => students.find((s) => s.id === id);
@@ -763,7 +780,8 @@ function draw() {
   gearEl = buildGear();
   app.replaceChildren(
     h("header", { class: "top" },
-      h("div", { class: "top-title" }, h("span", { class: "eyebrow" }, "교사용"), pick, buildModeSwitch()),
+      h("div", { class: "top-title" }, h("span", { class: "eyebrow" }, "교사용"), pick, buildModeSwitch(),
+        readOnly() ? h("span", { class: "pill read-only-pill", title: READ_ONLY_MSG }, "👁 보기만") : null),
       tabNav,
       h("div", { class: "top-right" },
         lesson ? mirrorStatus : null,
@@ -772,6 +790,10 @@ function draw() {
     main);
   setTopHeight();
   ({ run: drawRun, preview: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings, people: drawPeople, manage: drawManage, bugs: drawBugs })[tab]();
+  if (readOnly() && !GEAR.includes(tab) && !isRunTab()) {   // 수업 진행 화면은 높이가 꼭 맞으므로 위쪽 「보기만」 표시만
+    if (tab === "build" || tab === "settings") main.querySelectorAll(":scope > *").forEach((el) => { el.inert = true; el.classList.add("read-only"); });
+    main.before(h("p", { class: "banner read-only-banner" }, "👁 보기만 할 수 있는 수업입니다. 쪽을 넘겨도 학생 화면은 따라가지 않고, 아무것도 바뀌지 않습니다. 고치려면 수업을 만든 선생님께 고치기 권한을 달라고 하세요."));
+  }
   schedule();
   updateMirror();
 }
@@ -1481,13 +1503,13 @@ function responseTable(a) {
 let previewPage = null;
 function viewPage() {
   if (!lesson) return 1;
-  if (modeOf(tab) !== "edit") return lesson.page;
+  if (modeOf(tab) !== "edit" && !readOnly()) return lesson.page;   // 보기만이면 넘겨도 이 화면에만
   return Math.min(Math.max(previewPage || lesson.page || 1, 1), Math.max(lesson.slide_count, 1));
 }
 
 async function setPage(n) {
   n = Math.min(Math.max(n, 1), Math.max(lesson.slide_count, 1));
-  if (modeOf(tab) === "edit") {
+  if (modeOf(tab) === "edit" || readOnly()) {
     if (n === viewPage()) return;
     previewPage = n;
     return refreshRun();
@@ -1497,6 +1519,7 @@ async function setPage(n) {
 }
 
 async function setLesson(change) {
+  if (readOnly()) return alert(READ_ONLY_MSG);
   Object.assign(lesson, change);
   refreshRun();
   const { error } = await sb.from("lessons").update(change).eq("id", lesson.id);
@@ -1504,6 +1527,7 @@ async function setLesson(change) {
 }
 
 async function setActivity(a, change) {
+  if (readOnly()) return alert(READ_ONLY_MSG);
   const before = {};
   for (const k of Object.keys(change)) before[k] = a[k];
   Object.assign(a, change);
@@ -2304,6 +2328,13 @@ function drawSettings() {
   async function duplicate() {
     const { data: copy, error } = await sb.rpc("create_lesson", { p_title: (lesson.title + " (복사)").slice(0, 100), p_kind: lesson.kind });
     if (error) return alert("복제하지 못했습니다: " + error.message);
+    allowWrite = true;   // 보기만 수업이어도 복사본(내 수업)에는 쓴다
+    try { await copyInto(copy); } finally { allowWrite = false; }
+    await loadLessons(copy.id);
+    flash("복제했습니다. 제목을 고쳐 주세요.");
+  }
+
+  async function copyInto(copy) {
     // 슬라이드 그림은 같은 것을 함께 쓴다(원래 수업을 지워도 다른 수업이 쓰는 그림은 남긴다)
     await sb.from("lessons").update({ slide_dir: lesson.slide_dir, slide_count: lesson.slide_count,
       ...("transition" in lesson && lesson.transition ? { transition: lesson.transition } : {}) }).eq("id", copy.id);
@@ -2315,8 +2346,6 @@ function drawSettings() {
       })));
       if (r.error) alert("활동을 복사하지 못했습니다: " + r.error.message);
     }
-    await loadLessons(copy.id);
-    flash("복제했습니다. 제목을 고쳐 주세요.");
   }
 
   async function remove() {
@@ -2384,6 +2413,11 @@ function membersCard() {
       }
       refresh();
     }
+    async function setEdit(p, on) {
+      const r = await sb.rpc("set_member_edit", { p_lesson: forLesson.id, p_email: p.email, p_edit: on });
+      if (r.error || r.data.error) return alert("바꾸지 못했습니다: " + (r.error ? r.error.message : r.data.error));
+      refresh();
+    }
     async function drop(p) {
       const leaving = p.me;
       if (!confirm(leaving ? "이 수업에서 나갈까요? 다시 들어오려면 수업을 만든 선생님이 다시 초대해야 합니다."
@@ -2396,9 +2430,16 @@ function membersCard() {
     box.replaceChildren(...[
       h("h2", {}, "공동작업자"),
       h("p", { class: "muted small" }, "초대한 선생님은 이 수업을 함께 보고, 고치고, 진행할 수 있습니다. 수업 지우기와 공동작업자 초대는 만든 선생님만 할 수 있습니다."),
+      owner && data.members.length ? h("p", { class: "muted small" }, "선생님마다 「✏️ 고치기 가능 / 👁 보기만」 단추를 누르면 권한이 바뀝니다. 보기만이면 슬라이드·질문·학생 답을 볼 수만 있고, 쪽 넘기기(학생 화면)·제출 열기·응답 공개·질문 고치기·학생 관리는 할 수 없습니다.") : null,
       person(data.owner || { email: "(알 수 없음)" }, "만든 사람"),
-      data.members.map((p) => person(p, p.me ? "나" : p.joined ? null : "가입 전",
-        owner || p.me ? h("button", { class: "link danger", type: "button", onclick() { drop(p); } }, p.me ? "이 수업에서 나가기" : "빼기") : null)),
+      data.members.map((p) => person(p, [p.me ? "나" : p.joined ? null : "가입 전", p.can_edit === false ? "보기만" : null].filter(Boolean).join(" · "),
+        h("div", { class: "row member-tools" },
+          owner && "can_edit" in p ? h("button", {
+            class: "ghost edit-right" + (p.can_edit ? " on" : ""), type: "button", "aria-pressed": p.can_edit ? "true" : "false",
+            title: p.can_edit ? "누르면 보기만 하게 합니다(슬라이드·질문·학생 답은 계속 볼 수 있음)" : "누르면 이 수업을 함께 고치고 진행할 수 있게 합니다",
+            onclick() { setEdit(p, !p.can_edit); },
+          }, p.can_edit ? "✏️ 고치기 가능" : "👁 보기만") : null,
+          owner || p.me ? h("button", { class: "link danger", type: "button", onclick() { drop(p); } }, p.me ? "이 수업에서 나가기" : "빼기") : null))),
       data.members.length ? null : h("p", { class: "muted small" }, "아직 공동작업자가 없습니다."),
       owner ? h("form", { class: "row", onsubmit: invite }, email, h("button", { class: "primary", type: "submit" }, "초대")) : null,
       owner ? msg : null,

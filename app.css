@@ -439,3 +439,10 @@ body.present .credit { display: none; }
 .usage-bar > span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
 .usage-rows li.other .usage-bar > span { background: #9aa4b5; }
 .usage-list { margin: 0; padding-left: 1.2rem; display: grid; gap: .2rem; }
+/* 공동작업자 권한: 고치기 가능 / 보기만 */
+.member-tools { gap: .5rem; align-items: center; flex-wrap: nowrap; }
+.edit-right { font-size: .85rem; padding: .3rem .7rem; white-space: nowrap; }
+.edit-right.on { color: var(--ok); background: var(--ok-soft); border-color: transparent; font-weight: 700; }
+.read-only-pill { align-self: center; color: #92400e; background: #fef3c7; font-weight: 700; cursor: help; }
+.read-only-banner { background: #fef3c7; color: #92400e; margin: .75rem auto 0; max-width: 1400px; }
+.read-only { opacity: .85; }

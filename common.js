@@ -6,6 +6,9 @@ const configured = (/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(SB_URL) || /^htt
   && !/여기에/.test(SUPABASE_KEY) && String(SUPABASE_KEY).trim() !== "";
 // 학교 와이파이가 서버 주소를 막으면 요청이 끝없이 기다리기도 한다: 20초가 지나면 끊고 오류로 알린다(파일 올리기는 제외)
 function fetchWithTimeout(url, opts) {
+  // 교사 화면: 보기만 할 수 있는 수업에서는 바꾸는 요청을 보내지 않고 바로 거절한다(teacher.js craBlockWrite)
+  const blocked = window.craBlockWrite && window.craBlockWrite(String(url && url.url || url), (opts && opts.method) || "GET");
+  if (blocked) return Promise.resolve(blocked);
   if (/\/storage\/v1\//.test(String(url && url.url || url)) || !window.AbortController) return fetch(url, opts);
   const ctl = new AbortController();
   if (opts && opts.signal) opts.signal.addEventListener("abort", () => ctl.abort());
