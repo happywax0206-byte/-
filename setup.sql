@@ -445,8 +445,13 @@ begin
     if (select count(*) from lesson_students where lesson_id = l.id) >= 200 then return jsonb_build_object('error', 'full'); end if;
     insert into lesson_students (lesson_id, student_id) values (l.id, s.id) on conflict do nothing returning * into m;
   end if;
+  -- 마지막 접속: 나갔던(out) 학생이나, 2분 넘게 신호가 없던 학생(태블릿·휴대폰에서 홈 버튼 등, 교사 화면에는 「나감」)이
+  -- 다시 화면을 열면 그때 다시 들어온 것으로 적는다. 방금(3초 안) 나간 것은 닫히는 순간 오가던 요청일 수 있어 건너뛴다
+  if ((m.access_kind is null or m.access_kind = 'out') and coalesce(m.access_at < now() - interval '3 seconds', true))
+     or (m.access_kind = 'in' and coalesce(greatest(m.last_seen, m.access_at) < now() - interval '2 minutes', true)) then
+    update lesson_students set access_at = now(), access_kind = 'in', last_seen = now() where lesson_id = l.id and student_id = s.id;
   -- 접속 중 표시: 10초에 한 번만 적는다
-  if m.last_seen is null or m.last_seen < now() - interval '10 seconds' then
+  elsif m.last_seen is null or m.last_seen < now() - interval '10 seconds' then
     update lesson_students set last_seen = now() where lesson_id = l.id and student_id = s.id;
   end if;
 

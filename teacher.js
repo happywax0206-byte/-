@@ -2304,6 +2304,16 @@ function fmtAccess(t) {
   return (d.getFullYear() !== now.getFullYear() ? d.getFullYear() + "년 " : "") + (d.getMonth() + 1) + "월 " + d.getDate() + "일 " + hm;
 }
 
+// 들어온 뒤 2분 넘게 신호가 없으면(태블릿·휴대폰에서 홈 버튼을 눌러 브라우저가 멈춤 등) 마지막 신호 때 나간 것으로 본다.
+// 컴퓨터에서 다른 탭을 보는 학생은 숨은 채로도 신호를 보내므로 나감이 되지 않는다. 다시 화면을 켜면 서버가 들어옴으로 다시 적는다
+const AWAY_MS = 120000;
+function accessText(s) {
+  if (!s.access_at) return "—";
+  if (s.access_kind === "out") return fmtAccess(s.access_at) + " 나감";
+  const seen = [s.access_at, s.last_seen].filter(Boolean).reduce((a, b) => (Date.parse(b) > Date.parse(a) ? b : a));
+  return Date.now() - Date.parse(seen) > AWAY_MS ? fmtAccess(seen) + " 나감" : fmtAccess(s.access_at) + " 들어옴";
+}
+
 function drawStudents() {
   const now = Date.now();
   const rows = students.map((s) => {
@@ -2316,7 +2326,7 @@ function drawStudents() {
     return h("tr", { class: locked ? "locked" : "" },
       h("td", {}, s.class_no), h("td", {}, s.name),
       h("td", {}, mine.length + " / " + activities.filter((a) => a.kind !== "sim" && !isInfoActivity(a)).length), h("td", {}, fmtTime(last)), h("td", {}, status),
-      h("td", { class: "small" }, s.access_at ? fmtAccess(s.access_at) + (s.access_kind === "out" ? " 나감" : " 들어옴") : "—"),
+      h("td", { class: "small" }, accessText(s)),
       h("td", { class: "actions" },
         h("button", { class: "primary", type: "button", onclick() { studentAnswers(s); } }, "답 모아 보기"),
         h("button", {
