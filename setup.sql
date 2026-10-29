@@ -17,6 +17,8 @@ alter table teachers add column if not exists subject text check (length(subject
 alter table teachers add column if not exists invited boolean not null default false;
 -- 교사 화면을 켜 두고 보고 있으면 1분마다 적는 시각(공동작업자 칸의 「접속 중」 초록 점)
 alter table teachers add column if not exists seen_at timestamptz;
+-- 관리자: 초대받지 않아도 모든 교사의 수업을 보고 고친다(지우기·초대는 만든 교사만). 맨 아래에서 정한다
+alter table teachers add column if not exists admin boolean not null default false;
 
 -- 수업(반) 하나. 수업 코드는 서버가 겹치지 않게 만든다.
 create table if not exists lessons (
@@ -189,12 +191,17 @@ $$;
 create or replace function my_email() returns text
 language sql stable as $$ select lower(coalesce(auth.jwt() ->> 'email', '')) $$;
 
--- 이 수업을 볼 수 있는지: 내가 만든 수업이거나 공동작업자로 초대받은 수업
+create or replace function is_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from teachers where email = my_email() and admin)
+$$;
+
+-- 이 수업을 볼 수 있는지: 내가 만든 수업이거나 공동작업자로 초대받은 수업(관리자는 모든 수업)
 create or replace function can_lesson(p_lesson uuid) returns boolean
 language sql stable security definer set search_path = public as $$
   select is_teacher() and exists (
     select 1 from lessons l where l.id = p_lesson
-      and (l.owner = auth.uid() or exists (select 1 from lesson_members m where m.lesson_id = l.id and m.email = my_email())))
+      and (l.owner = auth.uid() or is_admin() or exists (select 1 from lesson_members m where m.lesson_id = l.id and m.email = my_email())))
 $$;
 
 create or replace function can_activity(p_activity uuid) returns boolean
@@ -670,8 +677,18 @@ grant execute on function usage_stats() to authenticated;
 -- ------------------------------------------------------------
 create or replace function my_profile() returns jsonb
 language sql stable security definer set search_path = public as $$
-  select jsonb_build_object('email', t.email, 'name', t.name, 'school', t.school, 'subject', t.subject)
+  select jsonb_build_object('email', t.email, 'name', t.name, 'school', t.school, 'subject', t.subject, 'admin', t.admin)
   from teachers t where t.email = my_email()
+$$;
+
+-- 관리자용: 내가 만들지도 초대받지도 않은 수업마다 만든 교사 {수업id: {email, name}} (수업 목록에 「[○○ 선생님]」)
+create or replace function lesson_owners() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select case when is_admin() then coalesce((
+    select jsonb_object_agg(l.id, jsonb_build_object('email', lower(u.email), 'name', t.name))
+    from lessons l left join auth.users u on u.id = l.owner left join teachers t on t.email = lower(u.email)
+    where l.owner <> auth.uid() and not exists (select 1 from lesson_members m where m.lesson_id = l.id and m.email = my_email())), '{}'::jsonb)
+  else '{}'::jsonb end
 $$;
 
 create or replace function save_profile(p_name text, p_school text, p_subject text) returns jsonb
@@ -763,6 +780,10 @@ revoke all on function save_profile(text, text, text) from public;
 revoke all on function lesson_people(uuid) from public;
 revoke all on function teacher_ping() from public;
 grant execute on function teacher_ping() to authenticated;
+revoke all on function is_admin() from public;
+grant execute on function is_admin() to authenticated;
+revoke all on function lesson_owners() from public;
+grant execute on function lesson_owners() to authenticated;
 revoke all on function add_member(uuid, text) from public;
 revoke all on function remove_member(uuid, text) from public;
 revoke all on function slide_dir_shared(uuid) from public;
@@ -1088,6 +1109,8 @@ grant execute on function bug_reply_delete(uuid) to authenticated;
 -- 함께 쓸 선생님은 여기에 적지 않아도 됩니다: 교사 화면 「⚙ 설정 → 프로필·공동작업자」에서 이메일로 초대하면 됩니다.
 -- ------------------------------------------------------------
 insert into teachers (email) values ('happywax0206@gmail.com') on conflict do nothing;
+-- 관리자(모든 교사의 수업을 봄). 여기 적은 이메일만 관리자가 된다(다시 실행할 때마다 맞춤)
+update teachers set admin = (email in ('happywax0206@gmail.com')) where admin <> (email in ('happywax0206@gmail.com'));
 -- 버그 제보를 받을 사람(교사 화면의 빨간 점 + 메일). Resend 계정도 이 이메일로 만들어야 메일이 간다.
 insert into app_secrets (key, value) values ('bug_to', 'happywax0206@gmail.com') on conflict (key) do update set value = excluded.value;
 

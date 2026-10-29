@@ -5,6 +5,7 @@ const app = document.getElementById("app");
 const POLL_MS = 3000;
 
 let lessons = [];
+let lessonOwners = {};   // 관리자만: 초대받지 않은 수업 id → 만든 선생님 {email, name}
 let lesson = null;        // 지금 고른 수업(없으면 새 수업 만들기)
 let activities = [];
 let students = [];
@@ -630,6 +631,12 @@ async function loadLessons(selectId) {
   const { data, error } = await sb.from("lessons").select("*").order("created_at");
   if (error) return fatal(error);
   lessons = data;
+  // 관리자: 초대받지 않은 다른 선생님 수업도 보이므로 누가 만들었는지 함께 받는다
+  lessonOwners = {};
+  if (profile && profile.admin) {
+    const r = await sb.rpc("lesson_owners");
+    if (!r.error && r.data) lessonOwners = r.data;
+  }
   lesson = lessons.find((l) => l.id === selectId) || lessons[0] || null;
   if (!lesson && !GEAR.includes(tab)) tab = "settings";
   await loadLesson();
@@ -725,6 +732,11 @@ async function save(table, row, id) {
 }
 
 const isMine = (l) => !!l && l.owner === me.id;   // 내가 만든 수업인지(아니면 공동작업자로 초대받은 수업)
+const lessonTag = (l) => {
+  if (isMine(l)) return "";
+  const o = lessonOwners[l.id];
+  return o ? "[" + (o.name ? o.name + " 선생님" : o.email || "다른 선생님") + "] " : "[공동] ";
+};
 const nameOf = (s) => s.class_no + " " + s.name;
 const studentById = (id) => students.find((s) => s.id === id);
 const docsOf = (a) => responses.filter((r) => r.activity_id === a.id && studentById(r.student_id))
@@ -741,7 +753,7 @@ function draw() {
       else lesson = lessons.find((l) => l.id === pick.value);
       await loadLesson();
     },
-  }, lessons.map((l) => h("option", { value: l.id, selected: lesson && l.id === lesson.id }, (l.kind === "survey" ? "[설문] " : "") + (isMine(l) ? "" : "[공동] ") + l.title + " (" + l.code + ")")),
+  }, lessons.map((l) => h("option", { value: l.id, selected: lesson && l.id === lesson.id }, (l.kind === "survey" ? "[설문] " : "") + lessonTag(l) + l.title + " (" + l.code + ")")),
     h("option", { value: "new", selected: !lesson }, "+ 새 수업 만들기"));
   if (!TABS[tab]) tab = "run";
   if (!lesson && !GEAR.includes(tab)) tab = "settings";
