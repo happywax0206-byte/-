@@ -2286,6 +2286,7 @@ function drawStudents() {
     return h("tr", { class: locked ? "locked" : "" },
       h("td", {}, s.class_no), h("td", {}, s.name),
       h("td", {}, mine.length + " / " + activities.filter((a) => a.kind !== "sim" && !isInfoActivity(a)).length), h("td", {}, fmtTime(last)), h("td", {}, status),
+      h("td", { class: "small" }, s.access_at ? fmtTime(s.access_at) + (s.access_kind === "out" ? " 나감" : " 들어옴") : "—"),
       h("td", { class: "actions" },
         h("button", { class: "primary", type: "button", onclick() { studentAnswers(s); } }, "답 모아 보기"),
         h("button", {
@@ -2330,7 +2331,7 @@ function drawStudents() {
       h("h2", {}, "학생 " + students.length + "명"),
       h("p", { class: "muted small" }, "학생 계정은 웹앱 전체에 하나라서, 어느 수업에서든 같은 학번·이름·비밀번호를 씁니다. 비밀번호는 암호화되어 교사도 볼 수 없습니다. 잊은 학생은 초기화해 주세요.")),
     students.length ? h("div", { class: "table-wrap" }, h("table", {},
-      h("thead", {}, h("tr", {}, ["학번", "이름", "저장한 활동", "마지막 저장", "상태", ""].map((t) => h("th", {}, t)))),
+      h("thead", {}, h("tr", {}, ["학번", "이름", "저장한 활동", "마지막 저장", "상태", "마지막 접속", ""].map((t) => h("th", {}, t)))),
       h("tbody", {}, rows))) : h("p", { class: "muted" }, "아직 입장한 학생이 없습니다.")));
 }
 

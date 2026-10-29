@@ -129,6 +129,9 @@ create index if not exists lesson_students_student on lesson_students (student_i
 -- 나중에 더한 칸: 교사만 보는 학생 실시간 화면 {page, following, hidden, focus, drafts: {활동id: {질문id: 쓰는 중인 답}}}
 alter table lesson_students add column if not exists live jsonb;
 alter table lesson_students add column if not exists live_at timestamptz;
+-- 나중에 더한 칸: 마지막 접속(학생 관리 탭). 비밀번호로 들어온 순간(in)과 나간 순간(out)에만 적는다
+alter table lesson_students add column if not exists access_at timestamptz;
+alter table lesson_students add column if not exists access_kind text;
 alter table lesson_students drop constraint if exists lesson_students_live_size;
 alter table lesson_students add constraint lesson_students_live_size check (live is null or (jsonb_typeof(live) = 'object' and octet_length(live::text) <= 20000));
 -- 나중에 더한 칸: 학생 화면 전체 보기(학생이 동의할 때만). 영상은 서버를 거치지 않고 학생 → 교사 브라우저로 바로 간다(WebRTC).
@@ -386,7 +389,24 @@ begin
     if (select count(*) from lesson_students where lesson_id = l.id) >= 200 then return jsonb_build_object('error', 'full'); end if;
     insert into lesson_students (lesson_id, student_id) values (l.id, s.id) on conflict do nothing;
   end if;
+  update lesson_students set access_at = now(), access_kind = 'in' where lesson_id = l.id and student_id = s.id;
   return jsonb_build_object('token', s.token, 'class_no', s.class_no, 'name', s.name, 'code', l.code);
+end $$;
+
+-- 학생이 나감(「나가기」 단추, 화면을 닫거나 다른 주소로 감): 마지막 접속을 나간 순간으로 적고 '접속 중'도 바로 끈다
+create or replace function student_leave(p_token text, p_code text)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+declare
+  s students;
+  l lessons;
+begin
+  select * into s from students where token = p_token and p_token is not null;
+  if not found then return jsonb_build_object('error', 'logged_out'); end if;
+  select * into l from lessons where code = upper(tidy(p_code));
+  if not found then return jsonb_build_object('error', 'no_lesson'); end if;
+  update lesson_students set access_at = now(), access_kind = 'out', last_seen = null
+    where lesson_id = l.id and student_id = s.id;
+  return jsonb_build_object('ok', true);
 end $$;
 
 -- 학생 화면에 필요한 것 전부: 이 수업의 상태, 활동, 내 응답, 공개된 친구들 응답.
@@ -568,6 +588,7 @@ begin
     select jsonb_agg(jsonb_build_object(
       'id', s.id, 'class_no', s.class_no, 'name', s.name, 'pin_set', s.pin_set, 'fails', s.fails,
       'locked_until', s.locked_until, 'created_at', s.created_at, 'joined_at', m.joined_at, 'last_seen', m.last_seen,
+      'access_at', m.access_at, 'access_kind', m.access_kind,
       'live', case when p_live then m.live end, 'live_at', m.live_at,
       'screen', coalesce(m.screen - 'offer' - 'answer', '{}'::jsonb)))
     from lesson_students m join students s on s.id = m.student_id
@@ -921,6 +942,8 @@ grant execute on function student_enter(text, text, text, text, boolean) to anon
 grant execute on function student_state(text, text, text, boolean) to anon, authenticated;
 revoke all on function student_live(text, text, jsonb) from public;
 grant execute on function student_live(text, text, jsonb) to anon, authenticated;
+revoke all on function student_leave(text, text) from public;
+grant execute on function student_leave(text, text) to anon, authenticated;
 revoke all on function student_screen(text, text, text, text, text, text) from public;
 grant execute on function student_screen(text, text, text, text, text, text) to anon, authenticated;
 revoke all on function teacher_screen(uuid, uuid, text, text, text) from public;

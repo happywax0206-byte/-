@@ -135,7 +135,21 @@ function showEntry(notice) {
   (fromLink ? noIn : codeIn).focus();
 }
 
+// 나간 순간을 교사 화면 「마지막 접속」에 적는다. 화면을 닫는 중에도 끝까지 가도록 keepalive로 직접 보낸다.
+function sendLeave() {
+  if (!token || !code || !configured) return;
+  try {
+    fetch(SB_URL + "/rest/v1/rpc/student_leave", {
+      method: "POST", keepalive: true,
+      headers: { "Content-Type": "application/json", apikey: String(SUPABASE_KEY).trim() },
+      body: JSON.stringify({ p_token: token, p_code: code }),
+    }).catch(() => {});
+  } catch (e) { /* 보내지 못해도 나가는 것은 막지 않는다 */ }
+}
+window.addEventListener("pagehide", () => { if (shell) sendLeave(); });
+
 function logout(notice) {
+  if (shell) sendLeave();
   if (scr.stream) screenStop(true);
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(ME_KEY);
