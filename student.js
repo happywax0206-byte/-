@@ -8,6 +8,8 @@ const POLL_MS = 3000;
 const TOKEN_KEY = "cra-token";
 const ENDED_MSG = "선생님이 수업을 끝냈습니다. 더 이상 이 수업에 들어올 수 없습니다.";
 const ME_KEY = "cra-me";
+// 이 인터넷 주소(학교 와이파이 등)에서 없는 수업 코드를 많이 넣어 새 수업 들어가기가 잠시 막혔을 때(서버 code_blocked)
+const BUSY_MSG = "틀린 수업 코드가 너무 많이 입력되어, 이 와이파이(인터넷)에서는 새 수업 들어가기가 잠시 막혔습니다. 10분쯤 뒤에 다시 해 보세요. 이미 들어갔던 수업은 그대로 들어갈 수 있습니다.";
 // 여러 사람이 같이 쓰는 기기(학교 컴퓨터·태블릿): 열쇠·이름·쓰던 답을 이 탭에만(sessionStorage) 둔다. 창이나 탭을 닫으면 지워져 다음 사람이 앞 학생으로 들어가지 않는다.
 // 한 번 고르면 이 기기는 다음에도 「같이 쓰는 기기」 칸이 체크되어 나온다
 const SHARED_KEY = "cra-shared-device";
@@ -111,6 +113,7 @@ function showEntry(notice) {
       else if (err === "bad_pin") msg.textContent = "비밀번호는 숫자 4자리로 입력하세요.";
       else if (err === "full") msg.textContent = "이 수업은 인원이 가득 찼습니다. 선생님께 알려 주세요.";
       else if (err === "ended") msg.textContent = ENDED_MSG;
+      else if (err === "busy") msg.textContent = BUSY_MSG;
       else if (err === "need_confirm") {
         pin2In.focus();
         msg.textContent = data.reset
@@ -225,6 +228,7 @@ async function poll() {
     return;
   }
   if (!error && data.error === "no_lesson") return showCodeOnly("수업 코드를 찾지 못했습니다. 선생님께 받은 코드를 확인하세요.");
+  if (!error && data.error === "busy") return showCodeOnly(BUSY_MSG);
   if (!error && data.error === "full") return showCodeOnly("이 수업은 인원이 가득 찼습니다. 선생님께 알려 주세요.");
   if (!error && data.error === "ended") return lessonEnded();
   if (error) {

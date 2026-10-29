@@ -384,6 +384,41 @@ end $$;
 create or replace function tidy(t text) returns text
 language sql immutable as $$ select regexp_replace(coalesce(t, ''), '\s', '', 'g') $$;
 
+-- 수업 코드 추측 막기: 없는 수업 코드를 넣은 기록(인터넷 주소별). 10분 안에 서로 다른 틀린 코드가 20개가 되면
+-- 그 주소에서는 이미 들어간 수업만 들어갈 수 있다(새 수업 참여는 잠시 'busy'). 한 반이 같은 틀린 코드를 넣으면 1개로 센다.
+-- 막힌 동안에는 있는 코드든 없는 코드든 똑같이 'busy'라서 추측해도 알 수 없다.
+create table if not exists code_fails (
+  ip   text not null,
+  code text not null,
+  at   timestamptz not null default now()
+);
+create index if not exists code_fails_ip on code_fails (ip, at);
+create index if not exists code_fails_at on code_fails (at);
+alter table code_fails enable row level security;   -- 정책 없음: 아래 함수로만 쓴다
+revoke all on code_fails from anon, authenticated;
+
+-- 요청한 기기의 인터넷 주소(Supabase 앞단 Cloudflare가 적어 준다). 모르면 'unknown'(모두 함께 세므로 한도를 크게)
+create or replace function client_ip() returns text
+language sql stable as $$
+  select coalesce(nullif(h ->> 'cf-connecting-ip', ''), nullif(h ->> 'x-real-ip', ''),
+                  nullif(trim(split_part(h ->> 'x-forwarded-for', ',', 1)), ''), 'unknown')
+  from (select coalesce(nullif(current_setting('request.headers', true), ''), '{}')::json h) x
+$$;
+
+create or replace function code_blocked() returns boolean
+language sql stable security definer set search_path = public as $$
+  select count(distinct code) >= case when client_ip() = 'unknown' then 200 else 20 end
+  from code_fails where ip = client_ip() and at > now() - interval '10 minutes'
+$$;
+
+create or replace function code_fail(p_code text) returns void
+language sql volatile security definer set search_path = public as $$
+  delete from code_fails where at < now() - interval '1 hour';
+  insert into code_fails (ip, code) values (client_ip(), left(upper(tidy(p_code)), 20));
+$$;
+revoke all on function code_blocked() from public, anon, authenticated;
+revoke all on function code_fail(text) from public, anon, authenticated;
+
 -- 학생 입장: 학번+이름+비밀번호로 확인하고 이 수업에 참여시킨다.
 -- 처음이거나 초기화된 학생은 p_confirm = true 로 다시 불러야 비밀번호가 정해진다. 5번 틀리면 10분 잠금.
 create or replace function student_enter(p_code text, p_class_no text, p_name text, p_pin text, p_confirm boolean default false)
@@ -396,7 +431,12 @@ declare
   existed boolean;
 begin
   select * into l from lessons where code = upper(tidy(p_code));
-  if not found then return jsonb_build_object('error', 'no_lesson'); end if;
+  -- 틀린 코드를 많이 넣은 주소: 이미 들어간 수업(같은 학번·이름)만 받는다
+  if code_blocked() and (l.id is null or not exists (select 1 from lesson_students m join students x on x.id = m.student_id
+                                                     where m.lesson_id = l.id and x.class_no = c and x.name = n)) then
+    return jsonb_build_object('error', 'busy');
+  end if;
+  if l.id is null then perform code_fail(p_code); return jsonb_build_object('error', 'no_lesson'); end if;
   if l.ended then return jsonb_build_object('error', 'ended'); end if;
   if c = '' or n = ''or length(c) > 20 or length(n) > 20 then return jsonb_build_object('error', 'bad_name'); end if;
   if coalesce(p_pin, '') !~ '^[0-9]{4}$' then return jsonb_build_object('error', 'bad_pin'); end if;
@@ -483,9 +523,11 @@ begin
   if found and l.ended then return jsonb_build_object('error', 'ended'); end if;
   select * into s from students where token = p_token and p_token is not null;
   if not found then return jsonb_build_object('error', 'logged_out'); end if;
-  if l.id is null then return jsonb_build_object('error', 'no_lesson'); end if;
   select * into m from lesson_students where lesson_id = l.id and student_id = s.id;
   if not found then
+    -- 새 수업 코드: 열쇠가 있는 학생도 코드를 추측하지 못하게 student_enter와 같이 센다
+    if code_blocked() then return jsonb_build_object('error', 'busy'); end if;
+    if l.id is null then perform code_fail(p_code); return jsonb_build_object('error', 'no_lesson'); end if;
     if (select count(*) from lesson_students where lesson_id = l.id) >= 200 then return jsonb_build_object('error', 'full'); end if;
     insert into lesson_students (lesson_id, student_id) values (l.id, s.id) on conflict do nothing returning * into m;
   end if;
