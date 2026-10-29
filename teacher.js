@@ -590,7 +590,7 @@ function draw() {
   profileEl = buildProfile();
   app.replaceChildren(
     h("header", { class: "top" },
-      h("div", { class: "top-title" }, h("span", { class: "eyebrow" }, "교사용"), pick),
+      h("div", { class: "top-title" }, h("span", { class: "eyebrow" }, "교사용"), pick, buildModeSwitch()),
       tabNav,
       h("div", { class: "top-right" },
         lesson ? mirrorStatus : null,
@@ -697,16 +697,21 @@ function tabDropZone(nav, mode) {
   });
 }
 
-function buildTabNav() {
+// 모드 단추는 수업 제목 바로 옆에 둔다(탭 칸에 두면 제목 길이에 따라 자리가 바뀌므로)
+function buildModeSwitch() {
   const mode = modeOf(tab), other = mode === "class" ? "edit" : "class";
   const noLesson = !lesson && other === "class";
-  const sw = h("button", {
+  return h("button", {
     type: "button", class: "mode-switch " + mode, role: "switch", "aria-checked": mode === "edit" ? "true" : "false",
     disabled: noLesson,
     title: noLesson ? "수업을 먼저 만들거나 고르세요" : "누르면 " + MODES[other].name + "로 바뀝니다",
     onclick: switchMode,
   }, h("span", { class: "mode-knob", "aria-hidden": "true" }), MODES[mode].name);
-  const nav = h("nav", { class: "tabs", "aria-label": "탭" }, sw, MODES[mode].tabs.map(tabButton));
+}
+
+function buildTabNav() {
+  const mode = modeOf(tab);
+  const nav = h("nav", { class: "tabs", "aria-label": "탭" }, MODES[mode].tabs.map(tabButton));
   tabDropZone(nav, mode);
   return nav;
 }
