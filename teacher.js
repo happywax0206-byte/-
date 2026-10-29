@@ -156,6 +156,7 @@ function drawBugs() {
       h("p", { class: "muted small" }, "잘 안 되는 것, 이상하게 보이는 것, 바라는 점을 적어 보내 주세요. 언제·어느 화면에서·무엇을 눌렀을 때 그랬는지 적어 주시면 고치기 쉽습니다."),
       text,
       h("p", { class: "muted small" }, "함께 보내는 것: 내 이름·이메일" + (where ? ", 보던 화면(" + where + ")" : "") + ", 브라우저 종류. 학생 정보는 보내지 않습니다."),
+      h("p", { class: "muted small" }, "버그 제보는 하루 20번까지만 가능합니다."),
       h("div", { class: "row" }, btn), msg),
     h("section", { class: "card stack" }, listBox)));
   text.focus();
