@@ -71,24 +71,21 @@ function showEntry(notice) {
   const nameIn = h("input", { type: "text", autocomplete: "off", maxlength: 20, required: true });
   const pinIn = h("input", { type: "password", inputmode: "numeric", maxlength: 4, autocomplete: "off", required: true });
   const pin2In = h("input", { type: "password", inputmode: "numeric", maxlength: 4, autocomplete: "off" });
-  const pin2Row = h("label", { hidden: true }, "비밀번호 한 번 더", pin2In);
+  // 처음 들어오는 학생은 두 칸을 한꺼번에 채워 한 번에 입장한다. 이미 비밀번호가 있는 학생은 비워 두면 된다
+  // (채워도 서버는 이미 정한 비밀번호와만 비교하므로 바뀌지 않는다).
+  const pin2Row = h("label", {}, "비밀번호 한 번 더 ", h("span", { class: "muted small" }, "(처음 들어올 때만)"), pin2In);
   const msg = h("p", { class: "msg" }, notice || "");
   const btn = h("button", { class: "primary big", type: "submit" }, "입장하기");
-  let confirming = false;
-
-  // 이름이나 번호를 바꾸면 확인 단계를 처음부터 다시
-  [codeIn, noIn, nameIn].forEach((el) => el.addEventListener("input", () => {
-    confirming = false;
-    pin2Row.hidden = true;
-  }));
 
   const form = h("form", {
     class: "card stack",
     async onsubmit(e) {
       e.preventDefault();
       const pin = pinIn.value.trim();
+      const pin2 = pin2In.value.trim();
       if (!/^\d{4}$/.test(pin)) { msg.textContent = "비밀번호는 숫자 4자리로 입력하세요."; return; }
-      if (confirming && pin2In.value.trim() !== pin) { msg.textContent = "두 비밀번호가 다릅니다. 다시 입력하세요."; return; }
+      if (pin2 && pin2 !== pin) { msg.textContent = "두 비밀번호가 다릅니다. 다시 입력하세요."; pin2In.focus(); return; }
+      const confirming = !!pin2;
       btn.disabled = true;
       msg.textContent = "확인 중…";
       const { data, error } = await sb.rpc("student_enter", {
@@ -102,13 +99,10 @@ function showEntry(notice) {
       else if (err === "bad_pin") msg.textContent = "비밀번호는 숫자 4자리로 입력하세요.";
       else if (err === "full") msg.textContent = "이 수업은 인원이 가득 찼습니다. 선생님께 알려 주세요.";
       else if (err === "need_confirm") {
-        confirming = true;
-        pin2Row.hidden = false;
-        pin2In.value = "";
         pin2In.focus();
         msg.textContent = data.reset
-          ? "선생님이 비밀번호를 초기화했습니다. 새 비밀번호를 한 번 더 입력하고 입장하세요."
-          : "처음 들어왔네요. 지금 입력한 번호가 내 비밀번호가 됩니다. 한 번 더 입력하고 입장하세요.";
+          ? "선생님이 비밀번호를 초기화했습니다. 새 비밀번호를 「비밀번호 한 번 더」 칸에도 입력하고 입장하세요."
+          : "처음 들어왔네요(학번·이름이 맞는지 확인하세요). 지금 입력한 번호가 내 비밀번호가 됩니다. 「비밀번호 한 번 더」 칸에도 입력하고 입장하세요.";
       } else if (err === "wrong_pin") msg.textContent = "비밀번호가 틀렸습니다. " + data.left + "번 더 틀리면 10분 동안 잠깁니다.";
       else if (err === "locked") msg.textContent = "비밀번호를 여러 번 틀려 잠겼습니다. " + data.minutes + "분 뒤에 다시 하거나 선생님께 초기화를 부탁하세요.";
       else if (data.token) {
@@ -129,7 +123,7 @@ function showEntry(notice) {
     pin2Row,
     h("div", { class: "tip" },
       h("strong", {}, "처음 들어오나요?"),
-      h("p", {}, "처음 입력한 번호가 내 비밀번호가 됩니다. 다른 수업에서도 같은 학번·이름·비밀번호를 씁니다. 휴대폰 비밀번호나 생일은 쓰지 마세요.")),
+      h("p", {}, "비밀번호를 두 칸에 똑같이 입력하세요. 처음 입력한 번호가 내 비밀번호가 됩니다. 다른 수업에서도 같은 학번·이름·비밀번호를 씁니다. 휴대폰 비밀번호나 생일은 쓰지 마세요.")),
     btn, msg);
 
   app.replaceChildren(h("main", { class: "narrow" },
