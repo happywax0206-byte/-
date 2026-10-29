@@ -468,6 +468,12 @@ begin
 
   select * into s from students where class_no = c and name = n for update;
   existed := found;
+  -- 수업이 꽉 찼으면 계정을 만들거나 비밀번호를 정하기 전에 돌려보낸다(어느 수업에도 없어 교사가 못 보는 계정이 남지 않게).
+  -- 이미 이 수업에 들어온 학생은 그대로 들어온다
+  if not (existed and exists (select 1 from lesson_students where lesson_id = l.id and student_id = s.id))
+     and (select count(*) from lesson_students where lesson_id = l.id) >= 200 then
+    return jsonb_build_object('error', 'full');
+  end if;
 
   if not existed or s.pin_hash is null then
     if not p_confirm then return jsonb_build_object('error', 'need_confirm', 'reset', existed); end if;

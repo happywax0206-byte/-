@@ -78,3 +78,4 @@ CLAUDE.md에서 옮겨 온 날짜별 기록. 어떤 기능이 왜·어떻게 그
 - 2026-10-30: `code_unblock`이 Supabase에서 "DELETE requires a WHERE clause"(pg_safeupdate) → `delete from code_fails where true`. **setup.sql 다시 실행 필요**. 함수 안에서도 조건 없는 delete/update는 쓰지 말 것.
 - 2026-10-30: `client_ip()`에서 x-real-ip 뺌(Supabase 안쪽 중계 주소면 모든 학교가 한 주소로 묶임). 점검용 `client_ip_check()`(anon, 자기 주소와 cf-connecting-ip 유무). student.js poll: 모르는 data.error는 showCodeOnly(화면 깨짐 방지). **setup.sql 다시 실행 필요**.
 - 2026-10-30: 운영 서버 확인: `client_ip_check` → cf-connecting-ip로 실제 공인 주소를 읽음, X-Forwarded-For를 꾸며도 무시, CF-Connecting-IP를 꾸미면 Cloudflare가 요청 자체를 거부(1000). 사용자가 setup.sql 실행·파일 올리기 정상 확인(새 제출 파일 규칙 포함).
+- 2026-10-30: `student_enter`가 꽉 찬 수업(200명)이면 계정 만들기·비밀번호 정하기 전에 full(어느 수업에도 없는 유령 계정·이름 선점 막음). 이미 그 수업에 있는 학생은 그대로. 비회원은 비밀번호 확인 전에 full이라 꽉 찬 수업으로 PIN 추측도 안 됨. PGlite로 확인함. **setup.sql 다시 실행 필요**.
