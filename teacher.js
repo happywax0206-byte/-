@@ -17,7 +17,12 @@ let editing = null;       // 만들기 탭에서 고치는 중인 활동(사본)
 let main = null;
 let me = null;            // 로그인한 교사(auth user)
 
-if (!sb) notConfigured(app);
+// 다른 사이트가 교사 화면을 보이지 않는 틀(iframe)에 넣고 누르게 하는 것(클릭재킹)을 막는다: 틀 안에서는 열지 않는다
+if (window.top !== window.self) {
+  app.replaceChildren(h("main", { class: "narrow" }, h("section", { class: "card stack" },
+    h("h1", {}, "교사 화면은 다른 페이지 안에서 열 수 없습니다"),
+    h("p", {}, h("a", { href: location.href, target: "_blank", rel: "noopener" }, "새 탭에서 교사 화면 열기")))));
+} else if (!sb) notConfigured(app);
 else init();
 
 // ---------- 로그인 ----------

@@ -519,10 +519,11 @@ declare
 begin
   select * into s from students where token = p_token and p_token is not null;
   if not found then return jsonb_build_object('error', 'logged_out'); end if;
+  -- 없는 수업과 내가 들어가지 않은 수업은 똑같이 no_lesson(이 함수로 수업 코드를 맞혀 보지 못하게)
   select * into l from lessons where code = upper(tidy(p_code));
-  if not found then return jsonb_build_object('error', 'no_lesson'); end if;
   update lesson_students set access_at = now(), access_kind = 'out', last_seen = null
     where lesson_id = l.id and student_id = s.id;
+  if not found then return jsonb_build_object('error', 'no_lesson'); end if;
   return jsonb_build_object('ok', true);
 end $$;
 
@@ -775,8 +776,11 @@ declare
 begin
   select * into s from students where token = p_token and p_token is not null;
   if not found then return jsonb_build_object('error', 'logged_out'); end if;
+  -- 없는 수업과 내가 들어가지 않은 수업은 똑같이 no_lesson(이 함수로 수업 코드를 맞혀 보지 못하게)
   select * into l from lessons where code = upper(tidy(p_code));
-  if not found then return jsonb_build_object('error', 'no_lesson'); end if;
+  if l.id is null or not exists (select 1 from lesson_students where lesson_id = l.id and student_id = s.id) then
+    return jsonb_build_object('error', 'no_lesson');
+  end if;
   if l.ended then return jsonb_build_object('error', 'ended'); end if;
   if p_live is null or jsonb_typeof(p_live) <> 'object' or octet_length(p_live::text) > 20000 then
     return jsonb_build_object('error', 'too_big');
