@@ -419,6 +419,21 @@ $$;
 revoke all on function code_blocked() from public, anon, authenticated;
 revoke all on function code_fail(text) from public, anon, authenticated;
 
+-- 교사 화면 「입장 막힘 풀기」: 장난으로 막힌 학교 와이파이를 바로 푼다(교사만). 풀기 전에 막혀 있던 곳 수를 돌려준다
+create or replace function code_unblock() returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare
+  n int;
+begin
+  if not is_teacher() then raise exception 'not a teacher'; end if;
+  select count(*) into n from (select ip from code_fails where at > now() - interval '10 minutes'
+                               group by ip having count(distinct code) >= case when ip = 'unknown' then 200 else 20 end) x;
+  delete from code_fails;
+  return jsonb_build_object('ok', true, 'blocked', n);
+end $$;
+revoke all on function code_unblock() from public, anon;
+grant execute on function code_unblock() to authenticated;
+
 -- 학생 입장: 학번+이름+비밀번호로 확인하고 이 수업에 참여시킨다.
 -- 처음이거나 초기화된 학생은 p_confirm = true 로 다시 불러야 비밀번호가 정해진다. 5번 틀리면 10분 잠금.
 create or replace function student_enter(p_code text, p_class_no text, p_name text, p_pin text, p_confirm boolean default false)

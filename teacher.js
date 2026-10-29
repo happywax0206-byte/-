@@ -2373,7 +2373,15 @@ function drawStudents() {
   main.replaceChildren(h("section", { class: "card stack" },
     h("div", { class: "row between wrap" },
       h("h2", {}, "학생 " + students.length + "명"),
-      h("p", { class: "muted small" }, "학생 계정은 웹앱 전체에 하나라서, 어느 수업에서든 같은 학번·이름·비밀번호를 씁니다. 비밀번호는 암호화되어 교사도 볼 수 없습니다. 잊은 학생은 초기화해 주세요.")),
+      h("p", { class: "muted small" }, "학생 계정은 웹앱 전체에 하나라서, 어느 수업에서든 같은 학번·이름·비밀번호를 씁니다. 비밀번호는 암호화되어 교사도 볼 수 없습니다. 잊은 학생은 초기화해 주세요."),
+      // 틀린 수업 코드를 많이 넣어 학교 와이파이에서 새 수업 들어가기가 막혔을 때(서버 code_blocked) 바로 푼다
+      h("button", { class: "ghost small", type: "button", title: "틀린 수업 코드가 너무 많이 입력되어 학생들이 「새 수업 들어가기가 잠시 막혔습니다」를 볼 때 누르세요",
+        async onclick() {
+          const { data, error } = await sb.rpc("code_unblock");
+          if (error) return alert(error.code === "PGRST202" ? "Supabase SQL Editor에서 setup.sql을 다시 실행해야 쓸 수 있습니다." : error.message);
+          alert(data.blocked ? "입장 막힘을 풀었습니다(막혀 있던 곳 " + data.blocked + "곳). 학생들이 지금 바로 다시 들어올 수 있습니다."
+            : "지금 막혀 있는 곳은 없었습니다. (기록은 모두 비웠습니다)");
+        } }, "🔓 입장 막힘 풀기")),
     students.length ? h("div", { class: "table-wrap" }, h("table", {},
       h("thead", {}, h("tr", {}, ["학번", "이름", "저장한 활동", "마지막 저장", "상태", "마지막 접속", ""].map((t) => h("th", {}, t)))),
       h("tbody", {}, rows))) : h("p", { class: "muted" }, "아직 입장한 학생이 없습니다.")));
