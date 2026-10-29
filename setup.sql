@@ -82,6 +82,20 @@ alter table activities add column if not exists hidden boolean not null default 
 alter table activities add column if not exists shared_q jsonb not null default '[]';
 alter table activities drop constraint if exists activities_shared_q_size;
 alter table activities add constraint activities_shared_q_size check (jsonb_typeof(shared_q) = 'array' and octet_length(shared_q::text) <= 5000);
+-- 나중에 더한 칸: 답 하나하나 공개 {질문id: [학생id, …]}. 글·파일 답은 교사가 고른 학생의 답만 친구들에게 보인다
+-- (shared_q는 고르는 질문의 막대그래프처럼 질문 전체를 공개할 때)
+alter table activities add column if not exists shared_a jsonb not null default '{}';
+alter table activities drop constraint if exists activities_shared_a_size;
+alter table activities add constraint activities_shared_a_size check (jsonb_typeof(shared_a) = 'object' and octet_length(shared_a::text) <= 100000);
+
+-- 친구들에게 무엇이든 공개된 질문 id 목록(질문 전체 공개 + 답 하나라도 공개). 학생에게는 이것만 보내고 학생 id는 보내지 않는다
+create or replace function shared_list(p_q jsonb, p_a jsonb) returns jsonb
+language sql immutable as $$
+  select coalesce(jsonb_agg(distinct k), '[]'::jsonb) from (
+    select jsonb_array_elements_text(coalesce(p_q, '[]'::jsonb)) k
+    union
+    select key from jsonb_each(coalesce(p_a, '{}'::jsonb)) where jsonb_typeof(value) = 'array' and jsonb_array_length(value) > 0) z
+$$;
 
 -- 학생: 웹앱 전체에 한 명당 하나(학번 + 이름 + 4자리 비밀번호). 어느 수업에 들어와도 같은 비밀번호를 쓴다.
 create table if not exists students (
@@ -354,7 +368,7 @@ begin
   va := coalesce((
       select jsonb_agg(jsonb_build_object(
         'id', a.id, 'kind', a.kind, 'title', a.title, 'page', a.page, 'page_to', a.page_to, 'named', a.named,
-        'shared', jsonb_array_length(a.shared_q) > 0, 'shared_q', a.shared_q,
+        'shared', jsonb_array_length(shared_list(a.shared_q, a.shared_a)) > 0, 'shared_q', shared_list(a.shared_q, a.shared_a),
         'sim_full', a.sim_full, 'sim_box', a.sim_box, 'html_ver', case when a.kind = 'sim' then md5(coalesce(a.html, '')) end,
         'questions', case
           when a.kind = 'quiz' and a.show_answer and r.student_id is not null then a.questions
@@ -365,7 +379,7 @@ begin
       from activities a
       left join responses r on r.activity_id = a.id and r.student_id = s.id
       where a.lesson_id = l.id and not a.hidden), '[]'::jsonb);
-  -- 친구 응답: 교사가 공개한 질문(shared_q)의 답만 잘라서 보낸다
+  -- 친구 응답: 교사가 공개한 질문(shared_q) 또는 하나씩 고른 답(shared_a)만 잘라서 보낸다
   vo := coalesce((
       select jsonb_object_agg(a.id, (
           select coalesce(jsonb_agg(jsonb_build_object(
@@ -373,10 +387,12 @@ begin
                    'answers', y.answers) order by x.updated_at), '[]'::jsonb)
           from responses x join students o on o.id = x.student_id
           cross join lateral (select coalesce(jsonb_object_agg(e.key, e.value), '{}'::jsonb) as answers
-                              from jsonb_each(x.answers) e where a.shared_q ? e.key) y
+                              from jsonb_each(x.answers) e
+                              where a.shared_q ? e.key
+                                 or (jsonb_typeof(a.shared_a -> e.key) = 'array' and (a.shared_a -> e.key) ? x.student_id::text)) y
           where x.activity_id = a.id and y.answers <> '{}'::jsonb))
       from activities a
-      where a.lesson_id = l.id and not a.hidden and jsonb_array_length(a.shared_q) > 0), '{}'::jsonb);
+      where a.lesson_id = l.id and not a.hidden and jsonb_array_length(shared_list(a.shared_q, a.shared_a)) > 0), '{}'::jsonb);
   if not coalesce(p_parts, false) then
     v := vl || jsonb_build_object('activities', coalesce((
       select jsonb_agg(case when vo ? (e ->> 'id') then e || jsonb_build_object('others', vo -> (e ->> 'id')) else e end order by n)

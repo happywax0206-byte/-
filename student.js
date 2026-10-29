@@ -204,6 +204,18 @@ function merge(data) {
   }
   return s;
 }
+// 키보드 ← → 로 쪽 넘기기(선생님이 띄운 쪽까지만). 글을 쓰는 칸에서는 커서 이동이므로 넘기지 않는다
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+  if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.defaultPrevented) return;
+  if (!shell || !state || !state.lesson.slide_count) return;
+  const t = e.target;
+  if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+  const n = viewing + (e.key === "ArrowRight" ? 1 : -1);
+  if (n < 1 || n > clampPage(state.lesson.page)) return;
+  e.preventDefault();
+  go(n);
+});
 document.addEventListener("visibilitychange", () => {
   if (token && shell) sendLive(true);
   if (!document.hidden && token && shell) poll();
@@ -483,7 +495,7 @@ function buildShell() {
   const slideBox = h("div", { class: "slide-box" }, img, simLayer, simStage,
     h("nav", { class: "pager" }, prev, where, next, back, h("span", { class: "spacer" }),
       h("button", { class: "ghost", type: "button", onclick: zoom }, "크게 보기")),
-    h("p", { class: "muted small" }, "다음 쪽은 선생님이 넘기면 자동으로 열립니다."));
+    h("p", { class: "muted small" }, "다음 쪽은 선생님이 넘기면 자동으로 열립니다. 키보드 ← → 키로도 넘길 수 있습니다."));
   const list = h("div", { class: "stack" });
   app.replaceChildren(
     h("header", { class: "top" }, h("div", { class: "top-title" }, title, who),

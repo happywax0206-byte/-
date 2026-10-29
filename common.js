@@ -407,6 +407,7 @@ function activityName(activity) {
 
 // 응답 모아 보기: 고르는 질문은 막대, 글은 목록. docs = [{ name, answers }]
 // opts.only: 이 질문 id들만 보인다(번호는 그대로) · opts.tools(q): 질문 제목 옆에 붙일 것(교사의 「응답 공개」 단추)
+// opts.answerTools(q, d): 글·파일 답 하나하나 끝에 붙일 것(교사의 답별 「공개」 단추)
 function summaryView(questions, docs, opts) {
   opts = opts || {};
   return questions.filter((q) => q.type !== "info").map((q, i) => {
@@ -416,7 +417,7 @@ function summaryView(questions, docs, opts) {
       : h("p", { class: "sum-q" }, (i + 1) + ". " + q.text);
     if (q.type === "file") {
       return h("div", { class: "sum-block" }, head,
-        answered.length ? answered.map((d) => h("p", { class: "note" }, d.name ? h("strong", {}, d.name + " · ") : null, fileLinks(d.answers[q.id], opts.openFile)))
+        answered.length ? answered.map((d) => h("p", { class: "note" }, d.name ? h("strong", {}, d.name + " · ") : null, fileLinks(d.answers[q.id], opts.openFile), opts.answerTools ? opts.answerTools(q, d) : null))
           : h("p", { class: "muted small" }, opts.empty || "아직 응답이 없습니다."));
     }
     if (q.type === "choice" || q.type === "multi") {
@@ -431,7 +432,7 @@ function summaryView(questions, docs, opts) {
       }));
     }
     return h("div", { class: "sum-block" }, head,
-      answered.length ? answered.map((d) => h("p", { class: "note" }, d.name ? h("strong", {}, d.name + " · ") : null, answerText(d.answers[q.id])))
+      answered.length ? answered.map((d) => h("p", { class: "note" }, d.name ? h("strong", {}, d.name + " · ") : null, answerText(d.answers[q.id]), opts.answerTools ? opts.answerTools(q, d) : null))
         : h("p", { class: "muted small" }, opts.empty || "아직 응답이 없습니다."));
   });
 }

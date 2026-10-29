@@ -1356,14 +1356,50 @@ function hideBtn(a) {
   return h("button", { type: "button", class: a.hidden ? "primary" : "ghost", async onclick() { await setActivity(a, { hidden: !a.hidden }); } },
     a.hidden ? "학생에게 보이기" : "학생에게 숨기기");
 }
-// 학생은 기본적으로 자기 답만 본다. 교사가 질문마다 「응답 공개」를 누르면 그 질문의 친구들 답이 보인다
+// 학생은 기본적으로 자기 답만 본다.
+// 고르는 질문(막대그래프)은 질문 전체를 「응답 공개」(shared_q), 글·파일 답은 답마다 「공개」(shared_a {질문id: [학생id]})
 function sharedQ(a) { return Array.isArray(a.shared_q) ? a.shared_q : []; }
+function sharedA(a) { return a.shared_a && typeof a.shared_a === "object" && !Array.isArray(a.shared_a) ? a.shared_a : {}; }
+const isChartQ = (q) => q.type === "choice" || q.type === "multi";
+const answeredIds = (a, q) => docsOf(a).filter((d) => !isEmptyAnswer(d.answers[q.id])).map((d) => d.r.student_id);
+// 글·파일 질문에서 친구들에게 공개된 답의 학생 id(예전처럼 질문 전체가 공개돼 있으면 지금 답한 학생 모두)
+function sharedIds(a, q) {
+  if (sharedQ(a).includes(q.id)) return answeredIds(a, q);
+  return Array.isArray(sharedA(a)[q.id]) ? sharedA(a)[q.id] : [];
+}
+async function setSharedIds(a, q, ids) {
+  const m = {};
+  for (const [k, v] of Object.entries(sharedA(a))) if (a.questions.some((y) => y.id === k)) m[k] = v;
+  if (ids.length) m[q.id] = ids; else delete m[q.id];
+  const change = { shared_a: m };
+  if (sharedQ(a).includes(q.id)) change.shared_q = sharedQ(a).filter((x) => x !== q.id);
+  await setActivity(a, change);
+}
 function shareQBtn(a, q) {
-  const on = sharedQ(a).includes(q.id);
-  return h("button", { type: "button", class: on ? "small-btn" : "ghost small-btn", title: "이 질문에 대한 모든 학생의 응답을 학생 화면에 보입니다",
-    async onclick() {
-      await setActivity(a, { shared_q: on ? sharedQ(a).filter((x) => x !== q.id) : [...sharedQ(a).filter((x) => a.questions.some((y) => y.id === x)), q.id] });
-    } }, on ? "응답 공개 중 · 끝내기" : "응답 공개");
+  if (isChartQ(q)) {
+    const on = sharedQ(a).includes(q.id);
+    return h("button", { type: "button", class: on ? "small-btn" : "ghost small-btn", title: "이 질문의 응답 막대그래프를 학생 화면에 보입니다",
+      async onclick() {
+        await setActivity(a, { shared_q: on ? sharedQ(a).filter((x) => x !== q.id) : [...sharedQ(a).filter((x) => a.questions.some((y) => y.id === x)), q.id] });
+      } }, on ? "응답 공개 중 · 끝내기" : "응답 공개");
+  }
+  const answered = answeredIds(a, q);
+  const ids = sharedIds(a, q).filter((id) => answered.includes(id));
+  const all = answered.length > 0 && ids.length === answered.length;
+  return h("div", { class: "row" },
+    ids.length ? h("span", { class: "muted small" }, "공개 " + ids.length + " / " + answered.length) : null,
+    !all ? h("button", { type: "button", class: "ghost small-btn", disabled: !answered.length, title: "지금 들어온 답을 모두 공개합니다(나중에 들어오는 답은 따로 골라야 합니다)",
+      async onclick() { await setSharedIds(a, q, answeredIds(a, q)); } }, "모두 공개") : null,
+    ids.length ? h("button", { type: "button", class: "ghost small-btn", async onclick() { await setSharedIds(a, q, []); } }, "모두 끝내기") : null);
+}
+// 글·파일 답 하나하나의 「공개」 단추
+function shareABtn(a, q, d) {
+  if (isChartQ(q)) return null;
+  const id = d.r.student_id;
+  const ids = sharedIds(a, q);
+  const on = ids.includes(id);
+  return h("button", { type: "button", class: "share-a small-btn" + (on ? "" : " ghost"), title: on ? "친구들에게 보이는 중 · 누르면 숨김" : "누르면 이 답을 친구들에게 보입니다",
+    async onclick() { await setSharedIds(a, q, on ? ids.filter((x) => x !== id) : [...ids, id]); } }, on ? "공개 중" : "공개");
 }
 
 function runBlock(a) {
@@ -1386,7 +1422,9 @@ function runBlock(a) {
   const docs = docsOf(a);
   const scored = docs.filter((d) => d.r.total);
   const avg = scored.length ? (scored.reduce((s, d) => s + d.r.score / d.r.total, 0) / scored.length * 100).toFixed(0) + "점" : null;
-  const nShared = askedQuestions(a).filter((q) => sharedQ(a).includes(q.id)).length;
+  const nCharts = askedQuestions(a).filter((q) => isChartQ(q) && sharedQ(a).includes(q.id)).length;
+  const nAnswers = askedQuestions(a).filter((q) => !isChartQ(q)).reduce((n, q) => n + sharedIds(a, q).filter((id) => answeredIds(a, q).includes(id)).length, 0);
+  const nShared = nCharts + nAnswers;
   return h("section", { class: "card stack" },
     h("div", { class: "row between" },
       h("div", {},
@@ -1394,9 +1432,9 @@ function runBlock(a) {
         h("h2", {}, a.title)),
       h("div", { class: "row" }, editBtn(a), hideBtn(a))),
     h("div", { class: "row" }, seen,
-      h("p", { class: nShared ? "pill on" : "pill" }, nShared ? "응답 공개: 질문 " + nShared + "개 (" + (a.named ? "이름과 함께" : "이름 없이") + ")" : "응답: 각자 자기 답만 봄")),
-    h("p", { class: "muted small" }, "응답 " + docs.length + " / " + students.length + "명" + (avg ? " · 평균 " + avg : "") + " · 친구들에게 보여 줄 질문만 「응답 공개」를 누르세요."),
-    summaryView(a.questions, docs, { openFile, tools: (q) => shareQBtn(a, q) }),
+      h("p", { class: nShared ? "pill on" : "pill" }, nShared ? "응답 공개: " + [nCharts ? "그래프 " + nCharts + "개" : "", nAnswers ? "답 " + nAnswers + "개" : ""].filter(Boolean).join(" · ") + " (" + (a.named ? "이름과 함께" : "이름 없이") + ")" : "응답: 각자 자기 답만 봄")),
+    h("p", { class: "muted small" }, "응답 " + docs.length + " / " + students.length + "명" + (avg ? " · 평균 " + avg : "") + " · 친구들에게 보여 줄 답만 「공개」를 누르세요."),
+    summaryView(a.questions, docs, { openFile, tools: (q) => shareQBtn(a, q), answerTools: (q, d) => shareABtn(a, q, d) }),
     h("div", { class: "row" },
       h("button", { class: "ghost", type: "button", onclick() { bigView(a.title, h("div", { class: "big-view" }, summaryView(a.questions, docsOf(a), { openFile }))); } }, "크게 보기"),
       h("button", { class: "ghost", type: "button", onclick() { openModal(a.title + " · 학생별", responseTable(a)); } }, "학생별 표"),
@@ -1449,7 +1487,7 @@ async function setActivity(a, change) {
   refreshRun();
   const { error } = await sb.from("activities").update(change).eq("id", a.id);
   if (!error) return;
-  if (/hidden|shared_q/.test(error.message)) {
+  if (/hidden|shared_q|shared_a/.test(error.message)) {
     // 칸이 아직 없는 데이터베이스: 되돌리고 알린다
     Object.assign(a, before);
     refreshRun();
