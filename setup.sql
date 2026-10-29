@@ -673,10 +673,11 @@ begin
     if exists (select 1 from responses where student_id = s.id and activity_id = a.id) then
       return jsonb_build_object('error', 'already');
     end if;
-    select count(*) filter (where q ? 'answer'),
-           count(*) filter (where q ? 'answer' and p_answers -> (q ->> 'id') = q -> 'answer')
+    -- 질문 이름을 e로: 위에 선언한 변수 q와 같으면 "column reference q is ambiguous"로 퀴즈 제출이 실패한다
+    select count(*) filter (where e ? 'answer'),
+           count(*) filter (where e ? 'answer' and p_answers -> (e ->> 'id') = e -> 'answer')
       into tot, sc
-      from jsonb_array_elements(a.questions) q;
+      from jsonb_array_elements(a.questions) e;
   end if;
 
   insert into responses (student_id, activity_id, answers, score, total, updated_at)
@@ -685,6 +686,31 @@ begin
     do update set answers = excluded.answers, score = excluded.score, total = excluded.total, updated_at = now();
   return jsonb_build_object('ok', true);
 end $$;
+
+-- 학생이 자기 응답 지우기(학생 화면 「내 응답 지우기」). 제출이 열려 있을 때만. 퀴즈는 한 번만 내는 것이라 지울 수 없다
+-- (지우고 다시 풀면 정답을 본 뒤 다시 내는 셈). 올린 파일은 어느 답에도 없게 되어 교사 화면이 이틀 뒤 지운다(removeOrphanFiles)
+create or replace function student_unsave(p_token text, p_activity uuid)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  s students;
+  a activities;
+  l lessons;
+begin
+  select * into s from students where token = p_token and p_token is not null;
+  if not found then return jsonb_build_object('error', 'logged_out'); end if;
+  select * into a from activities where id = p_activity;
+  if not found or a.kind = 'sim' or a.hidden or not exists (select 1 from lesson_students where lesson_id = a.lesson_id and student_id = s.id) then
+    return jsonb_build_object('error', 'no_activity');
+  end if;
+  if a.kind = 'quiz' then return jsonb_build_object('error', 'quiz'); end if;
+  select * into l from lessons where id = a.lesson_id;
+  if l.ended then return jsonb_build_object('error', 'ended'); end if;
+  if not l.open then return jsonb_build_object('error', 'closed'); end if;
+  delete from responses where student_id = s.id and activity_id = a.id;
+  return jsonb_build_object('ok', true);
+end $$;
+revoke all on function student_unsave(text, uuid) from public;
+grant execute on function student_unsave(text, uuid) to anon, authenticated;
 
 -- 시뮬레이션 html: 크기가 커서 3초마다 받는 상태에는 넣지 않고, 바뀌었을 때(html_ver)만 이것으로 한 번 받는다
 create or replace function student_sim(p_token text, p_activity uuid)

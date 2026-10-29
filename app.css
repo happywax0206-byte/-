@@ -164,6 +164,9 @@ main.lesson .slide { cursor: zoom-in; }
 .bar-value { text-align: right; }
 .note { background: var(--bg); border-radius: 10px; padding: .55rem .75rem; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .95rem; }
 .note .share-a { float: right; margin: -.15rem 0 .2rem .5rem; white-space: nowrap; }
+.note .answer-tools { float: right; display: flex; gap: .3rem; margin: -.15rem 0 .2rem .5rem; white-space: nowrap; }
+.note .answer-tools .share-a { float: none; margin: 0; }
+.stu-act-tools { display: flex; gap: .5rem; align-items: center; }
 .big-view { display: grid; gap: 1.5rem; font-size: 1.3rem; }
 .big-view .sum-q { font-size: 1.4rem; }
 .big-view .bar-row { font-size: 1.2rem; }

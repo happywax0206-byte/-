@@ -1490,6 +1490,40 @@ function shareABtn(a, q, d) {
     async onclick() { await setSharedIds(a, q, on ? ids.filter((x) => x !== id) : [...ids, id]); } }, on ? "공개 중" : "공개");
 }
 
+// 학생 응답 지우기. q가 있으면 그 질문의 답만(퀴즈는 한 번만 내므로 제출 전체), 없으면 그 활동의 응답 전체.
+// 지운 답에 올린 파일도 저장소에서 지운다. after: 지운 뒤 다시 그릴 것
+async function removeResponse(a, r, q, after) {
+  const s = studentById(r.student_id);
+  const who = s ? nameOf(s) + " 학생" : "이 학생";
+  const rest = q ? askedQuestions(a).filter((x) => x.id !== q.id && !isEmptyAnswer(r.answers[x.id])) : [];
+  const whole = !q || a.kind === "quiz" || !rest.length;
+  if (!confirm((whole ? who + "의 「" + a.title + "」 응답을 지울까요?" + (a.kind === "quiz" ? "\n퀴즈 제출이 지워져 학생이 다시 풀 수 있게 됩니다." : "")
+    : who + "의 이 질문 답만 지울까요? (다른 질문의 답은 남습니다)") + "\n지운 응답은 되돌릴 수 없습니다.")) return;
+  const gone = whole ? Object.values(r.answers || {}) : [r.answers[q.id]];
+  const files = gone.flatMap((v) => (Array.isArray(v) ? v : []).filter((x) => x && x.path).map((x) => x.path));
+  const row = sb.from("responses");
+  let res;
+  if (whole) res = await row.delete().eq("student_id", r.student_id).eq("activity_id", a.id).select("student_id");
+  else {
+    const answers = { ...r.answers };
+    delete answers[q.id];
+    // 저장 시각도 바꿔야 다른 교사 화면·학생 화면이 바뀐 것을 바로 알아챈다
+    res = await row.update({ answers, updated_at: new Date().toISOString() }).eq("student_id", r.student_id).eq("activity_id", a.id).select("student_id");
+  }
+  if (res.error) return alert("지우지 못했습니다: " + res.error.message);
+  if (!res.data || !res.data.length) return alert("지우지 못했습니다. 이 수업을 고칠 권한이 없거나 이미 지워졌습니다.");
+  if (files.length) await sb.storage.from("submissions").remove(files);
+  await loadResponses(true);
+  if (isRunTab()) refreshRun();
+  if (tab === "students") drawStudents();
+  if (after) after();
+}
+function removeBtn(a, r, q, after, label) {
+  if (readOnly()) return null;
+  return h("button", { type: "button", class: "ghost small-btn danger", title: q ? "이 학생의 이 답을 지웁니다" : "이 학생의 이 활동 응답을 모두 지웁니다",
+    onclick() { removeResponse(a, r, q, after); } }, label || "지우기");
+}
+
 function runBlock(a) {
   const seen = h("p", { class: a.hidden ? "pill" : "pill on" }, a.hidden ? "학생에게 숨김" : "학생 화면에 보임");
   if (a.kind === "sim") return h("section", { class: "card stack" },
@@ -1522,7 +1556,8 @@ function runBlock(a) {
     h("div", { class: "row" }, seen,
       h("p", { class: nShared ? "pill on" : "pill" }, nShared ? "응답 공개: " + [nCharts ? "그래프 " + nCharts + "개" : "", nAnswers ? "답 " + nAnswers + "개" : ""].filter(Boolean).join(" · ") + " (" + (a.named ? "이름과 함께" : "이름 없이") + ")" : "응답: 각자 자기 답만 봄")),
     h("p", { class: "muted small" }, "응답 " + docs.length + " / " + students.length + "명" + (avg ? " · 평균 " + avg : "") + " · 친구들에게 보여 줄 답만 「공개」를 누르세요."),
-    summaryView(a.questions, docs, { openFile, tools: (q) => shareQBtn(a, q), answerTools: (q, d) => shareABtn(a, q, d) }),
+    summaryView(a.questions, docs, { openFile, tools: (q) => shareQBtn(a, q),
+      answerTools: (q, d) => h("span", { class: "answer-tools" }, shareABtn(a, q, d), removeBtn(a, d.r, q)) }),
     h("div", { class: "row" },
       h("button", { class: "ghost", type: "button", onclick() { bigView(a.title, h("div", { class: "big-view" }, summaryView(a.questions, docsOf(a), { openFile }))); } }, "크게 보기"),
       h("button", { class: "ghost", type: "button", onclick() { openModal(a.title + " · 학생별", responseTable(a)); } }, "학생별 표"),
@@ -1530,16 +1565,20 @@ function runBlock(a) {
 }
 
 function responseTable(a) {
-  return h("div", { class: "table-wrap" }, h("table", {},
+  const box = h("div", { class: "table-wrap" });
+  const draw = () => box.replaceChildren(h("table", {},
     h("thead", {}, h("tr", {}, h("th", {}, "학번"), h("th", {}, "이름"), a.kind === "quiz" ? h("th", {}, "점수") : null,
-      askedQuestions(a).map((q, i) => h("th", {}, (i + 1) + ". " + q.text)), h("th", {}, "저장"))),
+      askedQuestions(a).map((q, i) => h("th", {}, (i + 1) + ". " + q.text)), h("th", {}, "저장"), readOnly() ? null : h("th", {}, ""))),
     h("tbody", {}, students.map((s) => {
       const r = responses.find((x) => x.activity_id === a.id && x.student_id === s.id);
       return h("tr", { class: r ? "" : "missing" }, h("td", {}, s.class_no), h("td", {}, s.name),
         a.kind === "quiz" ? h("td", {}, r && r.total ? r.score + "/" + r.total : "") : null,
         askedQuestions(a).map((q) => h("td", {}, !r ? "" : q.type === "file" ? fileLinks(r.answers[q.id], openFile) : answerText(r.answers[q.id]))),
-        h("td", {}, r ? fmtTime(r.updated_at) : "미제출"));
+        h("td", {}, r ? fmtTime(r.updated_at) : "미제출"),
+        readOnly() ? null : h("td", {}, r ? removeBtn(a, r, null, draw, "응답 지우기") : null));
     }))));
+  draw();
+  return box;
 }
 
 // 편집모드에서 보는 쪽은 이 화면에만 둔다(학생 화면은 따라 넘어가지 않음). 처음에는 지금 수업 쪽에서 시작
@@ -2276,13 +2315,16 @@ function studentAnswers(s) {
       return h("section", { class: "stu-act" + (r ? "" : " missing") },
         h("div", { class: "row between" },
           h("div", {}, h("p", { class: "muted small" }, KIND_NAME[a.kind] + " · " + whereText(a)), h("h3", {}, a.title)),
-          h("p", { class: "muted small" }, !r ? "미제출" : (r.total ? "점수 " + r.score + "/" + r.total + " · " : "") + fmtTime(r.updated_at))),
+          h("div", { class: "stu-act-tools" },
+            h("p", { class: "muted small" }, !r ? "미제출" : (r.total ? "점수 " + r.score + "/" + r.total + " · " : "") + fmtTime(r.updated_at)),
+            r ? removeBtn(a, r, null, () => { const x = studentById(st.id); if (x && body.isConnected) draw(x); }, "응답 지우기") : null)),
         r ? askedQuestions(a).map((q, n) => {
           const v = r.answers[q.id];
           const graded = q.answer != null && (q.quiz || a.kind === "quiz") && !isEmptyAnswer(v);
           const ok = graded && sameAnswer(v, q.answer);
           return h("div", { class: "stu-q" },
-            h("p", { class: "sum-q" }, (n + 1) + ". " + q.text),
+            h("div", { class: "row between" }, h("p", { class: "sum-q" }, (n + 1) + ". " + q.text),
+              isEmptyAnswer(v) || a.kind === "quiz" ? null : removeBtn(a, r, q, () => { const x = studentById(st.id); if (x && body.isConnected) draw(x); })),
             isEmptyAnswer(v) ? h("p", { class: "muted small" }, "(답 없음)")
               : h("p", { class: "note" }, graded ? h("strong", { class: ok ? "right-mark" : "wrong-mark" }, ok ? "✓ " : "✗ ") : null,
                   q.type === "file" ? fileLinks(v, openFile) : answerText(v),

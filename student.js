@@ -904,6 +904,30 @@ function buildForm(c) {
   }
   btn.addEventListener("click", save);
 
+  // 저장한 내 응답 지우기(퀴즈는 한 번만 내므로 없음). 제출이 열려 있을 때만
+  const unsaveBtn = h("button", { class: "link danger", type: "button", hidden: true }, "내 응답 지우기");
+  unsaveBtn.addEventListener("click", async () => {
+    if (!confirm("저장한 내 응답을 지울까요? 선생님 화면에서도 사라지고, 되돌릴 수 없습니다.")) return;
+    sending = true;
+    c.refresh();
+    const { data, error } = await sb.rpc("student_unsave", { p_token: token, p_activity: a.id });
+    sending = false;
+    if (error) err.textContent = /student_unsave|function/i.test(error.message) ? "아직 응답 지우기를 쓸 수 없습니다. 선생님께 알려 주세요." : "지우지 못했습니다. 다시 시도하세요. (" + error.message + ")";
+    else if (data.error === "closed") err.textContent = "지금은 제출이 닫혀 있어서 지울 수 없습니다.";
+    else if (data.error === "ended") return lessonEnded();
+    else if (data.error === "logged_out") return logout("다시 입장해 주세요.");
+    else if (data.error) err.textContent = "지우지 못했습니다. (" + data.error + ")";
+    else {
+      keep().removeItem(draftKey(a));
+      for (const q of asked) delete values[q.id];
+      delete liveDrafts[a.id];
+      sendLive();
+      c.formSig = null;   // 빈 칸으로 다시 그린다
+      return poll();
+    }
+    c.refresh();
+  });
+
   c.refresh = () => {
     const open = state.lesson.open;
     const d = dirty();
@@ -913,6 +937,8 @@ function buildForm(c) {
       status.className = "status ok";
       return;
     }
+    unsaveBtn.hidden = !a.mine || a.kind === "quiz" || !open;
+    unsaveBtn.disabled = sending;
     btn.disabled = sending || !open || (a.mine && !d);
     btn.textContent = sending ? "저장 중…" : a.kind === "quiz" ? "제출하기" : !a.mine ? "저장하기" : d ? "고친 내용 저장" : "저장됨";
     status.textContent = !open ? "지금은 저장할 수 없습니다." : a.mine && !d ? "✓ 저장 완료 (" + fmtTime(a.saved_at) + ")" : a.mine ? "저장하지 않은 수정 내용이 있습니다." : "";
@@ -923,7 +949,7 @@ function buildForm(c) {
     h("div", { class: "card-head" }, h("h2", {}, a.title), h("span", { class: "badge" }, KIND_NAME[a.kind])),
     activityDescription(a) ? linkedDescription(activityDescription(a)) : null,
     quizDone && a.total ? h("p", { class: "score" }, "점수 " + a.score + " / " + a.total) : null,
-    rows, err, btn, status].flat().filter(Boolean));
+    rows, err, btn, status, unsaveBtn].flat().filter(Boolean));
 }
 
 // 휴대폰을 가로로 돌리거나 창이 커지면 더 큰 슬라이드 그림으로 바꾼다
