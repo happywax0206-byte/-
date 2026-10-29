@@ -787,7 +787,7 @@ const READ_ONLY_MSG = "보기만 할 수 있는 수업입니다. 고치려면 �
 window.craBlockWrite = (url, method) => {
   if (!readOnly() || allowWrite || /^(GET|HEAD)$/i.test(method)) return null;
   const rest = /\/rest\/v1\/(?!rpc\/)/.test(url);
-  const rpc = /\/rest\/v1\/rpc\/teacher_screen/.test(url);
+  const rpc = /\/rest\/v1\/rpc\/(teacher_screen|reset_student)\b/.test(url);
   const store = /\/storage\/v1\/object\//.test(url) && !/\/object\/(list|sign)\//.test(url);
   if (!rest && !rpc && !store) return null;
   return new Response(JSON.stringify({ message: READ_ONLY_MSG, error: READ_ONLY_MSG, statusCode: "403", code: "42501" }),
@@ -2333,8 +2333,11 @@ function drawStudents() {
           class: locked ? "primary" : "ghost", type: "button", disabled: !s.pin_set && !locked,
           async onclick() {
             if (!confirm(nameOf(s) + " 학생의 비밀번호를 초기화할까요?\n모든 수업에 함께 적용됩니다. 쓴 답은 그대로 남고, 다음에 들어올 때 새 비밀번호를 정합니다.")) return;
-            const { error } = await sb.from("students").update({ pin_hash: null, token: null, fails: 0, locked_until: null }).eq("id", s.id);
+            let { data, error } = await sb.rpc("reset_student", { p_student: s.id });
+            // setup.sql을 아직 다시 실행하지 않은 서버(함수 없음): 예전처럼 표를 직접 고친다
+            if (error && error.code === "PGRST202") ({ error } = await sb.from("students").update({ pin_hash: null, token: null, fails: 0, locked_until: null }).eq("id", s.id));
             if (error) return alert(error.message);
+            if (data && data.error) return alert("이 학생의 비밀번호를 초기화할 권한이 없습니다.");
             await loadResponses();
             drawStudents();
             flash("초기화했습니다.");

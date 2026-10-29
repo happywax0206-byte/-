@@ -295,6 +295,24 @@ create policy teacher_read   on students for select to authenticated using (can_
 create policy teacher_insert on students for insert to authenticated with check (can_edit_student(id));
 create policy teacher_update on students for update to authenticated using (can_edit_student(id)) with check (can_edit_student(id));
 create policy teacher_delete on students for delete to authenticated using (can_edit_student(id));
+-- 학생 열쇠(token)와 비밀번호 암호(pin_hash)는 교사도 읽거나 바꾸지 못한다(공동작업 교사가 그 학생으로 다른 선생님 수업에
+-- 들어가거나, 4자리 비밀번호를 알아내지 못하게). 교사는 아래 칸만 보고, 비밀번호 초기화는 reset_student 함수로만 한다.
+-- 학생 표에 칸을 더하면 교사가 봐야 하는 칸은 여기 목록에도 더한다.
+revoke all on students from anon, authenticated;
+grant select (id, class_no, name, pin_set, fails, locked_until, created_at, last_seen) on students to authenticated;
+grant delete on students to authenticated;
+
+-- 학생 비밀번호 초기화(모든 수업에 함께): 그 학생이 들어온 수업 중 하나라도 고칠 수 있는 교사만.
+-- 열쇠도 지워 모든 기기에서 나가지고, 다음에 들어올 때 새 비밀번호를 정한다
+create or replace function reset_student(p_student uuid) returns jsonb
+language plpgsql security definer set search_path = public as $$
+begin
+  if not can_edit_student(p_student) then return jsonb_build_object('error', 'not_allowed'); end if;
+  update students set pin_hash = null, token = null, fails = 0, locked_until = null where id = p_student;
+  return jsonb_build_object('ok', true);
+end $$;
+revoke all on function reset_student(uuid) from public, anon;
+grant execute on function reset_student(uuid) to authenticated;
 create policy teacher_read   on responses for select to authenticated using (can_activity(activity_id));
 create policy teacher_insert on responses for insert to authenticated with check (can_edit_activity(activity_id));
 create policy teacher_update on responses for update to authenticated using (can_edit_activity(activity_id)) with check (can_edit_activity(activity_id));
