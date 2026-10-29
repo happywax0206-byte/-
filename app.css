@@ -446,3 +446,8 @@ body.present .credit { display: none; }
 .read-only-pill { align-self: center; color: #92400e; background: #fef3c7; font-weight: 700; cursor: help; }
 .read-only-banner { background: #fef3c7; color: #92400e; margin: .75rem auto 0; max-width: 1400px; }
 .read-only { opacity: .85; }
+/* 관리 탭: 기능별로 쓰는 양 */
+.feature-usage th, .feature-usage td { text-align: left; vertical-align: top; padding: .45rem .7rem; border-top: 1px solid var(--line); }
+.feature-usage thead th { border-top: 0; font-size: .85rem; color: var(--muted); white-space: nowrap; }
+.feature-usage tbody th { font-weight: 600; min-width: 11rem; }
+.feature-sub { display: block; font-weight: 400; max-width: 26rem; }

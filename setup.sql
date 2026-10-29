@@ -725,7 +725,30 @@ begin
             from auth.users u) x
       where x.at >= since), '[]'::jsonb) end,
     'students', (select count(*) from students),
-    'lessons', (select count(*) from lessons));
+    'lessons', (select count(*) from lessons),
+    -- 기능별로 나누어 보기: 표 전체 크기(색인 포함)와, 한 표 안에서 기능별 칸이 차지하는 크기(압축된 크기)
+    'feat', jsonb_build_object(
+      'lessons', coalesce(pg_total_relation_size(to_regclass('public.lessons')), 0),
+      'transition', (select coalesce(sum(pg_column_size(transition)), 0) from lessons),
+      'activities', coalesce(pg_total_relation_size(to_regclass('public.activities')), 0),
+      'sim_html', (select coalesce(sum(pg_column_size(html)), 0) from activities),
+      'shared', (select coalesce(sum(pg_column_size(shared_q) + pg_column_size(shared_a)), 0) from activities),
+      'responses', coalesce(pg_total_relation_size(to_regclass('public.responses')), 0),
+      'students', coalesce(pg_total_relation_size(to_regclass('public.students')), 0),
+      'lesson_students', coalesce(pg_total_relation_size(to_regclass('public.lesson_students')), 0),
+      'live', (select coalesce(sum(pg_column_size(live)), 0) from lesson_students),
+      'screen', (select coalesce(sum(pg_column_size(screen)), 0) from lesson_students),
+      'upload_tickets', coalesce(pg_total_relation_size(to_regclass('public.upload_tickets')), 0),
+      'teachers', coalesce(pg_total_relation_size(to_regclass('public.teachers')), 0),
+      'lesson_members', coalesce(pg_total_relation_size(to_regclass('public.lesson_members')), 0),
+      'bugs', coalesce(pg_total_relation_size(to_regclass('public.bug_reports')), 0)
+            + coalesce(pg_total_relation_size(to_regclass('public.bug_replies')), 0)
+            + coalesce(pg_total_relation_size(to_regclass('public.app_secrets')), 0),
+      -- 메일 보내기(pg_net)가 남기는 요청·응답 기록(6시간 뒤 저절로 지워짐)
+      'net', (select coalesce(sum(pg_total_relation_size(c.oid)), 0) from pg_class c join pg_namespace n on n.oid = c.relnamespace
+              where n.nspname = 'net' and c.relkind in ('r', 'p')),
+      'auth', (select coalesce(sum(pg_total_relation_size(c.oid)), 0) from pg_class c join pg_namespace n on n.oid = c.relnamespace
+               where n.nspname = 'auth' and c.relkind in ('r', 'p'))));
 end $$;
 revoke all on function usage_stats() from public;
 grant execute on function usage_stats() to authenticated;

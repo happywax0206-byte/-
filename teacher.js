@@ -286,7 +286,7 @@ const DETAIL_MAX = 8, DETAIL_MIN = 0.02;
 const DB_NAMES = {
   "public.responses": "학생 답", "public.activities": "질문·설문·시뮬레이션", "public.lesson_students": "수업 참여·실시간 화면",
   "public.students": "학생 계정", "public.lessons": "수업", "public.upload_tickets": "파일 올리기 자리", "public.teachers": "교사 목록",
-  "public.lesson_members": "공동작업자", "public.bug_reports": "버그 제보", "storage.objects": "저장소 파일 목록",
+  "public.lesson_members": "공동작업자", "public.bug_reports": "버그 제보", "public.bug_replies": "버그 제보 답글", "public.app_secrets": "앱 비밀 값", "storage.objects": "저장소 파일 목록",
 };
 let manageOpen = null;   // 펼쳐 본 칸
 let manageData = null;   // { gauges, grid, detail }
@@ -466,10 +466,70 @@ function dashboardStatus(el, d, dash) {
   }
 }
 
+// 기능별로 쓰는 양. db: usage_stats().feat(F)에서 바이트, store: 저장소 버킷, pages: 사이트 파일(정규식), net: 전송량을 쓰는 정도
+// 전송량은 어디서도 기능별로 잴 수 없어 쓰는 방식만 적는다(많음·보통·적음·없음)
+const SIMS = [["beats", "맥놀이"], ["pendulum", "단진자"], ["pendulum-advanced", "이중진자·혼돈 용수철"], ["spring", "용수철 진자"],
+  ["string-pulse", "줄파동 반사·투과"], ["drum", "북 정상파"], ["circuit", "회로 만들기"], ["binary-doppler", "쌍성 도플러"], ["sonic-boom", "도플러·소닉붐"]];
+const FEATURES = [
+  { name: "수업·슬라이드", db: (F) => F.lessons - F.transition, store: ["slides"], pages: /^vendor\/pdf/, net: ["많음", "학생이 쪽을 넘길 때마다 그 쪽 그림을 받음(같은 그림은 대부분 캐시 전송량)"] },
+  { name: "화면 넘김 효과", db: (F) => F.transition, net: ["거의 없음", "효과 설정 몇 글자"] },
+  { name: "질문·설문·퀴즈", db: (F) => F.activities - F.sim_html - F.shared, net: ["보통", "질문이 바뀔 때만 학생마다 한 번"] },
+  { name: "시뮬레이션 (수업 안)", db: (F) => F.sim_html, net: ["보통", "학생마다 html을 한 번 받음(고치면 다시)"] },
+  { name: "학생 답", db: (F) => F.responses, net: ["보통", "교사 화면이 몇 초마다 새로 들어온 답만, 30초마다 전부"] },
+  { name: "응답 공개", db: (F) => F.shared, net: ["보통", "공개한 답을 학생마다 받음(바뀔 때만)"] },
+  { name: "파일 올리기", db: (F) => F.upload_tickets, store: ["submissions"], net: ["파일 크기만큼", "교사가 제출 파일을 열 때"] },
+  { name: "학생 계정·입장", db: (F) => F.students + F.lesson_students - F.live - F.screen, pages: /^vendor\/qrcode/, net: ["적음", "학생 화면이 3초마다 확인(바뀐 게 없으면 아주 짧음)"] },
+  { name: "학생 화면 (쓰는 중인 답)", db: (F) => F.live, net: ["보통", "교사가 「학생 화면」 탭을 볼 때만 2초마다"] },
+  { name: "학생 모니터 화면 보기", db: (F) => F.screen, net: ["거의 없음", "연결 약속만, 영상은 Supabase를 거치지 않음"] },
+  { name: "프로필·공동작업자·접속 표시", db: (F) => F.teachers + F.lesson_members, net: ["거의 없음", "1분마다 아주 작은 접속 신호"] },
+  { name: "버그 제보·메일", db: (F) => F.bugs + F.net, net: ["거의 없음", "메일 기록은 6시간 뒤 저절로 지워짐"] },
+  { name: "교사 로그인", db: (F) => F.auth, net: ["거의 없음", "로그인할 때"] },
+  { name: "수업 화면 띄우기", pages: /^present\./, net: ["없음", "같은 컴퓨터의 탭끼리만 주고받음"] },
+  { name: "관리 탭 확장 프로그램", pages: /^extension\//, net: ["없음", "Supabase 대시보드에서 숫자만 읽음"] },
+  ...SIMS.map(([f, n]) => ({ name: "시뮬레이션 페이지 · " + n, pages: new RegExp("^" + f + "\\.html$"), net: ["없음", "Supabase를 쓰지 않음(GitHub 사이트에서만)"] })),
+  { name: "교사·학생 기본 화면", pages: /^(index|teacher)\.html$|^(teacher|student|common|config)\.js$|^app\.css$|^vendor\/supabase/, net: ["적음", "GitHub 사이트에서 처음 열 때(그 뒤는 브라우저 캐시)"] },
+];
+
+function featureCard(u, blobs) {
+  const F = u && u.feat;
+  const sizeOf = (re) => blobs ? blobs.filter((b) => re.test(b.path)).reduce((m, b) => m + (b.size || 0), 0) : null;
+  const store = (names) => u && u.storage_parts ? u.storage_parts.filter((p) => names.includes(p.bucket)).reduce((m, p) => m + +p.bytes, 0) : null;
+  const rows = FEATURES.map((f) => ({
+    f,
+    db: f.db ? (F ? Math.max(0, f.db(F)) : null) : 0,
+    st: f.store ? store(f.store) : 0,
+    pg: f.pages ? sizeOf(f.pages) : 0,
+  }));
+  // 어느 기능에도 넣지 않은 사이트 파일(설명서·설정 파일 등)과 데이터베이스 기본 몫
+  const used = new Set();
+  if (blobs) for (const b of blobs) if (FEATURES.some((f) => f.pages && f.pages.test(b.path))) used.add(b.path);
+  const restPages = blobs ? blobs.filter((b) => !used.has(b.path)) : null;
+  if (restPages && restPages.length) rows.push({ f: { name: "설명서·설정 파일", sub: restPages.map((b) => b.path).join(", "), net: ["거의 없음", "화면에서 쓰지 않음"] }, db: 0, st: 0, pg: restPages.reduce((m, b) => m + (b.size || 0), 0) });
+  if (F) rows.push({ f: { name: "Postgres·Supabase 기본", sub: "기능이 아님 · 새 프로젝트도 40~60MB, 줄일 수 없음", net: ["—", ""] },
+    db: Math.max(0, +u.db_bytes - rows.reduce((m, r) => m + (r.db || 0), 0)), st: 0, pg: 0 });
+  const share = (r) => Math.max((r.db || 0) / FREE.db, (r.st || 0) / FREE.storage, (r.pg || 0) / FREE.pages);
+  rows.sort((x, y) => share(y) - share(x));
+  const cell = (v, total) => v == null ? h("td", { class: "muted" }, "?")
+    : !v ? h("td", { class: "muted" }, "—")
+      : h("td", { class: "usage-num" }, fmtBytes(v), h("span", { class: "muted small" }, " " + pctText(v / total * 100)));
+  return h("section", { class: "card stack" },
+    h("h3", {}, "기능별로 쓰는 양"),
+    h("p", { class: "muted small" }, "지금까지 넣은 기능마다 무료 한도를 얼마나 쓰는지입니다(한도에 비해 많이 쓰는 것부터). % 는 각 한도(데이터베이스 " + fmtBytes(FREE.db) + ", 파일 저장소 " + fmtBytes(FREE.storage) + ", GitHub 사이트 " + fmtBytes(FREE.pages) + ")에 대한 비율입니다."),
+    F ? null : h("p", { class: "banner" }, "데이터베이스를 기능별로 나누어 보려면 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요."),
+    h("div", { class: "table-wrap" }, h("table", { class: "feature-usage" },
+      h("thead", {}, h("tr", {}, h("th", {}, "기능"), h("th", {}, "데이터베이스"), h("th", {}, "파일 저장소"), h("th", {}, "GitHub 사이트"), h("th", {}, "전송량"))),
+      h("tbody", {}, rows.map((r) => h("tr", {},
+        h("th", { scope: "row" }, r.f.name, r.f.sub ? h("span", { class: "muted small feature-sub" }, r.f.sub) : null),
+        cell(r.db, FREE.db), cell(r.st, FREE.storage), cell(r.pg, FREE.pages),
+        h("td", {}, h("strong", {}, r.f.net[0]), r.f.net[1] ? h("span", { class: "muted small feature-sub" }, r.f.net[1]) : null)))))),
+    h("p", { class: "muted small" }, "데이터베이스 숫자는 표 크기(색인 포함)이고, 한 표를 여러 기능이 함께 쓰면 그 기능의 칸 크기를 따로 떼어 셉니다(압축된 크기라 대략). 전송량은 Supabase가 기능별로 알려 주지 않아 쓰는 방식만 적었습니다. 전체 전송량은 위 「Supabase 전송량」 칸을 보세요."));
+}
+
 async function drawManage(force) {
   force = force === true;
   const grid = h("div", { class: "usage-grid" }, h("p", { class: "muted" }, "읽어 오는 중…"));
   const detail = h("div");
+  const featEl = h("div");
   const banner = h("div");
   const dashEl = h("div");
   const when = h("span", { class: "muted small" });
@@ -481,7 +541,7 @@ async function drawManage(force) {
         h("div", { class: "row" }, when, h("button", { class: "ghost", type: "button", onclick() { drawManage(true); } }, "⟳ 다시 읽기"))),
       h("p", { class: "muted small" }, "이 웹앱이 쓰는 사이트(Supabase: 데이터·파일, GitHub: 화면)의 무료 한도 중 얼마나 썼는지입니다. 칸을 누르면 무엇이 많이 쓰는지 큰 것부터 보입니다. 60%를 넘으면 주황, 85%를 넘으면 빨강. 한도는 2026년 10월 무료 플랜 기준입니다."),
       dashEl),
-    banner, grid, detail,
+    banner, grid, detail, featEl,
     h("section", { class: "card stack" },
       h("h3", {}, "알아 둘 것"),
       h("ul", { class: "small" },
@@ -562,6 +622,7 @@ async function drawManage(force) {
 
   manageData.gauges = gauges;
   drawManageGrid();
+  featEl.replaceChildren(featureCard(u, blobs));
   when.textContent = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) + " 기준";
   // 대시보드 숫자는 늦게 올 수 있어(뒤쪽 탭에서 로그인 확인) 나중에 덧붙인다
   const d = await dashP;
