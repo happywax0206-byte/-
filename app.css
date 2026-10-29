@@ -282,6 +282,12 @@ th { text-align: left; font-weight: 500; color: var(--muted); background: #f7f8f
 th, td { padding: .6rem .8rem; border-top: 1px solid #eef0f4; vertical-align: top; }
 td { white-space: pre-wrap; }
 tr.missing td { color: var(--muted); }
+/* 학생 관리 → 답 모아 보기 */
+.stu-act { display: grid; gap: .6rem; padding: 1rem 0; border-top: 1px solid var(--line); }
+.stu-act.missing h3 { color: var(--muted); }
+.stu-q { display: grid; gap: .3rem; }
+.note .right-mark, .note .wrong-mark { margin: 0; font-size: 1em; }
+.wrong-mark { color: var(--bad, #c0392b); }
 tr.locked { background: #fff7ed; }
 td.actions { white-space: nowrap; text-align: right; }
 

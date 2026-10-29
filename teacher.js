@@ -2149,6 +2149,45 @@ function refreshLive() {
   if (els.length !== live.grid.children.length || els.some((el, i) => live.grid.children[i] !== el)) live.grid.replaceChildren(...els);
 }
 
+// 학생 한 명이 이 수업에서 저장한 답을 활동 순서대로 한 번에 본다. ◀ ▶ 로 다른 학생으로
+// 서버 채점(student_save)과 같은 규칙: 답이 정답과 똑같아야 맞음(✓/✗가 점수와 늘 맞게)
+function sameAnswer(x, y) { return JSON.stringify(x) === JSON.stringify(y); }
+function studentAnswers(s) {
+  const body = h("div", { class: "stack" });
+  const close = openModal("학생별 답 모아 보기", body);
+  const acts = activities.filter((a) => a.kind !== "sim" && !isInfoActivity(a));
+  const draw = (st) => {
+    const i = students.findIndex((x) => x.id === st.id);   // 3초마다 목록을 다시 읽어도 같은 학생을 찾는다
+    const mine = responses.filter((r) => r.student_id === st.id);
+    const nav = h("div", { class: "row between" },
+      h("button", { class: "ghost", type: "button", disabled: i <= 0, onclick() { draw(students[i - 1]); } }, "◀ 이전 학생"),
+      h("h2", {}, nameOf(st), h("span", { class: "muted small" }, " · 저장한 활동 " + mine.length + " / " + acts.length)),
+      h("button", { class: "ghost", type: "button", disabled: i < 0 || i >= students.length - 1, onclick() { draw(students[i + 1]); } }, "다음 학생 ▶"));
+    const blocks = acts.map((a) => {
+      const r = mine.find((x) => x.activity_id === a.id);
+      return h("section", { class: "stu-act" + (r ? "" : " missing") },
+        h("div", { class: "row between" },
+          h("div", {}, h("p", { class: "muted small" }, KIND_NAME[a.kind] + " · " + whereText(a)), h("h3", {}, a.title)),
+          h("p", { class: "muted small" }, !r ? "미제출" : (r.total ? "점수 " + r.score + "/" + r.total + " · " : "") + fmtTime(r.updated_at))),
+        r ? askedQuestions(a).map((q, n) => {
+          const v = r.answers[q.id];
+          const graded = q.answer != null && (q.quiz || a.kind === "quiz") && !isEmptyAnswer(v);
+          const ok = graded && sameAnswer(v, q.answer);
+          return h("div", { class: "stu-q" },
+            h("p", { class: "sum-q" }, (n + 1) + ". " + q.text),
+            isEmptyAnswer(v) ? h("p", { class: "muted small" }, "(답 없음)")
+              : h("p", { class: "note" }, graded ? h("strong", { class: ok ? "right-mark" : "wrong-mark" }, ok ? "✓ " : "✗ ") : null,
+                  q.type === "file" ? fileLinks(v, openFile) : answerText(v),
+                  graded && !ok ? h("span", { class: "muted small" }, "  (정답: " + answerText(q.answer) + ")") : null));
+        }) : null);
+    });
+    body.replaceChildren(nav, ...(acts.length ? blocks : [h("p", { class: "muted" }, "이 수업에는 답을 받는 활동이 없습니다.")]));
+    body.closest(".modal-body")?.scrollTo(0, 0);
+  };
+  draw(s);
+  return close;
+}
+
 function drawStudents() {
   const now = Date.now();
   const rows = students.map((s) => {
@@ -2160,8 +2199,9 @@ function drawStudents() {
       : h("span", { class: "tag ok" }, "정상");
     return h("tr", { class: locked ? "locked" : "" },
       h("td", {}, s.class_no), h("td", {}, s.name),
-      h("td", {}, mine.length + " / " + activities.filter((a) => a.kind !== "sim").length), h("td", {}, fmtTime(last)), h("td", {}, status),
+      h("td", {}, mine.length + " / " + activities.filter((a) => a.kind !== "sim" && !isInfoActivity(a)).length), h("td", {}, fmtTime(last)), h("td", {}, status),
       h("td", { class: "actions" },
+        h("button", { class: "primary", type: "button", onclick() { studentAnswers(s); } }, "답 모아 보기"),
         h("button", {
           class: locked ? "primary" : "ghost", type: "button", disabled: !s.pin_set && !locked,
           async onclick() {
