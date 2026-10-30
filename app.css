@@ -199,6 +199,11 @@ main.lesson .slide { cursor: zoom-in; }
 .mode-switch.edit .mode-knob::after { transform: translateX(16px); }
 .mode-switch:hover:not(:disabled) { box-shadow: 0 0 0 3px var(--card), 0 0 0 5px currentColor; }
 .mode-switch:disabled { opacity: .55; cursor: default; }
+.mode-pick { min-height: 34px; padding: 0 .9rem; border-radius: 999px; border: 2px solid var(--line); background: #fff; color: var(--muted); font-weight: 700; }
+.mode-pick.class.on { border-color: var(--accent); background: var(--accent); color: #fff; }
+.mode-pick.edit.on { border-color: #d97706; background: #d97706; color: #fff; }
+.tab-set td { vertical-align: middle; white-space: nowrap; }
+.tab-set input { width: 100%; min-width: 9rem; }
 @media (prefers-reduced-motion: reduce) { .mode-knob, .mode-knob::after { transition: none; } }
 .top-right { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .5rem; margin-left: auto; }
 .top-right .mirror-status:empty { display: none; }

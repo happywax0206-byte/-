@@ -833,7 +833,7 @@ function draw() {
         gearEl, profileEl)),
     main);
   setTopHeight();
-  ({ run: drawRun, preview: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings, people: drawPeople, manage: drawManage, bugs: drawBugs })[tab]();
+  ({ run: drawRun, preview: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings, people: drawPeople, manage: drawManage, tabs: drawTabSettings, bugs: drawBugs })[tab]();
   if (readOnly() && !GEAR.includes(tab) && !isRunTab()) {   // 수업 진행 화면은 높이가 꼭 맞으므로 위쪽 「보기만」 표시만
     if (tab === "build" || tab === "settings") main.querySelectorAll(":scope > *").forEach((el) => { el.inert = true; el.classList.add("read-only"); });
     main.before(h("p", { class: "banner read-only-banner" }, "👁 보기만 할 수 있는 수업입니다. 쪽을 넘겨도 학생 화면은 따라가지 않고, 아무것도 바뀌지 않습니다. 고치려면 수업을 만든 선생님께 고치기 권한을 달라고 하세요."));
@@ -853,24 +853,35 @@ function setTopHeight() {
 // 모드 단추는 지금 모드를 보여 주고, 누르면 다른 모드로 바뀐다(그 모드에서 마지막으로 본 탭으로).
 // 탭은 끌어서 같은 모드 안에서 순서를 바꿀 수 있고, 그 순서는 이 브라우저에 기억한다(cra-tab-order).
 // 「⚙ 설정」 단추 안의 탭(GEAR)은 어느 모드에도 속하지 않고, 열면 그 전에 있던 모드의 탭 줄이 그대로 보인다.
-const TABS = { run: "수업 진행", live: "학생 화면", students: "학생 관리", build: "질문·설문 만들기", preview: "수업 미리 보기", settings: "수업 설정", people: "프로필·공동작업자", manage: "관리", bugs: "버그 제보" };
+// 「탭 설정」에서 탭마다 단추 이름과 어느 모드에 보일지(둘 다도 됨)를 바꿀 수 있다(cra-tab-names, cra-tab-modes).
+const TABS = { run: "수업 진행", live: "학생 화면", students: "학생 관리", build: "질문·설문 만들기", preview: "수업 미리 보기", settings: "수업 설정", people: "프로필·공동작업자", manage: "관리", tabs: "탭 설정", bugs: "버그 제보" };
 const MODES = { class: { name: "수업모드", tabs: ["run", "live", "students"] }, edit: { name: "편집모드", tabs: ["build", "preview", "settings"] } };
-const GEAR = ["people", "manage", "bugs"];
+const MODE_DEFAULT = { class: MODES.class.tabs.slice(), edit: MODES.edit.tabs.slice() };
+const GEAR = ["people", "manage", "tabs", "bugs"];
 const isRunTab = () => tab === "run" || tab === "preview";   // 수업 진행 화면을 쓰는 탭(미리 보기는 그 일부만)
 let tabNav = null;        // 위쪽 막대의 탭 칸
 let tabDrag = null;       // 끌고 있는 탭
 const tabMark = h("span", { class: "tab-mark" });   // 끌어다 놓을 자리 표시
+let tabNames = {};        // 교사가 바꾼 단추 이름
+try { tabNames = JSON.parse(localStorage.getItem("cra-tab-names")) || {}; } catch {}
+const tabName = (k) => tabNames[k] || TABS[k];
 loadTabOrder();
-const modeOf = (k) => GEAR.includes(k) ? (localStorage.getItem("cra-mode") === "class" && lesson ? "class" : "edit")
-  : MODES.edit.tabs.includes(k) ? "edit" : "class";
+// 지금 모드. 두 모드에 다 있는 탭과 설정 안의 탭은 마지막으로 있던 모드를 따른다
+const curMode = () => localStorage.getItem("cra-mode") === "class" && lesson ? "class" : "edit";
+const modeOf = (k) => {
+  if (GEAR.includes(k)) return curMode();
+  const inClass = MODES.class.tabs.includes(k), inEdit = MODES.edit.tabs.includes(k);
+  return inClass && inEdit ? curMode() : inEdit ? "edit" : "class";
+};
 
-async function goTab(k) {
+async function goTab(k, mode) {
   const needLive = k === "live" && tab !== "live";
   if (GEAR.includes(k) && !GEAR.includes(tab)) localStorage.setItem("cra-mode", modeOf(tab));   // 설정을 열기 전 모드를 그대로 보인다
   tab = k; localStorage.setItem("cra-tab", k);
   if (!GEAR.includes(k)) {
-    localStorage.setItem("cra-tab-" + modeOf(k), k);
-    localStorage.setItem("cra-mode", modeOf(k));
+    const m = mode || modeOf(k);
+    localStorage.setItem("cra-tab-" + m, k);
+    localStorage.setItem("cra-mode", m);
   }
   profileOpen = false;
   gearOpen = false;
@@ -881,18 +892,96 @@ async function goTab(k) {
 function switchMode() {
   const to = modeOf(tab) === "class" ? "edit" : "class";
   const last = localStorage.getItem("cra-tab-" + to);
-  goTab(MODES[to].tabs.includes(last) ? last : MODES[to].tabs[0]);
+  goTab(MODES[to].tabs.includes(last) ? last : MODES[to].tabs[0], to);
 }
 
+// 모드마다 보일 탭과 순서. 「탭 설정」이나 끌어 옮기기를 한 뒤에는 cra-tab-modes, 그 전에는 예전 순서(cra-tab-order)
 function loadTabOrder() {
-  let saved = null;
-  try { saved = JSON.parse(localStorage.getItem("cra-tab-order")); } catch {}
+  let saved = null, custom = true;
+  try { saved = JSON.parse(localStorage.getItem("cra-tab-modes")); } catch {}
+  if (!saved) { custom = false; try { saved = JSON.parse(localStorage.getItem("cra-tab-order")); } catch {} }
   for (const [name, m] of Object.entries(MODES)) {
+    const def = MODE_DEFAULT[name];
     const list = saved && Array.isArray(saved[name]) ? saved[name] : [];
-    // 저장된 순서에서 이 모드의 탭만 쓰고, 빠진 탭(새로 생긴 탭)은 끝에 붙인다
-    const order = list.filter((k, i) => m.tabs.includes(k) && list.indexOf(k) === i);
-    m.tabs = order.concat(m.tabs.filter((k) => !order.includes(k)));
+    const order = list.filter((k, i) => TABS[k] && !GEAR.includes(k) && list.indexOf(k) === i && (custom || def.includes(k)));
+    m.tabs = custom ? order : order.concat(def.filter((k) => !order.includes(k)));
   }
+  // 어느 모드에도 없는 탭(새로 생긴 탭)은 원래 모드 끝에, 빈 모드는 처음대로
+  for (const [name, def] of Object.entries(MODE_DEFAULT)) {
+    for (const k of def) if (!MODES.class.tabs.includes(k) && !MODES.edit.tabs.includes(k)) MODES[name].tabs.push(k);
+    if (!MODES[name].tabs.length) MODES[name].tabs = def.slice();
+  }
+  if (!MODES.edit.tabs.includes("settings")) MODES.edit.tabs.push("settings");   // 수업이 없을 때 새 수업을 만드는 곳
+}
+
+function saveTabModes() {
+  localStorage.setItem("cra-tab-modes", JSON.stringify({ class: MODES.class.tabs, edit: MODES.edit.tabs }));
+}
+
+function redrawTabNav() {
+  const nav = buildTabNav();
+  tabNav.replaceWith(nav);
+  tabNav = nav;
+  setTopHeight();
+}
+
+// 「탭 설정」(⚙ 설정 안): 위쪽 탭마다 단추 이름과, 수업모드·편집모드 중 어디에 보일지(둘 다도 됨). 이 브라우저에만 기억한다.
+function drawTabSettings() {
+  const msg = h("p", { class: "msg" });
+  const pick = (k, mode) => {
+    const on = MODES[mode].tabs.includes(k), other = mode === "class" ? "edit" : "class";
+    const why = !on ? ""
+      : !MODES[other].tabs.includes(k) ? "「" + tabName(k) + "」은(는) 한 모드에는 꼭 보여야 합니다. 다른 모드를 먼저 켜세요."
+      : MODES[mode].tabs.length < 2 ? MODES[mode].name + "에는 탭이 하나는 있어야 합니다."
+      : k === "settings" && mode === "edit" ? "「" + tabName(k) + "」은(는) 수업이 없을 때 새 수업을 만드는 곳이라 편집모드에서 뺄 수 없습니다." : "";
+    return h("button", {
+      type: "button", class: "mode-pick " + mode + (on ? " on" : ""), "aria-pressed": on ? "true" : "false",
+      title: why || (on ? "누르면 " + MODES[mode].name + "에서 뺍니다" : "누르면 " + MODES[mode].name + "에도 보입니다"),
+      onclick() {
+        if (why) { msg.textContent = why; return; }
+        MODES[mode].tabs = on ? MODES[mode].tabs.filter((x) => x !== k) : MODES[mode].tabs.concat(k);
+        saveTabModes();
+        drawTabSettings();
+        redrawTabNav();
+      },
+    }, mode === "class" ? "수업" : "편집");
+  };
+  const row = (k) => {
+    const input = h("input", {
+      type: "text", maxlength: 20, value: tabNames[k] || "", placeholder: TABS[k], "aria-label": TABS[k] + " 단추 이름",
+      oninput() {
+        const v = input.value.trim();
+        if (v) tabNames[k] = v; else delete tabNames[k];
+        localStorage.setItem("cra-tab-names", JSON.stringify(tabNames));
+        redrawTabNav();
+      },
+    });
+    return h("tr", {}, h("td", {}, TABS[k]), h("td", {}, input), h("td", {}, h("div", { class: "row" }, pick(k, "class"), pick(k, "edit"))));
+  };
+  const all = [...new Set([...MODE_DEFAULT.class, ...MODE_DEFAULT.edit])];
+  main.replaceChildren(h("div", { class: "stack narrowish" },
+    h("section", { class: "card stack" },
+      h("h2", {}, "탭 설정"),
+      h("p", { class: "muted small" }, "위쪽 탭 단추의 이름을 바꾸고, 수업모드·편집모드 중 어디에 보일지 고릅니다. 「수업」「편집」을 눌러 켜고 끕니다(둘 다 켜면 두 모드에 다 보임). 칸을 비우면 처음 이름으로 돌아갑니다."),
+      h("div", { class: "table-wrap" }, h("table", { class: "tab-set" },
+        h("thead", {}, h("tr", {}, h("th", {}, "탭"), h("th", {}, "단추 이름"), h("th", {}, "보이는 곳"))),
+        h("tbody", {}, all.map(row)))),
+      msg,
+      h("p", { class: "muted small" }, "이 설정은 이 브라우저에만 저장됩니다. 쪽 넘김은 지금 모드를 따릅니다: 수업모드에서는 학생 화면도 따라가고, 편집모드에서는 이 화면에서만 넘어갑니다."),
+      h("div", { class: "row" }, h("button", {
+        class: "ghost", type: "button",
+        onclick() {
+          if (!confirm("탭 이름과 보이는 곳을 모두 처음대로 되돌릴까요?")) return;
+          tabNames = {};
+          localStorage.removeItem("cra-tab-names");
+          localStorage.removeItem("cra-tab-modes");
+          localStorage.removeItem("cra-tab-order");
+          MODES.class.tabs = MODE_DEFAULT.class.slice();
+          MODES.edit.tabs = MODE_DEFAULT.edit.slice();
+          drawTabSettings();
+          redrawTabNav();
+        },
+      }, "처음대로 되돌리기")))));
 }
 
 function tabButton(k) {
@@ -905,11 +994,11 @@ function tabButton(k) {
     ondragstart(e) {
       tabDrag = k;
       e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", TABS[k]);
+      e.dataTransfer.setData("text/plain", tabName(k));
       document.body.classList.add("tab-dragging");
     },
     ondragend() { tabDrag = null; tabMark.remove(); document.body.classList.remove("tab-dragging"); },
-  }, TABS[k]);
+  }, tabName(k));
 }
 
 // 놓으면 그 단추 앞에 들어간다(없으면 맨 끝)
@@ -934,7 +1023,7 @@ function tabDropZone(nav, mode) {
     const i = b ? list.indexOf(b.dataset.tab) : -1;
     list.splice(i < 0 ? list.length : i, 0, k);
     MODES[mode].tabs = list;
-    localStorage.setItem("cra-tab-order", JSON.stringify({ class: MODES.class.tabs, edit: MODES.edit.tabs }));
+    saveTabModes();
     tabDrag = null;
     tabMark.remove();
     document.body.classList.remove("tab-dragging");
@@ -995,7 +1084,7 @@ function refreshProfile() {
   profileEl = next;
 }
 
-// 「⚙ 설정」 단추: 누르면 프로필·공동작업자, 관리, 버그 제보.
+// 「⚙ 설정」 단추: 누르면 프로필·공동작업자, 관리, 탭 설정, 버그 제보.
 // 버그 제보를 받는 사람(setup.sql의 bug_to)에게는 아직 안 본 제보가 있으면 빨간 점과 작은 말풍선이 뜬다.
 // 제보한 교사에게는 받는 사람이 답글을 달면 똑같이 뜬다.
 let gearOpen = false;
@@ -1013,16 +1102,16 @@ function buildGear() {
   const item = (k) => h("button", {
     class: tab === k ? "tab on" : "tab", type: "button",
     onclick() {
-      if (k === "bugs" && tab !== "bugs") bugFrom = (TABS[tab] || tab) + (lesson ? " · " + lesson.title + " (" + lesson.code + ")" : "");
+      if (k === "bugs" && tab !== "bugs") bugFrom = (tabName(tab) || tab) + (lesson ? " · " + lesson.title + " (" + lesson.code + ")" : "");
       goTab(k);
     },
-  }, TABS[k], k === "bugs" && dot ? h("span", { class: "gear-count" }, n) : null);
+  }, tabName(k), k === "bugs" && dot ? h("span", { class: "gear-count" }, n) : null);
   return h("div", { class: "gear-set" },
     h("button", {
       class: "ghost gear-btn" + (GEAR.includes(tab) ? " on" : ""), type: "button", "aria-haspopup": "true", "aria-expanded": gearOpen ? "true" : "false",
-      title: dot ? say : "프로필·공동작업자, 관리, 버그 제보",
+      title: dot ? say : "프로필·공동작업자, 관리, 탭 설정, 버그 제보",
       onclick() { gearOpen = !gearOpen; refreshGear(); },
-    }, "⚙ 설정" + (GEAR.includes(tab) ? " · " + TABS[tab] : ""), dot ? h("span", { class: "gear-dot", "aria-label": say }) : null),
+    }, "⚙ 설정" + (GEAR.includes(tab) ? " · " + tabName(tab) : ""), dot ? h("span", { class: "gear-dot", "aria-label": say }) : null),
     gearOpen ? h("div", { class: "profile-menu" }, GEAR.map(item)) : null,
     dot && !gearOpen && !bugBubbleOff && tab !== "bugs" ? h("div", { class: "bug-bubble", role: "status" },
       h("button", { class: "link", type: "button", onclick() { goTab("bugs"); } }, say + (n > 1 ? " (" + n + ")" : "")),
