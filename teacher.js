@@ -1154,9 +1154,9 @@ document.addEventListener("visibilitychange", ping);
 // ---------- 패치노트 ----------
 // 「⚙ 설정 → 패치노트」: 선생님이 알아 둘 만한 바뀐 점. 새로 고치면 맨 위에 한 덩어리를 더한다. 양식:
 //   { date: "YYYY-MM-DD",
-//     major: [{ title: "짧은 제목", desc: "한두 문장 설명" }],   // 굵직한 변경: 새 기능, 쓰는 방법이 바뀌는 것
-//     minor: ["한 줄"],                                         // 작은 개선: 편해진 것, 문구·모양
-//     fix: ["한 줄"] }                                          // 고친 문제: 안 되던 것이 되게
+//     major: [{ title: "짧은 제목", desc: "한두 문장 설명" }],   // 기능 개선: 새 기능, 쓰는 방법이 바뀌는 것
+//     minor: ["한 줄"],                                         // 사소한 패치: 편해진 것, 문구·모양
+//     fix: ["한 줄"] }                                          // 버그 및 보안 업데이트: 안 되던 것을 고침, 보안 강화
 //   없는 칸은 빼도 된다.
 // 마지막으로 본 날짜(cra-notes-seen)보다 새 소식이 있으면 설정 목록의 「패치노트」 옆에 「새 소식」, 그 날짜에는 NEW 표시.
 const PATCH_NOTES = [
@@ -1224,7 +1224,7 @@ const PATCH_NOTES = [
       { title: "질문 종류 「파일 올리기」", desc: "학생이 사진·문서를 답으로 제출합니다." },
     ] },
 ];
-const NOTE_KINDS = { major: "굵직한 변경", minor: "작은 개선", fix: "고친 문제" };
+const NOTE_KINDS = { major: "기능 개선", minor: "사소한 패치", fix: "버그 및 보안 업데이트" };
 const notesNew = () => PATCH_NOTES[0].date > (localStorage.getItem("cra-notes-seen") || "");
 let notesFilter = "all";   // 패치노트에서 고른 종류(all·major·minor·fix)
 
