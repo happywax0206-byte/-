@@ -830,11 +830,9 @@ function draw() {
       h("div", { class: "top-right" },
         lesson ? mirrorStatus : null,
         lesson ? h("button", { class: "ghost present-btn", type: "button", title: "학생에게 보여 줄 슬라이드만 새 탭에 띄웁니다", onclick: openPresent }, "▣ 수업 화면 띄우기") : null,
-        buildMemoBtn(), gearEl, profileEl)),
+        gearEl, profileEl)),
     main);
   setTopHeight();
-  if (!memoEl && !memoShown && memoLoad().open) openMemo();   // 새로고침 전에 열어 두었으면 다시 연다
-  memoShown = true;
   ({ run: drawRun, preview: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings, people: drawPeople, manage: drawManage, tabs: drawTabSettings, notes: drawNotes, bugs: drawBugs })[tab]();
   if (readOnly() && !GEAR.includes(tab) && !isRunTab()) {   // 수업 진행 화면은 높이가 꼭 맞으므로 위쪽 「보기만」 표시만
     if (tab === "build" || tab === "settings") main.querySelectorAll(":scope > *").forEach((el) => { el.inert = true; el.classList.add("read-only"); });
@@ -1162,7 +1160,6 @@ document.addEventListener("visibilitychange", ping);
 const PATCH_NOTES = [
   { date: "2026-10-30",
     major: [
-      { title: "📝 메모장", desc: "위쪽 막대의 「📝 메모」를 누르면 떠 있는 메모 창이 열립니다. 제목 줄을 끌어 옮기고 오른쪽 아래 모서리를 끌어 크기를 바꿉니다. 적은 글은 이 브라우저에 저장됩니다. 메모 창의 📺 을 켜면 수업 화면에도 같은 자리에 보입니다." },
       { title: "학생 로그인: 기본은 매번 로그인", desc: "창을 닫으면 로그아웃됩니다. 입장 화면에서 「내 개인 기기예요 (자동 로그인)」을 체크한 기기만 다음에도 자동으로 들어옵니다. 기존 학생도 한 번은 다시 로그인해야 합니다." },
       { title: "한 질문만 답해도 제출", desc: "꼭 답해야 하는 질문은 편집 칸에서 「필수 응답」을 켜세요. 퀴즈는 모두 필수입니다." },
       { title: "응답 지우기", desc: "학생은 「내 응답 지우기」, 선생님은 답 하나 또는 응답 전체를 지울 수 있습니다." },
@@ -1273,142 +1270,6 @@ function drawNotes() {
     box));
 }
 
-// ---------- 메모장 ----------
-// 위쪽 막대 「📝 메모」를 누르면 떠 있는 창이 열린다. 제목 줄을 끌어 옮기고, 오른쪽 아래 모서리를 끌어 크기를 바꾼다.
-// 글·자리·크기·글씨 크기는 이 브라우저에 교사마다 기억한다(cra-memo-교사id). 화면을 다시 그려도(draw) 창은 body에 있어 그대로다.
-let memoEl = null;        // 떠 있는 메모 창(닫으면 null)
-let memoShown = false;    // 처음 그릴 때 한 번만 저장된 열림 상태를 따른다
-const memoKey = () => "cra-memo-" + (me ? me.id : "");
-function memoLoad() {
-  let m = null;
-  try { m = JSON.parse(localStorage.getItem(memoKey())); } catch {}
-  return Object.assign({ text: "", x: null, y: null, w: 360, h: 300, size: 16, open: false }, m || {});
-}
-function memoSave(patch) {
-  const m = Object.assign(memoLoad(), patch);
-  try { localStorage.setItem(memoKey(), JSON.stringify(m)); } catch {}
-}
-
-function buildMemoBtn() {
-  return h("button", {
-    class: "ghost present-btn memo-btn" + (memoEl ? " on" : ""), type: "button", "aria-pressed": memoEl ? "true" : "false",
-    title: "떠 있는 메모장을 열고 닫습니다", onclick: toggleMemo,
-  }, "📝 메모");
-}
-function refreshMemoBtn() {
-  document.querySelectorAll(".memo-btn").forEach((b) => b.replaceWith(buildMemoBtn()));
-}
-function toggleMemo() {
-  if (memoEl) closeMemo(); else openMemo();
-}
-function closeMemo() {
-  if (!memoEl) return;
-  memoEl.remove();
-  memoEl = null;
-  memoSave({ open: false });
-  refreshMemoBtn();
-  memoSync();
-}
-
-// 창이 화면 밖으로 나가지 않게(제목 줄은 늘 보이게)
-function memoClamp(x, y, w, hgt) {
-  w = Math.max(220, Math.min(w, innerWidth - 8));
-  hgt = Math.max(140, Math.min(hgt, innerHeight - 8));
-  x = Math.max(4, Math.min(x, innerWidth - w - 4));
-  y = Math.max(4, Math.min(y, innerHeight - hgt - 4));
-  return { x, y, w, h: hgt };
-}
-function memoPlace(r) {
-  Object.assign(memoEl.style, { left: r.x + "px", top: r.y + "px", width: r.w + "px", height: r.h + "px" });
-}
-
-// 📺 을 켜 두면 수업 화면에도 같은 자리·크기 비율로 메모가 보인다(글을 쓰는 대로 따라간다)
-let memoSyncTimer = 0;
-function memoSync() {
-  clearTimeout(memoSyncTimer);
-  memoSyncTimer = setTimeout(() => sendPresent(), 120);
-}
-function memoPresentState() {
-  if (!memoEl || !memoEl._cast) return null;
-  const b = memoEl.getBoundingClientRect();
-  const text = memoEl.querySelector(".memo-text");
-  return { text: text.value, size: parseFloat(text.style.fontSize) || 16, scroll: text.scrollTop, vw: innerWidth,
-    x: b.left / innerWidth, y: b.top / innerHeight, w: b.width / innerWidth, h: b.height / innerHeight };
-}
-
-function openMemo() {
-  if (memoEl) return;
-  const m = memoLoad();
-  const r = memoClamp(m.x ?? innerWidth - m.w - 24, m.y ?? 90, m.w, m.h);
-  let size = m.size;
-  let saveTimer = null;
-  const text = h("textarea", {
-    class: "memo-text", spellcheck: "false", placeholder: "여기에 메모를 적으세요. 적는 대로 이 브라우저에 저장됩니다.", "aria-label": "메모",
-    oninput() { clearTimeout(saveTimer); saveTimer = setTimeout(() => memoSave({ text: text.value }), 300); memoSync(); },
-    onscroll: memoSync,
-  });
-  text.value = m.text;
-  text.style.fontSize = size + "px";
-  const font = (d) => h("button", {
-    class: "memo-tool", type: "button", title: d > 0 ? "글씨 크게" : "글씨 작게", "aria-label": d > 0 ? "글씨 크게" : "글씨 작게",
-    onclick() { size = Math.max(12, Math.min(40, size + d)); text.style.fontSize = size + "px"; memoSave({ size }); memoSync(); },
-  }, d > 0 ? "가+" : "가−");
-  let cast = !!m.cast;
-  const castBtn = () => h("button", {
-    class: "memo-tool" + (cast ? " on" : ""), type: "button", "aria-pressed": cast ? "true" : "false",
-    title: cast ? "수업 화면에서 메모 숨기기" : "수업 화면에도 메모 보이기", "aria-label": "수업 화면에도 보이기",
-    onclick(e) { cast = memoEl._cast = !cast; memoSave({ cast }); e.currentTarget.replaceWith(castBtn()); memoSync(); },
-  }, "📺");
-  const bar = h("div", { class: "memo-bar" },
-    h("span", { class: "memo-title" }, "📝 메모"),
-    castBtn(), font(-2), font(2),
-    h("button", { class: "memo-tool", type: "button", title: "닫기(글은 남아 있습니다)", "aria-label": "메모 닫기", onclick: closeMemo }, "×"));
-  const grip = h("div", { class: "memo-grip", title: "끌어서 크기 바꾸기", "aria-hidden": "true" });
-  memoEl = h("div", { class: "memo-win", role: "dialog", "aria-label": "메모장" }, bar, text, grip);
-  memoEl._cast = cast;
-  memoPlace(r);
-  document.body.append(memoEl);
-
-  // 제목 줄 끌기 = 옮기기, 모서리 끌기 = 크기 바꾸기
-  const drag = (el, resize) => el.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0 || e.target.closest("button")) return;
-    e.preventDefault();
-    const box = memoEl.getBoundingClientRect();
-    const sx = e.clientX, sy = e.clientY;
-    el.setPointerCapture(e.pointerId);
-    memoEl.classList.add("moving");
-    const move = (ev) => {
-      const dx = ev.clientX - sx, dy = ev.clientY - sy;
-      memoPlace(resize ? memoClamp(box.left, box.top, box.width + dx, box.height + dy) : memoClamp(box.left + dx, box.top + dy, box.width, box.height));
-    };
-    const up = () => {
-      el.removeEventListener("pointermove", move);
-      el.removeEventListener("pointerup", up);
-      el.removeEventListener("pointercancel", up);
-      memoEl.classList.remove("moving");
-      const b = memoEl.getBoundingClientRect();
-      memoSave({ x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height) });
-      memoSync();
-    };
-    el.addEventListener("pointermove", move);
-    el.addEventListener("pointerup", up);
-    el.addEventListener("pointercancel", up);
-  });
-  drag(bar, false);
-  drag(grip, true);
-  memoSave({ open: true });
-  refreshMemoBtn();
-  text.focus();
-  memoSync();
-}
-// 창 크기가 바뀌면 메모 창을 화면 안으로 다시 넣는다
-addEventListener("resize", () => {
-  if (!memoEl) return;
-  const b = memoEl.getBoundingClientRect();
-  memoPlace(memoClamp(b.left, b.top, b.width, b.height));
-  memoSync();
-});
-
 // 프로필·설정 목록 밖을 누르거나 Esc를 누르면 닫는다
 document.addEventListener("click", (e) => {
   if (!e.target.isConnected) return;   // 방금 다시 그린 단추를 누른 것
@@ -1485,7 +1346,6 @@ function presentState() {
     show: presentShow,
     mirror: mirrorOn,
     asking: !!captureAsking,
-    memo: memoPresentState(),
   };
 }
 

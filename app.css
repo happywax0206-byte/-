@@ -460,18 +460,6 @@ body.present .credit { display: none; }
 .read-only-banner { background: #fef3c7; color: #92400e; margin: .75rem auto 0; max-width: 1400px; }
 .read-only { opacity: .85; }
 
-/* 교사 메모장(떠 있는 창): 제목 줄을 끌어 옮기고 오른쪽 아래 모서리를 끌어 크기 바꾸기 */
-.memo-btn.on { border-color: var(--accent); color: var(--accent-ink); background: var(--accent-soft); font-weight: 700; }
-.memo-win { position: fixed; z-index: 35; display: flex; flex-direction: column; background: #fffbe6; border: 1px solid #e6d58a; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.22); overflow: hidden; }
-.memo-win.moving { user-select: none; box-shadow: 0 14px 40px rgba(0,0,0,.3); }
-.memo-bar { display: flex; align-items: center; gap: .25rem; padding: .2rem .3rem .2rem .7rem; background: #fdf0b5; border-bottom: 1px solid #e6d58a; cursor: move; touch-action: none; user-select: none; }
-.memo-title { flex: 1; font-weight: 700; font-size: .92rem; }
-.memo-tool { min-height: 30px; padding: 0 .5rem; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font-size: .85rem; }
-.memo-tool:hover { background: rgba(0,0,0,.08); }
-.memo-text { flex: 1; width: 100%; min-height: 0; margin: 0; padding: .6rem .8rem 1rem; border: 0; outline: 0; resize: none; background: transparent; color: var(--ink); font: inherit; line-height: 1.6; }
-.memo-tool.on { background: var(--accent-soft); color: var(--accent-ink); }
-.present-memo { display: block; padding: .6rem .8rem; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; color: var(--ink); pointer-events: none; }
-.memo-grip { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; touch-action: none; background: linear-gradient(135deg, transparent 50%, #c9b55a 50%, #c9b55a 58%, transparent 58%, transparent 70%, #c9b55a 70%, #c9b55a 78%, transparent 78%); }
 
 /* 패치노트: 날짜별 줄(왼쪽 날짜, 오른쪽 내용). 굵직한 변경은 카드, 작은 개선·고친 문제는 목록 */
 .notes-wrap { max-width: 860px; }

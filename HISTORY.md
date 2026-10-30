@@ -90,3 +90,4 @@ CLAUDE.md에서 옮겨 온 날짜별 기록. 어떤 기능이 왜·어떻게 그
 - 2026-10-30: 패치노트 디자인. `PATCH_NOTES` 양식 = 날짜마다 `major:[{title,desc}]`(굵직한 변경, 파란 카드) · `minor:[문장]`(작은 개선, 초록) · `fix:[문장]`(고친 문제, 주황), 위쪽 종류 고르기 칩(`notesFilter`, 개수 표시), 왼쪽 날짜(요일, 안 본 날짜면 NEW). 좁은 화면은 날짜가 위로.
 - 2026-10-30: 패치노트 종류 이름 변경(`NOTE_KINDS`): 기능 개선(major) · 사소한 패치(minor) · 버그 및 보안 업데이트(fix).
 - 2026-10-30: 메모장 📺 단추(`memoEl._cast`, 저장 `cast`): 켜면 `presentState().memo`(`memoPresentState()`: 글·글씨 크기·스크롤·창 비율 자리)를 보내 수업 화면(present.js `renderMemo()`)에도 같은 비율 자리에 노란 메모로 보임(읽기 전용, 글씨는 화면 너비 비율로 키움). 바뀔 때 `memoSync()`(120ms 모아 `sendPresent`).
+- 2026-10-30: 메모장 기능 통째로 뺌(사용자 요청): 위쪽 「📝 메모」 단추·떠 있는 창·📺 수업 화면 표시·`.memo-*` CSS·패치노트 항목. 브라우저에 남은 `cra-memo-*` localStorage는 그냥 둠.
