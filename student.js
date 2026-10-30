@@ -1,4 +1,4 @@
-// 학생 화면: 입장(학번 + 이름 + 비밀번호) → 슬라이드를 따라가며 질문에 답한다.
+// 학생 화면: 입장(번호 + 이름 + 비밀번호) → 슬라이드를 따라가며 질문에 답한다.
 // 3초마다 서버에서 수업 상태를 받아 온다(교사가 넘긴 쪽, 제출 열림, 공개된 응답).
 
 const app = document.getElementById("app");
@@ -117,7 +117,7 @@ function showEntry(notice) {
       if (error) { msg.textContent = "연결하지 못했습니다. " + NET_HINT + " (" + error.message + ")"; return; }
       const err = data.error;
       if (err === "no_lesson") msg.textContent = "수업 코드를 찾지 못했습니다. 선생님께 받은 코드를 확인하세요.";
-      else if (err === "bad_name") msg.textContent = "학번과 이름을 확인하세요(각각 20자까지).";
+      else if (err === "bad_name") msg.textContent = "번호와 이름을 확인하세요(각각 20자까지).";
       else if (err === "bad_pin") msg.textContent = "비밀번호는 숫자 4자리로 입력하세요.";
       else if (err === "full") msg.textContent = "이 수업은 인원이 가득 찼습니다. 선생님께 알려 주세요.";
       else if (err === "ended") msg.textContent = ENDED_MSG;
@@ -126,7 +126,7 @@ function showEntry(notice) {
         pin2In.focus();
         msg.textContent = data.reset
           ? "선생님이 비밀번호를 초기화했습니다. 새 비밀번호를 「비밀번호 한 번 더」 칸에도 입력하고 입장하세요."
-          : "처음 들어왔네요(학번·이름이 맞는지 확인하세요). 지금 입력한 번호가 내 비밀번호가 됩니다. 「비밀번호 한 번 더」 칸에도 입력하고 입장하세요.";
+          : "처음 들어왔네요(번호·이름이 맞는지 확인하세요). 지금 입력한 4자리 숫자가 내 비밀번호가 됩니다. 「비밀번호 한 번 더」 칸에도 입력하고 입장하세요.";
       } else if (err === "wrong_pin") msg.textContent = "비밀번호가 틀렸습니다. " + data.left + "번 더 틀리면 10분 동안 잠깁니다.";
       else if (err === "locked") msg.textContent = "비밀번호를 여러 번 틀려 잠겼습니다. " + data.minutes + "분 뒤에 다시 하거나 선생님께 초기화를 부탁하세요.";
       else if (data.token) {
@@ -144,14 +144,14 @@ function showEntry(notice) {
     },
   },
     fromLink ? null : h("label", {}, "수업 코드", codeIn),
-    h("label", {}, "학번", noIn),
+    h("label", {}, "번호", noIn),
     h("label", {}, "이름", nameIn),
     h("label", {}, "비밀번호 (숫자 4자리)", pinIn),
     pin2Row,
     privateRow,
     h("div", { class: "tip" },
       h("strong", {}, "처음 들어오나요?"),
-      h("p", {}, "비밀번호를 두 칸에 똑같이 입력하세요. 처음 입력한 번호가 내 비밀번호가 됩니다. 다른 수업에서도 같은 학번·이름·비밀번호를 씁니다. 휴대폰 비밀번호나 생일은 쓰지 마세요.")),
+      h("p", {}, "비밀번호를 두 칸에 똑같이 입력하세요. 처음 입력한 4자리 숫자가 내 비밀번호가 됩니다. 다른 수업에서도 같은 번호·이름·비밀번호를 씁니다. 휴대폰 비밀번호나 생일은 쓰지 마세요.")),
     btn, msg);
 
   app.replaceChildren(h("main", { class: "narrow" },
