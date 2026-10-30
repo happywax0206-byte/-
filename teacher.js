@@ -830,10 +830,12 @@ function draw() {
       h("div", { class: "top-right" },
         lesson ? mirrorStatus : null,
         lesson ? h("button", { class: "ghost present-btn", type: "button", title: "학생에게 보여 줄 슬라이드만 새 탭에 띄웁니다", onclick: openPresent }, "▣ 수업 화면 띄우기") : null,
-        gearEl, profileEl)),
+        buildMemoBtn(), gearEl, profileEl)),
     main);
   setTopHeight();
-  ({ run: drawRun, preview: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings, people: drawPeople, manage: drawManage, tabs: drawTabSettings, bugs: drawBugs })[tab]();
+  if (!memoEl && !memoShown && memoLoad().open) openMemo();   // 새로고침 전에 열어 두었으면 다시 연다
+  memoShown = true;
+  ({ run: drawRun, preview: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings, people: drawPeople, manage: drawManage, tabs: drawTabSettings, notes: drawNotes, bugs: drawBugs })[tab]();
   if (readOnly() && !GEAR.includes(tab) && !isRunTab()) {   // 수업 진행 화면은 높이가 꼭 맞으므로 위쪽 「보기만」 표시만
     if (tab === "build" || tab === "settings") main.querySelectorAll(":scope > *").forEach((el) => { el.inert = true; el.classList.add("read-only"); });
     main.before(h("p", { class: "banner read-only-banner" }, "👁 보기만 할 수 있는 수업입니다. 쪽을 넘겨도 학생 화면은 따라가지 않고, 아무것도 바뀌지 않습니다. 고치려면 수업을 만든 선생님께 고치기 권한을 달라고 하세요."));
@@ -854,10 +856,10 @@ function setTopHeight() {
 // 탭은 끌어서 같은 모드 안에서 순서를 바꿀 수 있고, 그 순서는 이 브라우저에 기억한다(cra-tab-order).
 // 「⚙ 설정」 단추 안의 탭(GEAR)은 어느 모드에도 속하지 않고, 열면 그 전에 있던 모드의 탭 줄이 그대로 보인다.
 // 「탭 설정」에서 탭마다 단추 이름과 어느 모드에 보일지(둘 다도 됨)를 바꿀 수 있다(cra-tab-names, cra-tab-modes).
-const TABS = { run: "수업 진행", live: "학생 화면", students: "학생 관리", build: "질문·설문 만들기", preview: "수업 미리 보기", settings: "수업 설정", people: "프로필·공동작업자", manage: "관리", tabs: "탭 설정", bugs: "버그 제보" };
+const TABS = { run: "수업 진행", live: "학생 화면", students: "학생 관리", build: "질문·설문 만들기", preview: "수업 미리 보기", settings: "수업 설정", people: "프로필·공동작업자", manage: "관리", tabs: "탭 설정", notes: "패치노트", bugs: "버그 제보" };
 const MODES = { class: { name: "수업모드", tabs: ["run", "live", "students"] }, edit: { name: "편집모드", tabs: ["build", "preview", "settings"] } };
 const MODE_DEFAULT = { class: MODES.class.tabs.slice(), edit: MODES.edit.tabs.slice() };
-const GEAR = ["people", "manage", "tabs", "bugs"];
+const GEAR = ["people", "manage", "tabs", "notes", "bugs"];
 const isRunTab = () => tab === "run" || tab === "preview";   // 수업 진행 화면을 쓰는 탭(미리 보기는 그 일부만)
 let tabNav = null;        // 위쪽 막대의 탭 칸
 let tabDrag = null;       // 끌고 있는 탭
@@ -1084,7 +1086,7 @@ function refreshProfile() {
   profileEl = next;
 }
 
-// 「⚙ 설정」 단추: 누르면 프로필·공동작업자, 관리, 탭 설정, 버그 제보.
+// 「⚙ 설정」 단추: 누르면 프로필·공동작업자, 관리, 탭 설정, 패치노트, 버그 제보.
 // 버그 제보를 받는 사람(setup.sql의 bug_to)에게는 아직 안 본 제보가 있으면 빨간 점과 작은 말풍선이 뜬다.
 // 제보한 교사에게는 받는 사람이 답글을 달면 똑같이 뜬다.
 let gearOpen = false;
@@ -1105,11 +1107,12 @@ function buildGear() {
       if (k === "bugs" && tab !== "bugs") bugFrom = (tabName(tab) || tab) + (lesson ? " · " + lesson.title + " (" + lesson.code + ")" : "");
       goTab(k);
     },
-  }, tabName(k), k === "bugs" && dot ? h("span", { class: "gear-count" }, n) : null);
+  }, tabName(k), k === "bugs" && dot ? h("span", { class: "gear-count" }, n) : null,
+    k === "notes" && notesNew() ? h("span", { class: "notes-new" }, "새 소식") : null);
   return h("div", { class: "gear-set" },
     h("button", {
       class: "ghost gear-btn" + (GEAR.includes(tab) ? " on" : ""), type: "button", "aria-haspopup": "true", "aria-expanded": gearOpen ? "true" : "false",
-      title: dot ? say : "프로필·공동작업자, 관리, 탭 설정, 버그 제보",
+      title: dot ? say : "프로필·공동작업자, 관리, 탭 설정, 패치노트, 버그 제보",
       onclick() { gearOpen = !gearOpen; refreshGear(); },
     }, "⚙ 설정" + (GEAR.includes(tab) ? " · " + tabName(tab) : ""), dot ? h("span", { class: "gear-dot", "aria-label": say }) : null),
     gearOpen ? h("div", { class: "profile-menu" }, GEAR.map(item)) : null,
@@ -1147,6 +1150,173 @@ function ping() {
 }
 setInterval(ping, 60000);
 document.addEventListener("visibilitychange", ping);
+
+// ---------- 패치노트 ----------
+// 「⚙ 설정 → 패치노트」: 선생님이 알아 둘 만한 바뀐 점. 새로 고치면 맨 위에 한 덩어리를 더한다(날짜 "YYYY-MM-DD").
+// 마지막으로 본 날짜(cra-notes-seen)보다 새 소식이 있으면 설정 목록의 「패치노트」 옆에 「새 소식」 표시.
+const PATCH_NOTES = [
+  { date: "2026-10-30", items: [
+    "위쪽 막대에 「📝 메모」: 누르면 떠 있는 메모장이 열립니다. 제목 줄을 끌어 옮기고, 오른쪽 아래 모서리를 끌어 크기를 바꿉니다. 적은 글은 이 브라우저에 저장됩니다.",
+    "「⚙ 설정」 안에 「패치노트」(이 화면)를 더했습니다.",
+    "「⚙ 설정 → 탭 설정」: 위쪽 탭 이름을 바꾸고, 수업모드·편집모드 중 어디에 보일지(둘 다도) 고를 수 있습니다.",
+    "학생이 질문 하나만 답해도 제출됩니다. 꼭 답해야 하는 질문은 편집 칸에서 「필수 응답」을 켜세요.",
+    "응답 지우기: 학생은 「내 응답 지우기」, 선생님은 답 하나 또는 응답 전체를 지울 수 있습니다.",
+    "고침: 퀴즈 제출이 실패하던 문제를 고쳤습니다.",
+    "학생 관리 탭에 「입장 막힘 풀기」: 수업 코드를 여러 번 틀려 입장이 막힌 학생을 바로 풀어 줍니다.",
+  ] },
+  { date: "2026-10-29", items: [
+    "「수업 끝내기」: 끝난 수업에는 학생이 들어오거나 답을 저장할 수 없습니다.",
+    "학생 관리 탭에 「마지막 접속」(들어옴/나감 시각)과 학생마다 「답 모아 보기」.",
+    "공동작업자마다 고치기 권한을 켜고 끌 수 있고, 지금 접속 중인 사람에게 초록 점이 보입니다.",
+    "카드마다 「학생에게 숨기기/보이기」.",
+    "여러 사람이 같이 쓰는 기기에서는 학생 로그인이 남지 않게 했습니다.",
+    "슬라이드 그림을 기기 화면 크기에 맞게 받아 더 빨리 열립니다.",
+  ] },
+  { date: "2026-10-28", items: [
+    "「▣ 수업 화면 띄우기」: 학생에게 보여 줄 슬라이드만 새 탭에 띄웁니다(프로젝터용).",
+    "「학생 화면」 탭: 학생이 지금 보는 쪽과 쓰고 있는 답을 실시간으로 봅니다(학생이 동의하면 화면 전체도).",
+    "위쪽을 수업모드·편집모드로 나누고, 탭을 끌어서 순서를 바꿀 수 있게 했습니다.",
+    "프로필과 수업별 공동작업자 초대, 비밀번호 바꾸기, 「관리」 탭(무료 사용량 보기).",
+    "수업 설정에서 슬라이드를 PDF로 내려받기.",
+  ] },
+  { date: "2026-10-27", items: [
+    "쪽을 넘길 때 화면 넘김 효과(서서히·밀어내기 등)를 고를 수 있습니다.",
+  ] },
+  { date: "2026-10-26", items: [
+    "시뮬레이션 페이지를 슬라이드에 넣고, 슬라이드 아래·슬라이드 위 원하는 자리·화면 가득 중 어디에 보일지 고릅니다.",
+    "설명 카드도 보일 쪽(몇 쪽부터 몇 쪽까지 / 언제든)을 정할 수 있습니다.",
+  ] },
+  { date: "2026-10-25", items: [
+    "슬라이드 「끝에 추가」와 끌어서 슬라이드 순서 바꾸기, 질문·설문 목록도 끌어서 순서 바꾸기.",
+  ] },
+  { date: "2026-10-15", items: [
+    "질문 종류 「파일 올리기」: 학생이 사진·문서를 답으로 제출합니다.",
+  ] },
+];
+const notesNew = () => PATCH_NOTES[0].date > (localStorage.getItem("cra-notes-seen") || "");
+
+function drawNotes() {
+  localStorage.setItem("cra-notes-seen", PATCH_NOTES[0].date);
+  refreshGear();
+  const day = (d) => new Date(d + "T00:00").toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" });
+  main.replaceChildren(h("div", { class: "stack narrowish" },
+    h("section", { class: "card stack" },
+      h("h2", {}, "패치노트"),
+      h("p", { class: "muted small" }, "이 웹앱에서 새로 생기거나 바뀐 점입니다. 위에 있을수록 최근입니다."),
+      PATCH_NOTES.map((n) => h("div", { class: "patch-note" },
+        h("h3", {}, day(n.date)),
+        h("ul", {}, n.items.map((t) => h("li", {}, t))))))));
+}
+
+// ---------- 메모장 ----------
+// 위쪽 막대 「📝 메모」를 누르면 떠 있는 창이 열린다. 제목 줄을 끌어 옮기고, 오른쪽 아래 모서리를 끌어 크기를 바꾼다.
+// 글·자리·크기·글씨 크기는 이 브라우저에 교사마다 기억한다(cra-memo-교사id). 화면을 다시 그려도(draw) 창은 body에 있어 그대로다.
+let memoEl = null;        // 떠 있는 메모 창(닫으면 null)
+let memoShown = false;    // 처음 그릴 때 한 번만 저장된 열림 상태를 따른다
+const memoKey = () => "cra-memo-" + (me ? me.id : "");
+function memoLoad() {
+  let m = null;
+  try { m = JSON.parse(localStorage.getItem(memoKey())); } catch {}
+  return Object.assign({ text: "", x: null, y: null, w: 360, h: 300, size: 16, open: false }, m || {});
+}
+function memoSave(patch) {
+  const m = Object.assign(memoLoad(), patch);
+  try { localStorage.setItem(memoKey(), JSON.stringify(m)); } catch {}
+}
+
+function buildMemoBtn() {
+  return h("button", {
+    class: "ghost present-btn memo-btn" + (memoEl ? " on" : ""), type: "button", "aria-pressed": memoEl ? "true" : "false",
+    title: "떠 있는 메모장을 열고 닫습니다", onclick: toggleMemo,
+  }, "📝 메모");
+}
+function refreshMemoBtn() {
+  document.querySelectorAll(".memo-btn").forEach((b) => b.replaceWith(buildMemoBtn()));
+}
+function toggleMemo() {
+  if (memoEl) closeMemo(); else openMemo();
+}
+function closeMemo() {
+  if (!memoEl) return;
+  memoEl.remove();
+  memoEl = null;
+  memoSave({ open: false });
+  refreshMemoBtn();
+}
+
+// 창이 화면 밖으로 나가지 않게(제목 줄은 늘 보이게)
+function memoClamp(x, y, w, hgt) {
+  w = Math.max(220, Math.min(w, innerWidth - 8));
+  hgt = Math.max(140, Math.min(hgt, innerHeight - 8));
+  x = Math.max(4, Math.min(x, innerWidth - w - 4));
+  y = Math.max(4, Math.min(y, innerHeight - hgt - 4));
+  return { x, y, w, h: hgt };
+}
+function memoPlace(r) {
+  Object.assign(memoEl.style, { left: r.x + "px", top: r.y + "px", width: r.w + "px", height: r.h + "px" });
+}
+
+function openMemo() {
+  if (memoEl) return;
+  const m = memoLoad();
+  const r = memoClamp(m.x ?? innerWidth - m.w - 24, m.y ?? 90, m.w, m.h);
+  let size = m.size;
+  let saveTimer = null;
+  const text = h("textarea", {
+    class: "memo-text", spellcheck: "false", placeholder: "여기에 메모를 적으세요. 적는 대로 이 브라우저에 저장됩니다.", "aria-label": "메모",
+    oninput() { clearTimeout(saveTimer); saveTimer = setTimeout(() => memoSave({ text: text.value }), 300); },
+  });
+  text.value = m.text;
+  text.style.fontSize = size + "px";
+  const font = (d) => h("button", {
+    class: "memo-tool", type: "button", title: d > 0 ? "글씨 크게" : "글씨 작게", "aria-label": d > 0 ? "글씨 크게" : "글씨 작게",
+    onclick() { size = Math.max(12, Math.min(40, size + d)); text.style.fontSize = size + "px"; memoSave({ size }); },
+  }, d > 0 ? "가+" : "가−");
+  const bar = h("div", { class: "memo-bar" },
+    h("span", { class: "memo-title" }, "📝 메모"),
+    font(-2), font(2),
+    h("button", { class: "memo-tool", type: "button", title: "닫기(글은 남아 있습니다)", "aria-label": "메모 닫기", onclick: closeMemo }, "×"));
+  const grip = h("div", { class: "memo-grip", title: "끌어서 크기 바꾸기", "aria-hidden": "true" });
+  memoEl = h("div", { class: "memo-win", role: "dialog", "aria-label": "메모장" }, bar, text, grip);
+  memoPlace(r);
+  document.body.append(memoEl);
+
+  // 제목 줄 끌기 = 옮기기, 모서리 끌기 = 크기 바꾸기
+  const drag = (el, resize) => el.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || e.target.closest("button")) return;
+    e.preventDefault();
+    const box = memoEl.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY;
+    el.setPointerCapture(e.pointerId);
+    memoEl.classList.add("moving");
+    const move = (ev) => {
+      const dx = ev.clientX - sx, dy = ev.clientY - sy;
+      memoPlace(resize ? memoClamp(box.left, box.top, box.width + dx, box.height + dy) : memoClamp(box.left + dx, box.top + dy, box.width, box.height));
+    };
+    const up = () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+      memoEl.classList.remove("moving");
+      const b = memoEl.getBoundingClientRect();
+      memoSave({ x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height) });
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  });
+  drag(bar, false);
+  drag(grip, true);
+  memoSave({ open: true });
+  refreshMemoBtn();
+  text.focus();
+}
+// 창 크기가 바뀌면 메모 창을 화면 안으로 다시 넣는다
+addEventListener("resize", () => {
+  if (!memoEl) return;
+  const b = memoEl.getBoundingClientRect();
+  memoPlace(memoClamp(b.left, b.top, b.width, b.height));
+});
 
 // 프로필·설정 목록 밖을 누르거나 Esc를 누르면 닫는다
 document.addEventListener("click", (e) => {
