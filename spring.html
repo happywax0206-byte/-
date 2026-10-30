@@ -418,6 +418,13 @@ ul { margin: 6px 0; padding-left: 20px; }
     if (oscs.some((o, i) => o.A < want[i] - 1e-9)) { ah.className = 'hint warn'; ah.textContent = '용수철이 너무 짧아지지 않도록 진폭을 ' + fmt(maxA * 100, 1) + ' cm로 줄여서 보여 줘요.'; }
     else { ah.className = 'hint'; ah.textContent = '진폭을 바꿔도 주기는 같아요.'; }
 
+    // 크게 보기 눈금: 용수철 상수만 바꿀 때는 눈금을 줄이지 않는다
+    // (k를 키우면 화면이 확대되어 용수철이 오히려 길어 보이던 것을 막음)
+    const need = niceCeil(Math.max(...oscs.map(o => L0 + o.eq + o.A)));
+    const zkey = [state.m, state.m2, state.g, state.amp, state.amp2, state.cmp].join();
+    state.zoomSpan = zkey === state.zoomKey ? Math.max(state.zoomSpan, need) : need;
+    state.zoomKey = zkey;
+
     document.querySelectorAll('[data-place]').forEach(b => b.classList.toggle('sel', b.dataset.place === state.place));
     $('m2box').hidden = state.cmp !== 'mass';
     $('k2box').hidden = state.cmp !== 'k';
@@ -474,9 +481,12 @@ ul { margin: 6px 0; padding-left: 20px; }
 
   function blockSize(m) { return 22 + 16 * Math.cbrt(m); }
 
-  function drawSpring(g, x, y0, y1, color) {
-    const len = y1 - y0, N = 14, end = Math.min(12, len * 0.12), amp = 11;
-    g.strokeStyle = color; g.lineWidth = 1.8; g.beginPath();
+  // 용수철 상수가 클수록 감은 수를 늘리고 선을 굵게 그려 '더 단단한 용수철'로 보이게 한다
+  function drawSpring(g, x, y0, y1, color, k) {
+    const lk = Math.log10(clamp(k, 1, 200));
+    const len = y1 - y0, end = Math.min(12, len * 0.12), amp = 11;
+    const N = Math.max(3, Math.min(Math.round(6 + 4.5 * lk), Math.floor((len - 2 * end) / 5)));
+    g.strokeStyle = color; g.lineWidth = 1.3 + 0.7 * lk; g.lineJoin = 'round'; g.beginPath();
     g.moveTo(x, y0); g.lineTo(x, y0 + end);
     for (let i = 1; i < N * 2; i++) g.lineTo(x + (i % 2 ? amp : -amp), y0 + end + (len - 2 * end) * i / (N * 2));
     g.lineTo(x, y1 - end); g.lineTo(x, y1);
@@ -489,7 +499,7 @@ ul { margin: 6px 0; padding-left: 20px; }
     // 같은 눈금: 항상 0~2 m 자. 크게 보기: 용수철 길이에 맞춰 축척을 고른다
     const blk = state.zoom ? Math.max(...oscs.map(o => blockSize(o.m))) : blockSize(5);
     const maxLen = Math.max(...oscs.map(o => L0 + o.eq + o.A));
-    const span = state.zoom ? niceCeil(maxLen) : FIXED_SPAN;
+    const span = state.zoom ? state.zoomSpan : FIXED_SPAN;
     const pxPerM = (h - top - bottom - blk) / span;
     const two = oscs.length > 1;
     const xs = two ? [w * 0.36, w * 0.7] : [w * 0.5];
@@ -516,7 +526,7 @@ ul { margin: 6px 0; padding-left: 20px; }
       // 용수철과 추 (용수철 끝 = 추의 윗면)
       const len = L0 + o.eq - disp(o, state.t);
       const yEnd = Y(len), s = blockSize(o.m);
-      drawSpring(g, x, top, yEnd, colors.ink);
+      drawSpring(g, x, top, yEnd, colors.ink, o.k);
       g.fillStyle = colors[o.color];
       g.beginPath(); g.roundRect ? g.roundRect(x - s / 2, yEnd, s, s, 5) : g.rect(x - s / 2, yEnd, s, s); g.fill();
       g.fillStyle = '#fff'; g.font = '600 12px system-ui, sans-serif'; g.textAlign = 'center';
