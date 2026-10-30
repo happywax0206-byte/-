@@ -89,3 +89,4 @@ CLAUDE.md에서 옮겨 온 날짜별 기록. 어떤 기능이 왜·어떻게 그
 - 2026-10-30: 학생 로그인 기본을 「매번 로그인」으로 바꿈(student.js `keep()` = 기본 sessionStorage, 창·탭 닫으면 나감). 입장 화면 「내 개인 기기예요 (자동 로그인)」 체크(localStorage `cra-private-device`)한 기기만 localStorage에 열쇠 → 자동 로그인. 예전 `cra-shared-device`는 지우고, 개인 기기가 아닌 기기에 예전 판이 남긴 localStorage 열쇠·`cra-token:*`·쓰던 답도 시작할 때 지움(그래서 기존 학생도 한 번은 다시 로그인).
 - 2026-10-30: 패치노트 디자인. `PATCH_NOTES` 양식 = 날짜마다 `major:[{title,desc}]`(굵직한 변경, 파란 카드) · `minor:[문장]`(작은 개선, 초록) · `fix:[문장]`(고친 문제, 주황), 위쪽 종류 고르기 칩(`notesFilter`, 개수 표시), 왼쪽 날짜(요일, 안 본 날짜면 NEW). 좁은 화면은 날짜가 위로.
 - 2026-10-30: 패치노트 종류 이름 변경(`NOTE_KINDS`): 기능 개선(major) · 사소한 패치(minor) · 버그 및 보안 업데이트(fix).
+- 2026-10-30: 메모장 📺 단추(`memoEl._cast`, 저장 `cast`): 켜면 `presentState().memo`(`memoPresentState()`: 글·글씨 크기·스크롤·창 비율 자리)를 보내 수업 화면(present.js `renderMemo()`)에도 같은 비율 자리에 노란 메모로 보임(읽기 전용, 글씨는 화면 너비 비율로 키움). 바뀔 때 `memoSync()`(120ms 모아 `sendPresent`).

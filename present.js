@@ -89,6 +89,19 @@ function render() {
   if (!localShow) renderShow(st.show);
   if (!show.hidden && m && m.mode === "show" && !localShow) videoAt = show.querySelector(".present-video-wrap");
   placeVideo(videoAt, !!(m && m.frozen));
+  renderMemo();
+}
+
+// 교사 메모장(교사가 메모장의 📺 을 켰을 때): 교사 화면에서와 같은 자리·크기 비율로, 글씨도 화면 너비에 맞춰 키워 보인다
+const memoBox = h("div", { class: "memo-win present-memo" });
+function renderMemo() {
+  const m = st && st.memo;
+  if (!m) { memoBox.remove(); return; }
+  const k = innerWidth / (m.vw || innerWidth);
+  Object.assign(memoBox.style, { left: m.x * 100 + "vw", top: m.y * 100 + "vh", width: m.w * 100 + "vw", height: m.h * 100 + "vh", fontSize: m.size * k + "px" });
+  if (memoBox.textContent !== m.text) memoBox.textContent = m.text;
+  if (!memoBox.isConnected) document.body.append(memoBox);
+  memoBox.scrollTop = (m.scroll || 0) * k;
 }
 
 // 크게 띄운 것: 화면 전체를 덮는다
@@ -128,6 +141,7 @@ function resetView() {
   simStage.replaceChildren();
   show.hidden = true; show.replaceChildren();
   video.remove(); video.srcObject = null;
+  memoBox.remove();
 }
 
 function closeShow() {
@@ -165,6 +179,7 @@ document.addEventListener("fullscreenchange", () => { hint.hidden = !!document.f
 // 창이 커지거나 전체 화면이 되면 더 큰 슬라이드 그림으로 바꾼다
 const refit = () => { if (st && st.lesson) refitSlide(img, st.lesson, st.lesson.page); };
 addEventListener("resize", refit);
+addEventListener("resize", renderMemo);
 document.addEventListener("fullscreenchange", refit);
 setTimeout(() => { hint.hidden = true; }, 8000);
 
