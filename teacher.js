@@ -1152,61 +1152,125 @@ setInterval(ping, 60000);
 document.addEventListener("visibilitychange", ping);
 
 // ---------- 패치노트 ----------
-// 「⚙ 설정 → 패치노트」: 선생님이 알아 둘 만한 바뀐 점. 새로 고치면 맨 위에 한 덩어리를 더한다(날짜 "YYYY-MM-DD").
-// 마지막으로 본 날짜(cra-notes-seen)보다 새 소식이 있으면 설정 목록의 「패치노트」 옆에 「새 소식」 표시.
+// 「⚙ 설정 → 패치노트」: 선생님이 알아 둘 만한 바뀐 점. 새로 고치면 맨 위에 한 덩어리를 더한다. 양식:
+//   { date: "YYYY-MM-DD",
+//     major: [{ title: "짧은 제목", desc: "한두 문장 설명" }],   // 굵직한 변경: 새 기능, 쓰는 방법이 바뀌는 것
+//     minor: ["한 줄"],                                         // 작은 개선: 편해진 것, 문구·모양
+//     fix: ["한 줄"] }                                          // 고친 문제: 안 되던 것이 되게
+//   없는 칸은 빼도 된다.
+// 마지막으로 본 날짜(cra-notes-seen)보다 새 소식이 있으면 설정 목록의 「패치노트」 옆에 「새 소식」, 그 날짜에는 NEW 표시.
 const PATCH_NOTES = [
-  { date: "2026-10-30", items: [
-    "학생 입장 화면: 기본은 창을 닫으면 로그아웃(매번 로그인)입니다. 「내 개인 기기예요 (자동 로그인)」을 체크한 기기만 다음에도 자동으로 들어옵니다.",
-    "위쪽 막대에 「📝 메모」: 누르면 떠 있는 메모장이 열립니다. 제목 줄을 끌어 옮기고, 오른쪽 아래 모서리를 끌어 크기를 바꿉니다. 적은 글은 이 브라우저에 저장됩니다.",
-    "「⚙ 설정」 안에 「패치노트」(이 화면)를 더했습니다.",
-    "「⚙ 설정 → 탭 설정」: 위쪽 탭 이름을 바꾸고, 수업모드·편집모드 중 어디에 보일지(둘 다도) 고를 수 있습니다.",
-    "학생이 질문 하나만 답해도 제출됩니다. 꼭 답해야 하는 질문은 편집 칸에서 「필수 응답」을 켜세요.",
-    "응답 지우기: 학생은 「내 응답 지우기」, 선생님은 답 하나 또는 응답 전체를 지울 수 있습니다.",
-    "고침: 퀴즈 제출이 실패하던 문제를 고쳤습니다.",
-    "학생 관리 탭에 「입장 막힘 풀기」: 수업 코드를 여러 번 틀려 입장이 막힌 학생을 바로 풀어 줍니다.",
-  ] },
-  { date: "2026-10-29", items: [
-    "「수업 끝내기」: 끝난 수업에는 학생이 들어오거나 답을 저장할 수 없습니다.",
-    "학생 관리 탭에 「마지막 접속」(들어옴/나감 시각)과 학생마다 「답 모아 보기」.",
-    "공동작업자마다 고치기 권한을 켜고 끌 수 있고, 지금 접속 중인 사람에게 초록 점이 보입니다.",
-    "카드마다 「학생에게 숨기기/보이기」.",
-    "여러 사람이 같이 쓰는 기기에서는 학생 로그인이 남지 않게 했습니다.",
-    "슬라이드 그림을 기기 화면 크기에 맞게 받아 더 빨리 열립니다.",
-  ] },
-  { date: "2026-10-28", items: [
-    "「▣ 수업 화면 띄우기」: 학생에게 보여 줄 슬라이드만 새 탭에 띄웁니다(프로젝터용).",
-    "「학생 화면」 탭: 학생이 지금 보는 쪽과 쓰고 있는 답을 실시간으로 봅니다(학생이 동의하면 화면 전체도).",
-    "위쪽을 수업모드·편집모드로 나누고, 탭을 끌어서 순서를 바꿀 수 있게 했습니다.",
-    "프로필과 수업별 공동작업자 초대, 비밀번호 바꾸기, 「관리」 탭(무료 사용량 보기).",
-    "수업 설정에서 슬라이드를 PDF로 내려받기.",
-  ] },
-  { date: "2026-10-27", items: [
-    "쪽을 넘길 때 화면 넘김 효과(서서히·밀어내기 등)를 고를 수 있습니다.",
-  ] },
-  { date: "2026-10-26", items: [
-    "시뮬레이션 페이지를 슬라이드에 넣고, 슬라이드 아래·슬라이드 위 원하는 자리·화면 가득 중 어디에 보일지 고릅니다.",
-    "설명 카드도 보일 쪽(몇 쪽부터 몇 쪽까지 / 언제든)을 정할 수 있습니다.",
-  ] },
-  { date: "2026-10-25", items: [
-    "슬라이드 「끝에 추가」와 끌어서 슬라이드 순서 바꾸기, 질문·설문 목록도 끌어서 순서 바꾸기.",
-  ] },
-  { date: "2026-10-15", items: [
-    "질문 종류 「파일 올리기」: 학생이 사진·문서를 답으로 제출합니다.",
-  ] },
+  { date: "2026-10-30",
+    major: [
+      { title: "📝 메모장", desc: "위쪽 막대의 「📝 메모」를 누르면 떠 있는 메모 창이 열립니다. 제목 줄을 끌어 옮기고 오른쪽 아래 모서리를 끌어 크기를 바꿉니다. 적은 글은 이 브라우저에 저장됩니다." },
+      { title: "학생 로그인: 기본은 매번 로그인", desc: "창을 닫으면 로그아웃됩니다. 입장 화면에서 「내 개인 기기예요 (자동 로그인)」을 체크한 기기만 다음에도 자동으로 들어옵니다. 기존 학생도 한 번은 다시 로그인해야 합니다." },
+      { title: "한 질문만 답해도 제출", desc: "꼭 답해야 하는 질문은 편집 칸에서 「필수 응답」을 켜세요. 퀴즈는 모두 필수입니다." },
+      { title: "응답 지우기", desc: "학생은 「내 응답 지우기」, 선생님은 답 하나 또는 응답 전체를 지울 수 있습니다." },
+    ],
+    minor: [
+      "「⚙ 설정 → 탭 설정」: 위쪽 탭 이름을 바꾸고 수업모드·편집모드 중 어디에 보일지(둘 다도) 고릅니다.",
+      "「⚙ 설정 → 패치노트」(이 화면)를 더했습니다.",
+      "학생 관리 탭 「입장 막힘 풀기」: 수업 코드를 여러 번 틀려 입장이 막힌 학생을 바로 풀어 줍니다.",
+      "용수철 진자 시뮬레이션: 용수철 상수 k가 클수록 용수철이 촘촘하고 굵게 보입니다.",
+    ],
+    fix: [
+      "퀴즈 제출이 실패하던 문제를 고쳤습니다.",
+      "보안 점검: 수업 코드 추측 막기, 제출 파일 보호 강화.",
+    ] },
+  { date: "2026-10-29",
+    major: [
+      { title: "수업 끝내기", desc: "수업 진행 탭에서 수업을 끝내면 학생이 더 들어오거나 답을 저장할 수 없고, 모든 학생 기기가 로그아웃됩니다." },
+      { title: "학생 관리 탭: 마지막 접속 · 답 모아 보기", desc: "학생마다 들어오고 나간 시각을 보고, 그 학생이 이 수업에서 낸 답을 한 창에서 모아 봅니다." },
+      { title: "공동작업자 고치기 권한", desc: "공동작업자마다 「고치기」를 켜고 끌 수 있습니다. 지금 접속 중인 사람에게는 초록 점이 보입니다." },
+    ],
+    minor: [
+      "카드마다 「학생에게 숨기기/보이기」.",
+      "슬라이드 그림을 기기 화면 크기에 맞게 받아 더 빨리 열립니다.",
+      "수업모드/편집모드 단추를 수업 제목 바로 옆으로 옮겼습니다.",
+    ] },
+  { date: "2026-10-28",
+    major: [
+      { title: "▣ 수업 화면 띄우기", desc: "학생에게 보여 줄 슬라이드만 새 탭에 띄웁니다(프로젝터용)." },
+      { title: "학생 화면 탭", desc: "학생이 지금 보는 쪽과 쓰고 있는 답을 실시간으로 봅니다. 학생이 동의하면 화면 전체도 볼 수 있습니다." },
+      { title: "수업모드 · 편집모드", desc: "위쪽 탭을 수업할 때 쓰는 것과 미리 준비하는 것으로 나눴습니다. 탭은 끌어서 순서를 바꿀 수 있습니다." },
+      { title: "프로필과 공동작업자", desc: "「⚙ 설정 → 프로필·공동작업자」에서 다른 선생님을 수업에 초대합니다." },
+    ],
+    minor: [
+      "「관리」 탭: 무료 사용량을 막대로 봅니다.",
+      "수업 설정에서 슬라이드를 PDF로 내려받기.",
+      "비밀번호 바꾸기.",
+    ],
+    fix: [
+      "학생 화면이 「불러오는 중…」에서 멈추던 문제를 고쳤습니다.",
+    ] },
+  { date: "2026-10-27",
+    major: [
+      { title: "화면 넘김 효과", desc: "쪽을 넘길 때 서서히·밀어내기 등 효과를 고를 수 있습니다." },
+    ] },
+  { date: "2026-10-26",
+    major: [
+      { title: "슬라이드 속 시뮬레이션", desc: "시뮬레이션 페이지를 슬라이드에 넣고 슬라이드 아래·슬라이드 위 원하는 자리·화면 가득 중 어디에 보일지 고릅니다." },
+    ],
+    minor: [
+      "설명 카드도 보일 쪽(몇 쪽부터 몇 쪽까지 / 언제든)을 정할 수 있습니다.",
+    ] },
+  { date: "2026-10-25",
+    minor: [
+      "슬라이드 「끝에 추가」와 끌어서 슬라이드 순서 바꾸기.",
+      "질문·설문 목록도 끌어서 순서 바꾸기.",
+    ] },
+  { date: "2026-10-15",
+    major: [
+      { title: "질문 종류 「파일 올리기」", desc: "학생이 사진·문서를 답으로 제출합니다." },
+    ] },
 ];
+const NOTE_KINDS = { major: "굵직한 변경", minor: "작은 개선", fix: "고친 문제" };
 const notesNew = () => PATCH_NOTES[0].date > (localStorage.getItem("cra-notes-seen") || "");
+let notesFilter = "all";   // 패치노트에서 고른 종류(all·major·minor·fix)
 
 function drawNotes() {
+  const seen = localStorage.getItem("cra-notes-seen") || "";
   localStorage.setItem("cra-notes-seen", PATCH_NOTES[0].date);
   refreshGear();
-  const day = (d) => new Date(d + "T00:00").toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" });
-  main.replaceChildren(h("div", { class: "stack narrowish" },
+  const box = h("div", { class: "notes-list" });
+  const count = (k) => PATCH_NOTES.reduce((n, d) => n + (k === "all" ? ["major", "minor", "fix"].reduce((m, x) => m + (d[x] || []).length, 0) : (d[k] || []).length), 0);
+  const chips = h("div", { class: "notes-chips", role: "group", "aria-label": "종류 고르기" });
+  const paint = () => {
+    chips.replaceChildren(...["all", "major", "minor", "fix"].map((k) => h("button", {
+      type: "button", class: "notes-chip " + k + (notesFilter === k ? " on" : ""), "aria-pressed": notesFilter === k ? "true" : "false",
+      onclick() { notesFilter = k; paint(); },
+    }, k === "all" ? "전체" : NOTE_KINDS[k], h("span", { class: "notes-chip-n" }, count(k)))));
+    const want = (k) => notesFilter === "all" || notesFilter === k;
+    const days = PATCH_NOTES.filter((d) => ["major", "minor", "fix"].some((k) => want(k) && (d[k] || []).length));
+    box.replaceChildren(...days.map((d) => {
+      const dt = new Date(d.date + "T00:00");
+      const small = (k, icon) => want(k) && (d[k] || []).length ? h("div", { class: "note-group " + k },
+        h("p", { class: "note-kind" }, h("span", { class: "note-badge " + k }, icon + " " + NOTE_KINDS[k])),
+        h("ul", {}, d[k].map((t) => h("li", {}, t)))) : null;
+      return h("section", { class: "note-day" },
+        h("div", { class: "note-date" },
+          h("span", { class: "note-md" }, (dt.getMonth() + 1) + "월 " + dt.getDate() + "일"),
+          h("span", { class: "note-wd" }, dt.getFullYear() + " · " + "일월화수목금토"[dt.getDay()] + "요일"),
+          d.date > seen ? h("span", { class: "note-newtag" }, "NEW") : null),
+        h("div", { class: "note-body" },
+          want("major") && (d.major || []).length ? h("div", { class: "note-majors" }, d.major.map((m) => h("article", { class: "note-major" },
+            h("span", { class: "note-badge major" }, "★ " + NOTE_KINDS.major),
+            h("h3", {}, m.title),
+            m.desc ? h("p", {}, m.desc) : null))) : null,
+          small("minor", "＋"),
+          small("fix", "🔧")));
+    }));
+    if (!days.length) box.append(h("p", { class: "muted" }, "이 종류의 소식이 없습니다."));
+  };
+  paint();
+  main.replaceChildren(h("div", { class: "stack notes-wrap" },
     h("section", { class: "card stack" },
-      h("h2", {}, "패치노트"),
+      h("div", { class: "row between" },
+        h("h2", {}, "패치노트"),
+        h("span", { class: "muted small" }, "최근 업데이트 " + PATCH_NOTES[0].date.replace(/-/g, "."))),
       h("p", { class: "muted small" }, "이 웹앱에서 새로 생기거나 바뀐 점입니다. 위에 있을수록 최근입니다."),
-      PATCH_NOTES.map((n) => h("div", { class: "patch-note" },
-        h("h3", {}, day(n.date)),
-        h("ul", {}, n.items.map((t) => h("li", {}, t))))))));
+      chips),
+    box));
 }
 
 // ---------- 메모장 ----------
