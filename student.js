@@ -10,11 +10,11 @@ const ENDED_MSG = "선생님이 수업을 끝냈습니다. 더 이상 이 수업
 const ME_KEY = "cra-me";
 // 이 인터넷 주소(학교 와이파이 등)에서 없는 수업 코드를 많이 넣어 새 수업 들어가기가 잠시 막혔을 때(서버 code_blocked)
 const BUSY_MSG = "틀린 수업 코드가 너무 많이 입력되어, 이 와이파이(인터넷)에서는 새 수업 들어가기가 잠시 막혔습니다. 선생님께 말하면 바로 풀 수 있습니다(학생 관리 → 「입장 막힘 풀기」). 이미 들어갔던 수업은 그대로 들어갈 수 있습니다.";
-// 여러 사람이 같이 쓰는 기기(학교 컴퓨터·태블릿): 열쇠·이름·쓰던 답을 이 탭에만(sessionStorage) 둔다. 창이나 탭을 닫으면 지워져 다음 사람이 앞 학생으로 들어가지 않는다.
-// 한 번 고르면 이 기기는 다음에도 「같이 쓰는 기기」 칸이 체크되어 나온다
-const SHARED_KEY = "cra-shared-device";
-const sharedDevice = () => localStorage.getItem(SHARED_KEY) === "1";
-const keep = () => (sharedDevice() ? sessionStorage : localStorage);
+// 기본은 매번 로그인: 열쇠·이름·쓰던 답을 이 탭에만(sessionStorage) 둔다. 창이나 탭을 닫으면 지워져 다음 사람이 앞 학생으로 들어가지 않는다.
+// 입장 화면에서 「내 개인 기기예요」를 체크하면 이 기기(localStorage)에 남겨 다음에 열 때 자동 로그인. 한 번 고르면 다음에도 체크되어 나온다
+const PRIVATE_KEY = "cra-private-device";
+const privateDevice = () => localStorage.getItem(PRIVATE_KEY) === "1";
+const keep = () => (privateDevice() ? localStorage : sessionStorage);
 
 let code = "";          // 수업 코드
 let token = null;       // 입장 열쇠(이 기기에 저장)
@@ -30,8 +30,16 @@ const cards = new Map(); // 활동 id → 화면 카드
 function start() {
   code = (params.get("c") || localStorage.getItem("cra-last-code") || "").trim();
   // 예전 판은 수업마다 열쇠를 따로 저장했다: 있으면 그대로 옮겨 쓴다
+  localStorage.removeItem("cra-shared-device");   // 예전 판의 「같이 쓰는 기기」 표시(이제는 그게 기본)
+  // 개인 기기로 고르지 않은 기기에 예전 판이 남긴 자동 로그인 열쇠와 쓰던 답은 지운다
+  if (!privateDevice()) {
+    const old = localStorage.getItem(TOKEN_KEY);
+    if (old) Object.keys(localStorage).filter((k) => k.startsWith("cra-draft:" + old + ":")).forEach((k) => localStorage.removeItem(k));
+    localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(ME_KEY);
+    Object.keys(localStorage).filter((k) => k.startsWith("cra-token:")).forEach((k) => localStorage.removeItem(k));
+  }
   token = keep().getItem(TOKEN_KEY);
-  if (!token && !sharedDevice()) {
+  if (!token && privateDevice()) {
     token = code ? localStorage.getItem("cra-token:" + code.toLowerCase()) : null;
     if (token) localStorage.setItem(TOKEN_KEY, token);
   }
@@ -85,9 +93,9 @@ function showEntry(notice) {
   // 처음 들어오는 학생은 두 칸을 한꺼번에 채워 한 번에 입장한다. 이미 비밀번호가 있는 학생은 비워 두면 된다
   // (채워도 서버는 이미 정한 비밀번호와만 비교하므로 바뀌지 않는다).
   const pin2Row = h("label", {}, "비밀번호 한 번 더 ", h("span", { class: "muted small" }, "(처음 들어올 때만)"), pin2In);
-  const sharedIn = h("input", { type: "checkbox", checked: sharedDevice() });
-  const sharedRow = h("label", { class: "check" }, sharedIn,
-    h("span", {}, "여러 사람이 같이 쓰는 기기예요 ", h("span", { class: "muted small" }, "(학교 컴퓨터·태블릿: 창을 닫으면 자동으로 나가집니다)")));
+  const privateIn = h("input", { type: "checkbox", checked: privateDevice() });
+  const privateRow = h("label", { class: "check" }, privateIn,
+    h("span", {}, "내 개인 기기예요 (자동 로그인) ", h("span", { class: "muted small" }, "(나만 쓰는 휴대폰·태블릿일 때만 체크하세요. 체크하지 않으면 창을 닫을 때 자동으로 나가집니다)")));
   const msg = h("p", { class: "msg" }, notice || "");
   const btn = h("button", { class: "primary big", type: "submit" }, "입장하기");
 
@@ -125,7 +133,7 @@ function showEntry(notice) {
         token = data.token;
         code = data.code;
         localStorage.setItem("cra-last-code", code);
-        if (sharedIn.checked) localStorage.setItem(SHARED_KEY, "1"); else localStorage.removeItem(SHARED_KEY);
+        if (privateIn.checked) localStorage.setItem(PRIVATE_KEY, "1"); else localStorage.removeItem(PRIVATE_KEY);
         localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(ME_KEY);
         sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(ME_KEY);
         keep().setItem(TOKEN_KEY, token);
@@ -140,7 +148,7 @@ function showEntry(notice) {
     h("label", {}, "이름", nameIn),
     h("label", {}, "비밀번호 (숫자 4자리)", pinIn),
     pin2Row,
-    sharedRow,
+    privateRow,
     h("div", { class: "tip" },
       h("strong", {}, "처음 들어오나요?"),
       h("p", {}, "비밀번호를 두 칸에 똑같이 입력하세요. 처음 입력한 번호가 내 비밀번호가 됩니다. 다른 수업에서도 같은 학번·이름·비밀번호를 씁니다. 휴대폰 비밀번호나 생일은 쓰지 마세요.")),
