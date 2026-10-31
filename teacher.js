@@ -562,7 +562,7 @@ async function drawManage(force) {
     gauges.push({ key: "mau", title: "Supabase 활성 사용자", used: +u.mau, total: FREE.mau, fmt: fmtCount("명"),
       note: "이번 달 로그인한 교사 · 학생은 세지 않음",
       list: u.mau_list && u.mau_list.length ? h("ol", { class: "usage-list small" }, u.mau_list.map((x) => h("li", {}, x.email, h("span", { class: "muted" }, " · 마지막 " + fmtWhen(x.at))))) : null,
-      how: "로그인하거나 로그인을 이어 간(자동 연장) 교사 계정 수입니다. 학생은 Supabase 계정이 아니라 이 앱의 학번·비밀번호로 들어오므로 세지 않습니다. 전체 교사 계정 " + u.users + "개." + (u.mau_list ? "" : " (계정 목록은 처음부터 있던 교사에게만 보입니다)") });
+      how: "로그인하거나 로그인을 이어 간(자동 연장) 교사 계정 수입니다. 학생은 Supabase 계정이 아니라 이 앱의 번호·비밀번호로 들어오므로 세지 않습니다. 전체 교사 계정 " + u.users + "개." + (u.mau_list ? "" : " (계정 목록은 처음부터 있던 교사에게만 보입니다)") });
   }
   if (u && "conn" in u) {
     gauges.push({ key: "conn", title: "Supabase DB 동시 연결", used: +u.conn, total: +u.conn_max || FREE.conn, fmt: fmtCount("개"),
@@ -1158,6 +1158,10 @@ document.addEventListener("visibilitychange", ping);
 //   없는 칸은 빼도 된다.
 // 마지막으로 본 날짜(cra-notes-seen)보다 새 소식이 있으면 설정 목록의 「패치노트」 옆에 「새 소식」, 그 날짜에는 NEW 표시.
 const PATCH_NOTES = [
+  { date: "2026-10-31",
+    minor: [
+      "「학번」을 모두 「번호」로 바꿨습니다(학생 입장 화면의 보기는 「예: 3」, 교사 화면의 표·CSV 내려받기 제목, 안내 문구).",
+    ] },
   { date: "2026-10-30",
     major: [
       { title: "📝 메모장 삭제", desc: "메모장을 뺐습니다. 위쪽 「📝 메모」 단추와 수업 화면 메모 표시가 없어졌습니다." },
@@ -1786,7 +1790,7 @@ function runBlock(a) {
 function responseTable(a) {
   const box = h("div", { class: "table-wrap" });
   const draw = () => box.replaceChildren(h("table", {},
-    h("thead", {}, h("tr", {}, h("th", {}, "학번"), h("th", {}, "이름"), a.kind === "quiz" ? h("th", {}, "점수") : null,
+    h("thead", {}, h("tr", {}, h("th", {}, "번호"), h("th", {}, "이름"), a.kind === "quiz" ? h("th", {}, "점수") : null,
       askedQuestions(a).map((q, i) => h("th", {}, (i + 1) + ". " + q.text)), h("th", {}, "저장"), readOnly() ? null : h("th", {}, ""))),
     h("tbody", {}, students.map((s) => {
       const r = responses.find((x) => x.activity_id === a.id && x.student_id === s.id);
@@ -2638,7 +2642,7 @@ function drawStudents() {
   main.replaceChildren(h("section", { class: "card stack" },
     h("div", { class: "row between wrap" },
       h("h2", {}, "학생 " + students.length + "명"),
-      h("p", { class: "muted small" }, "학생 계정은 웹앱 전체에 하나라서, 어느 수업에서든 같은 학번·이름·비밀번호를 씁니다. 비밀번호는 암호화되어 교사도 볼 수 없습니다. 잊은 학생은 초기화해 주세요."),
+      h("p", { class: "muted small" }, "학생 계정은 웹앱 전체에 하나라서, 어느 수업에서든 같은 번호·이름·비밀번호를 씁니다. 비밀번호는 암호화되어 교사도 볼 수 없습니다. 잊은 학생은 초기화해 주세요."),
       // 틀린 수업 코드를 많이 넣어 학교 와이파이에서 새 수업 들어가기가 막혔을 때(서버 code_blocked) 바로 푼다
       h("button", { class: "ghost small", type: "button", title: "틀린 수업 코드가 너무 많이 입력되어 학생들이 「새 수업 들어가기가 잠시 막혔습니다」를 볼 때 누르세요",
         async onclick() {
@@ -2648,7 +2652,7 @@ function drawStudents() {
             : "지금 막혀 있는 곳은 없었습니다. (기록은 모두 비웠습니다)");
         } }, "🔓 입장 막힘 풀기")),
     students.length ? h("div", { class: "table-wrap" }, h("table", {},
-      h("thead", {}, h("tr", {}, ["학번", "이름", "저장한 활동", "마지막 저장", "상태", "마지막 접속", ""].map((t) => h("th", {}, t)))),
+      h("thead", {}, h("tr", {}, ["번호", "이름", "저장한 활동", "마지막 저장", "상태", "마지막 접속", ""].map((t) => h("th", {}, t)))),
       h("tbody", {}, rows))) : h("p", { class: "muted" }, "아직 입장한 학생이 없습니다.")));
 }
 
@@ -3530,7 +3534,7 @@ function downloadCSV(acts, fileName) {
     if (/^[=+\-@\t\r]/.test(s) && !/^[+-]?\d+(\.\d+)?$/.test(s)) s = "'" + s;
     return '"' + s.replace(/"/g, '""') + '"';
   };
-  const head = ["학번", "이름"];
+  const head = ["번호", "이름"];
   acts.forEach((a) => {
     if (a.kind === "quiz") head.push(a.title + " · 점수");
     askedQuestions(a).forEach((q, i) => head.push(a.title + " · " + (i + 1) + ". " + q.text));

@@ -105,10 +105,10 @@ language sql immutable as $$
     select key from jsonb_each(coalesce(p_a, '{}'::jsonb)) where jsonb_typeof(value) = 'array' and jsonb_array_length(value) > 0) z
 $$;
 
--- 학생: 웹앱 전체에 한 명당 하나(학번 + 이름 + 4자리 비밀번호). 어느 수업에 들어와도 같은 비밀번호를 쓴다.
+-- 학생: 웹앱 전체에 한 명당 하나(번호 + 이름 + 4자리 비밀번호). 어느 수업에 들어와도 같은 비밀번호를 쓴다.
 create table if not exists students (
   id           uuid primary key default gen_random_uuid(),
-  class_no     text not null,        -- 학번
+  class_no     text not null,        -- 번호
   name         text not null,
   pin_hash     text,                 -- 비어 있으면 다음에 들어올 때 새로 정한다(처음, 또는 교사가 초기화)
   pin_set      boolean generated always as (pin_hash is not null) stored,
@@ -156,7 +156,7 @@ create table if not exists responses (
 create index if not exists responses_activity on responses (activity_id);
 
 -- 예전 구조(수업마다 학생이 따로)에서 옮기기. 이미 새 구조면 아무것도 하지 않는다.
--- 같은 학번+이름은 한 명으로 합치고, 가장 최근에 들어온 기록의 비밀번호를 쓴다. 응답은 모두 그 학생에게 옮긴다.
+-- 같은 번호+이름은 한 명으로 합치고, 가장 최근에 들어온 기록의 비밀번호를 쓴다. 응답은 모두 그 학생에게 옮긴다.
 do $$
 begin
   if exists (select 1 from information_schema.columns
@@ -337,7 +337,7 @@ drop trigger if exists lessons_keep_owner on lessons;
 create trigger lessons_keep_owner before update on lessons for each row execute function lessons_keep_owner();
 
 -- 수업을 끝내면 그 수업 학생들의 열쇠(token)를 지워 모든 기기에서 로그아웃시킨다(같이 쓰는 컴퓨터·태블릿에 로그인이 남지 않게).
--- 다음에는 학번·이름·비밀번호로 다시 들어온다. 마지막 접속도 그 순간 「나감」으로 적는다
+-- 다음에는 번호·이름·비밀번호로 다시 들어온다. 마지막 접속도 그 순간 「나감」으로 적는다
 create or replace function lessons_end_logout() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
@@ -444,7 +444,7 @@ end $$;
 revoke all on function code_unblock() from public, anon;
 grant execute on function code_unblock() to authenticated;
 
--- 학생 입장: 학번+이름+비밀번호로 확인하고 이 수업에 참여시킨다.
+-- 학생 입장: 번호+이름+비밀번호로 확인하고 이 수업에 참여시킨다.
 -- 처음이거나 초기화된 학생은 p_confirm = true 로 다시 불러야 비밀번호가 정해진다. 5번 틀리면 10분 잠금.
 create or replace function student_enter(p_code text, p_class_no text, p_name text, p_pin text, p_confirm boolean default false)
 returns jsonb language plpgsql security definer set search_path = public, extensions as $$
@@ -456,7 +456,7 @@ declare
   existed boolean;
 begin
   select * into l from lessons where code = upper(tidy(p_code));
-  -- 틀린 코드를 많이 넣은 주소: 이미 들어간 수업(같은 학번·이름)만 받는다
+  -- 틀린 코드를 많이 넣은 주소: 이미 들어간 수업(같은 번호·이름)만 받는다
   if code_blocked() and (l.id is null or not exists (select 1 from lesson_students m join students x on x.id = m.student_id
                                                      where m.lesson_id = l.id and x.class_no = c and x.name = n)) then
     return jsonb_build_object('error', 'busy');
