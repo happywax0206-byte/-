@@ -1347,6 +1347,7 @@ const PATCH_NOTES = [
       { title: "탭 설정: 끌어서 순서 바꾸기 · 기본 배치", desc: "「⚙ 설정 → 탭 설정」에서 왼쪽 ⠿ 를 끌어 탭 순서를 바꿉니다. 위쪽 막대에서 탭을 끌어 옮겨도 탭 설정 순서가 같이 바뀝니다. 「지금 배치를 기본으로 설정」으로 내 기본 배치를 정해 두고 「기본으로 되돌리기」로 돌아옵니다. 탭 설정은 이제 계정마다 따로 저장됩니다." },
     ],
     minor: [
+      "「크게 보기」(수업 화면에도 뜸)에서도 활동의 「이름 표시」 설정을 따릅니다. 이름 표시를 끈 활동은 크게 볼 때도 이름 없이 답만 보입니다.",
       "「수업 설정」의 화면 넘김 효과: 「효과」·「빠르기」 칸에서 고르기만 해도 수업 전체에 바로 적용되던 버그를 고쳤습니다. 이제 고르면 「미리보기 ▶」에만 쓰이고, 「모든 쪽에 같게 적용」을 눌러야 저장됩니다.",
       "끌어서 옮기는 동안 마우스가 잠깐 금지 표시로 바뀌던 것을 고쳤습니다. 슬라이드 그림이나 링크를 실수로 끌면 금지 표시와 함께 그림이 따라오던 것도 이제는 아예 잡히지 않습니다(교사·학생·수업 화면 모두).",
       "끌어서 순서 바꾸기(위쪽 탭 줄·탭 설정·활동 목록·슬라이드 미리보기): 파란 줄 대신, 끄는 동안 다른 칸이 밀려나며 들어갈 빈칸이 보입니다. 다른 칸의 반쯤 넘어가면 자리가 바뀌고, 칸 사이나 조금 벗어난 곳에서 놓아도 빈칸 자리로 들어갑니다(금지 표시가 뜨지 않음). Esc를 누르면 취소됩니다.",
@@ -1984,7 +1985,8 @@ function runBlock(a) {
     summaryView(a.questions, docs, { openFile, tools: (q) => shareQBtn(a, q),
       answerTools: (q, d) => h("span", { class: "answer-tools" }, shareABtn(a, q, d), removeBtn(a, d.r, q)) }),
     h("div", { class: "row" },
-      h("button", { class: "ghost", type: "button", onclick() { bigView(a.title, h("div", { class: "big-view" }, summaryView(a.questions, docsOf(a), { openFile }))); } }, "크게 보기"),
+      // 크게 보기는 수업 화면에도 뜨므로 「이름 표시」를 끈 활동은 이름을 빼고 보인다
+      h("button", { class: "ghost", type: "button", onclick() { bigView(a.title, h("div", { class: "big-view" }, summaryView(a.questions, docsOf(a).map((d) => a.named ? d : { ...d, name: "" }), { openFile }))); } }, "크게 보기"),
       h("button", { class: "ghost", type: "button", onclick() { openModal(a.title + " · 학생별", responseTable(a)); } }, "학생별 표"),
       h("button", { class: "ghost", type: "button", onclick() { downloadCSV([a], lesson.code + "_" + a.title); } }, "CSV")));
 }
@@ -2497,7 +2499,7 @@ function editor() {
     h("label", {}, "카드 설명문 (선택)", description),
     h("div", { class: "row wrap" },
       hasQuiz ? h("label", { class: "check" }, h("input", { type: "checkbox", checked: e.show_answer, onchange(ev) { e.show_answer = ev.target.checked; } }), "제출 뒤 정답과 해설 보여 주기") : null,
-      h("label", { class: "check" }, h("input", { type: "checkbox", checked: e.named, onchange(ev) { e.named = ev.target.checked; } }), "친구들에게 응답을 공개할 때 이름 표시")),
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: e.named, onchange(ev) { e.named = ev.target.checked; } }), "친구들에게 응답을 공개하거나 크게 볼 때 이름 표시")),
     qs,
     h("div", { class: "row wrap" },
       h("button", { class: "primary", type: "button", onclick() { e.questions.push(newQuestion("choice")); redraw(); } }, "질문 +"),

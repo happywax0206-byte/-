@@ -111,3 +111,4 @@ CLAUDE.md에서 옮겨 온 날짜별 기록. 어떤 기능이 왜·어떻게 그
 - 2026-10-31: 넘김 효과(`slidesCard`의 `fxSel`·`fxSpeed`)는 고르면 미리보기에만 쓰이고(`fxPending` 안내), 「모든 쪽에 같게 적용」(`allBtn`)에서만 type·ms 저장. 미리보기는 쪽별 효과 대신 고른 효과로.
 - 2026-10-31: 학생 화면(`index.html`)도 검색엔진에 안 올라가게 `<meta name="robots" content="noindex">` (교사·수업 화면엔 이미 있었음, 시뮬레이션 페이지는 일부러 검색 허용).
 - 2026-10-31: 확장 프로그램 1.1.0: LIVErary 사서실(bdcastwiki.pages.dev/admin/)의 관리 탭에서도 Supabase 대시보드 숫자를 읽게 content_scripts matches에 추가(사용자가 chrome://extensions에서 ↻ 필요).
+- 2026-10-31: 결과 「크게 보기」(수업 화면에도 뜸)도 활동의 `named`를 따름: 끈 활동은 docsOf의 name을 비워 보냄(teacher.js 결과 카드). 편집 칸 이름 「…공개하거나 크게 볼 때 이름 표시」, 패치노트 minor.
