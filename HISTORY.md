@@ -105,3 +105,4 @@ CLAUDE.md에서 옮겨 온 날짜별 기록. 어떤 기능이 왜·어떻게 그
 - 2026-10-31: 「탭 설정」 카드의 이름 칸 대신 「✎ 이름 바꾸기」 단추(`rename` in `drawTabSettings`): 칸+저장·취소, Enter/Esc, 비우면 원래 이름. 카드 제목은 바뀐 이름, 아래 「원래 이름」. `.tab-rename`.
 - 2026-10-31: 수업 미리 보기(편집모드)에서 쪽을 넘겨도 수업 화면(present)은 따라가지 않음: `presentState`가 `presentPage()`(편집모드면 `lesson.page`)를 보냄. 편집모드에서 수업 화면의 ← →는 실제 수업 쪽을 넘김.
 - 2026-10-31: 교사 위쪽 줄(`.teacher .top`)을 접히지 않는 한 줄로 고정: 창이 좁아도 제목·탭·오른쪽 단추 자리가 그대로, 넘치면 탭 줄(`.tabs`)만 가로 스크롤.
+- 2026-10-31: 첫 화면 빠르게: `index.html`·`teacher.html`에 Supabase `preconnect`, `loadLessons`의 lessons·`lesson_owners`·`lesson_rights`를 `Promise.all`로 한꺼번에 부름.

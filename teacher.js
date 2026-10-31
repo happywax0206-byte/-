@@ -674,17 +674,17 @@ function changePassword() {
 
 // ---------- 데이터 ----------
 async function loadLessons(selectId) {
-  const { data, error } = await sb.from("lessons").select("*").order("created_at");
+  // 세 가지를 한꺼번에 묻는다(차례로 기다리지 않아 첫 화면이 빨리 뜬다)
+  // 관리자: 초대받지 않은 다른 선생님 수업도 보이므로 누가 만들었는지 함께 받는다
+  // lesson_rights: 공동작업자로 「보기만」 초대받은 수업. setup.sql 전이면 모두 고칠 수 있다고 본다
+  const [{ data, error }, r, rights] = await Promise.all([
+    sb.from("lessons").select("*").order("created_at"),
+    profile && profile.admin ? sb.rpc("lesson_owners") : null,
+    sb.rpc("lesson_rights"),
+  ]);
   if (error) return fatal(error);
   lessons = data;
-  // 관리자: 초대받지 않은 다른 선생님 수업도 보이므로 누가 만들었는지 함께 받는다
-  lessonOwners = {};
-  if (profile && profile.admin) {
-    const r = await sb.rpc("lesson_owners");
-    if (!r.error && r.data) lessonOwners = r.data;
-  }
-  // 공동작업자로 「보기만」 초대받은 수업. setup.sql 전이면 모두 고칠 수 있다고 본다
-  const rights = await sb.rpc("lesson_rights");
+  lessonOwners = r && !r.error && r.data ? r.data : {};
   lessonRights = rights.error || !rights.data ? {} : rights.data;
   lesson = lessons.find((l) => l.id === selectId) || lessons[0] || null;
   if (!lesson && !GEAR.includes(tab)) tab = "settings";
