@@ -236,6 +236,14 @@ function slideSrc(lesson, n, size) {
   return slideMissing.has(url) ? base : url;
 }
 
+// 그림·링크·고른 글자를 브라우저가 멋대로 끌어 올리지 않게 한다(놓을 곳이 없어 금지 표시만 뜬다).
+// 끌어서 순서 바꾸는 칸(draggable="true")과 글 쓰는 칸 안에서 글자 옮기기는 그대로 둔다.
+document.addEventListener("dragstart", (e) => {
+  const t = e.target.nodeType === 1 ? e.target : e.target.parentElement;
+  if (t && t.closest('[draggable="true"], input, textarea, [contenteditable="true"]')) return;
+  e.preventDefault();
+});
+
 // 작은·큰 그림이 없으면(올리다 멈춘 쪽 등) 보통 그림으로 바꾼다
 document.addEventListener("error", (e) => {
   const img = e.target;

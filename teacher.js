@@ -1195,6 +1195,12 @@ document.addEventListener("dragover", (e) => {
   e.dataTransfer.dropEffect = "move";
   sortOver(e.clientX, e.clientY);
 });
+// 새 칸 위로 들어가는 순간(dragenter)도 받아 줘야 다음 dragover 전까지 금지 표시가 깜빡이지 않는다
+document.addEventListener("dragenter", (e) => {
+  if (!sortDrag) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "move";
+});
 document.addEventListener("drop", (e) => {
   if (!sortDrag) return;
   e.preventDefault();
@@ -1341,6 +1347,7 @@ const PATCH_NOTES = [
       { title: "탭 설정: 끌어서 순서 바꾸기 · 기본 배치", desc: "「⚙ 설정 → 탭 설정」에서 왼쪽 ⠿ 를 끌어 탭 순서를 바꿉니다. 위쪽 막대에서 탭을 끌어 옮겨도 탭 설정 순서가 같이 바뀝니다. 「지금 배치를 기본으로 설정」으로 내 기본 배치를 정해 두고 「기본으로 되돌리기」로 돌아옵니다. 탭 설정은 이제 계정마다 따로 저장됩니다." },
     ],
     minor: [
+      "끌어서 옮기는 동안 마우스가 잠깐 금지 표시로 바뀌던 것을 고쳤습니다. 슬라이드 그림이나 링크를 실수로 끌면 금지 표시와 함께 그림이 따라오던 것도 이제는 아예 잡히지 않습니다(교사·학생·수업 화면 모두).",
       "끌어서 순서 바꾸기(위쪽 탭 줄·탭 설정·활동 목록·슬라이드 미리보기): 파란 줄 대신, 끄는 동안 다른 칸이 밀려나며 들어갈 빈칸이 보입니다. 다른 칸의 반쯤 넘어가면 자리가 바뀌고, 칸 사이나 조금 벗어난 곳에서 놓아도 빈칸 자리로 들어갑니다(금지 표시가 뜨지 않음). Esc를 누르면 취소됩니다.",
       "「탭 설정」: 카드마다 「✎ 이름 바꾸기」 단추가 생겼습니다. 누르고 새 이름을 적은 뒤 「저장」(또는 Enter)을 누르면 됩니다. 비우고 저장하면 처음 이름으로 돌아갑니다.",
       "「⚙ 설정」 목록과 프로필 목록이 겹쳐 보이지 않게, 하나를 열면 다른 하나는 저절로 닫힙니다.",
