@@ -1178,12 +1178,17 @@ function buildProfile() {
   return h("div", { class: "profile-set" },
     h("button", {
       class: "avatar", type: "button", title: label, "aria-label": label, "aria-haspopup": "true", "aria-expanded": profileOpen ? "true" : "false",
-      onclick() { profileOpen = !profileOpen; refreshProfile(); },
+      onclick() {
+        profileOpen = !profileOpen;
+        if (profileOpen && gearOpen) { gearOpen = false; refreshGear(); }   // 하나만 열려 있게
+        refreshProfile();
+      },
     }, profileInitial()),
     menu);
 }
 
 function refreshProfile() {
+  if (!profileEl || !profileEl.isConnected) return;
   const next = buildProfile();
   profileEl.replaceWith(next);
   profileEl = next;
@@ -1216,7 +1221,11 @@ function buildGear() {
     h("button", {
       class: "ghost gear-btn" + (GEAR.includes(tab) ? " on" : ""), type: "button", "aria-haspopup": "true", "aria-expanded": gearOpen ? "true" : "false",
       title: dot ? say : "프로필·공동작업자, 관리, 탭 설정, 패치노트, 버그 제보",
-      onclick() { gearOpen = !gearOpen; refreshGear(); },
+      onclick() {
+        gearOpen = !gearOpen;
+        if (gearOpen && profileOpen) { profileOpen = false; refreshProfile(); }   // 하나만 열려 있게
+        refreshGear();
+      },
     }, "⚙ 설정" + (GEAR.includes(tab) ? " · " + tabName(tab) : ""), dot ? h("span", { class: "gear-dot", "aria-label": say }) : null),
     gearOpen ? h("div", { class: "profile-menu" }, GEAR.map(item)) : null,
     dot && !gearOpen && !bugBubbleOff && tab !== "bugs" ? h("div", { class: "bug-bubble", role: "status" },
@@ -1269,6 +1278,7 @@ const PATCH_NOTES = [
       { title: "탭 설정: 끌어서 순서 바꾸기 · 기본 배치", desc: "「⚙ 설정 → 탭 설정」에서 왼쪽 ⠿ 를 끌어 탭 순서를 바꿉니다. 위쪽 막대에서 탭을 끌어 옮겨도 탭 설정 순서가 같이 바뀝니다. 「지금 배치를 기본으로 설정」으로 내 기본 배치를 정해 두고 「기본으로 되돌리기」로 돌아옵니다. 탭 설정은 이제 계정마다 따로 저장됩니다." },
     ],
     minor: [
+      "「⚙ 설정」 목록과 프로필 목록이 겹쳐 보이지 않게, 하나를 열면 다른 하나는 저절로 닫힙니다.",
       "「탭 설정」 맨 위의 긴 설명 글을 지웠습니다.",
       "「⚙ 설정」 안의 화면(탭 설정·패치노트 등)을 보다가 수업모드·편집모드를 바꿔도 그 화면에 그대로 머뭅니다. 위쪽 탭 줄만 그 모드로 바뀝니다.",
       "「학번」을 모두 「번호」로 바꿨습니다(학생 입장 화면의 보기는 「예: 3」, 교사 화면의 표·CSV 내려받기 제목, 안내 문구).",
