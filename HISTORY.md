@@ -108,3 +108,4 @@ CLAUDE.md에서 옮겨 온 날짜별 기록. 어떤 기능이 왜·어떻게 그
 - 2026-10-31: 첫 화면 빠르게: `index.html`·`teacher.html`에 Supabase `preconnect`, `loadLessons`의 lessons·`lesson_owners`·`lesson_rights`를 `Promise.all`로 한꺼번에 부름.
 - 2026-10-31: 끌어서 순서 바꾸기를 공용 `dragSort`(+`sortOver`·`measureSort`·`finishSort`)로 통일(탭 줄 `tabDropZone`·탭 설정 카드·활동 목록 `.act-group`·슬라이드 `.thumbs`): 파란 줄 대신 빈칸 `.drag-gap`이 움직이고 나머지가 밀려남(FLIP 애니메이션). 다른 칸 반쯤 넘으면 자리 바꿈, 끄는 동안 document 전체가 놓기 허용(금지 커서 없음), Esc 취소.
 - 2026-10-31: 끌기 중 금지 커서 깜빡임: document `dragenter`도 받음(teacher.js). 그림·링크·고른 글자의 브라우저 기본 끌기를 막음(common.js `dragstart`, `draggable="true"`·입력 칸은 예외).
+- 2026-10-31: 넘김 효과(`slidesCard`의 `fxSel`·`fxSpeed`)는 고르면 미리보기에만 쓰이고(`fxPending` 안내), 「모든 쪽에 같게 적용」(`allBtn`)에서만 type·ms 저장. 미리보기는 쪽별 효과 대신 고른 효과로.

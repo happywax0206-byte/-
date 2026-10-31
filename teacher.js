@@ -1347,6 +1347,7 @@ const PATCH_NOTES = [
       { title: "탭 설정: 끌어서 순서 바꾸기 · 기본 배치", desc: "「⚙ 설정 → 탭 설정」에서 왼쪽 ⠿ 를 끌어 탭 순서를 바꿉니다. 위쪽 막대에서 탭을 끌어 옮겨도 탭 설정 순서가 같이 바뀝니다. 「지금 배치를 기본으로 설정」으로 내 기본 배치를 정해 두고 「기본으로 되돌리기」로 돌아옵니다. 탭 설정은 이제 계정마다 따로 저장됩니다." },
     ],
     minor: [
+      "「수업 설정」의 화면 넘김 효과: 「효과」·「빠르기」 칸에서 고르기만 해도 수업 전체에 바로 적용되던 버그를 고쳤습니다. 이제 고르면 「미리보기 ▶」에만 쓰이고, 「모든 쪽에 같게 적용」을 눌러야 저장됩니다.",
       "끌어서 옮기는 동안 마우스가 잠깐 금지 표시로 바뀌던 것을 고쳤습니다. 슬라이드 그림이나 링크를 실수로 끌면 금지 표시와 함께 그림이 따라오던 것도 이제는 아예 잡히지 않습니다(교사·학생·수업 화면 모두).",
       "끌어서 순서 바꾸기(위쪽 탭 줄·탭 설정·활동 목록·슬라이드 미리보기): 파란 줄 대신, 끄는 동안 다른 칸이 밀려나며 들어갈 빈칸이 보입니다. 다른 칸의 반쯤 넘어가면 자리가 바뀌고, 칸 사이나 조금 벗어난 곳에서 놓아도 빈칸 자리로 들어갑니다(금지 표시가 뜨지 않음). Esc를 누르면 취소됩니다.",
       "「탭 설정」: 카드마다 「✎ 이름 바꾸기」 단추가 생겼습니다. 누르고 새 이름을 적은 뒤 「저장」(또는 Enter)을 누르면 됩니다. 비우고 저장하면 처음 이름으로 돌아갑니다.",
@@ -3056,9 +3057,14 @@ function slidesCard() {
   // 화면 넘김 효과: 수업 전체 기본값 + 쪽마다 다르게(미리보기 아래 칸)
   const fx = transitionSetting();
   const fxMsg = h("p", { class: "msg" });
-  const fxSel = h("select", { "aria-label": "넘김 효과", onchange() { fx.type = fxSel.value; saveTransition(fx, fxMsg); } },
+  // 효과·빠르기 칸은 고르기만 하면 미리보기에만 쓰인다. 「모든 쪽에 같게 적용」을 눌러야 저장된다
+  const fxPending = () => {
+    const changed = fxSel.value !== fx.type || +fxSpeed.value !== fx.ms;
+    fxMsg.textContent = changed ? "아직 적용되지 않았습니다. 「미리보기 ▶」로 확인하고, 쓰려면 「모든 쪽에 같게 적용」을 누르세요." : "";
+  };
+  const fxSel = h("select", { "aria-label": "넘김 효과", onchange: fxPending },
     Object.entries(TRANSITIONS).map(([k, v]) => h("option", { value: k, selected: fx.type === k }, v)));
-  const fxSpeed = h("select", { "aria-label": "넘김 빠르기", onchange() { fx.ms = +fxSpeed.value; saveTransition(fx, fxMsg); } },
+  const fxSpeed = h("select", { "aria-label": "넘김 빠르기", onchange: fxPending },
     Object.entries(TRANSITION_SPEED).map(([k, v]) => h("option", { value: k, selected: fx.ms === +k }, v)));
   const pv = h("img", { alt: "넘김 미리보기", src: lesson.slide_count ? slideSrc(lesson, 1) : "" });
   let pvPage = 1, pvCount = 0;
@@ -3066,15 +3072,17 @@ function slidesCard() {
     // 1쪽 → 2쪽으로 넘기는 모습을 보여 주고, 다시 누르면 1쪽으로 돌아간다(# 은 같은 그림이라도 바뀐 것으로 보게)
     if (pvPage !== 1) { changeSlide(pv, slideSrc(lesson, 1) + "#" + ++pvCount, null, 1); pvPage = 1; pvBtn.textContent = "미리보기 ▶"; return; }
     const to = Math.min(2, lesson.slide_count);
-    changeSlide(pv, slideSrc(lesson, to) + "#" + ++pvCount, transitionFor({ transition: fx }, to), 1);
+    changeSlide(pv, slideSrc(lesson, to) + "#" + ++pvCount, transitionFor({ transition: { type: fxSel.value, ms: +fxSpeed.value } }, to), 1);
     pvPage = 2;
     pvBtn.textContent = "처음으로 ↺";
   } }, "미리보기 ▶");
-  // 쪽마다 정한 효과를 모두 지워 모든 쪽이 위의 효과 하나로 넘어가게 한다
+  // 위 칸에서 고른 효과·빠르기를 저장하고, 쪽마다 정한 효과를 모두 지워 모든 쪽이 그 효과 하나로 넘어가게 한다
   const pageSels = [];
   const allBtn = h("button", { class: "ghost", type: "button", onclick() {
     const n = Object.keys(fx.pages).length;
-    if (n && !confirm("쪽마다 따로 정한 효과 " + n + "개를 지우고, 모든 쪽을 「" + TRANSITIONS[fx.type] + "」(으)로 넘길까요?")) return;
+    if (n && !confirm("쪽마다 따로 정한 효과 " + n + "개를 지우고, 모든 쪽을 「" + TRANSITIONS[fxSel.value] + "」(으)로 넘길까요?")) return;
+    fx.type = fxSel.value;
+    fx.ms = +fxSpeed.value;
     fx.pages = {};
     pageSels.forEach((s) => { s.value = ""; });
     saveTransition(fx, fxMsg);
@@ -3083,7 +3091,7 @@ function slidesCard() {
     h("h3", {}, "화면 넘김 효과"),
     h("div", { class: "row wrap" }, h("label", {}, "효과", fxSel), h("label", {}, "빠르기", fxSpeed), pvBtn, allBtn),
     h("div", { class: "fx-preview" }, pv), fxMsg,
-    h("p", { class: "muted small" }, "교사 화면·학생 화면 모두 이 효과로 넘어갑니다. 앞 쪽으로 돌아갈 때는 거꾸로 움직입니다. 쪽마다 다르게 하려면 아래 미리보기 밑의 칸에서 고르고, 다시 모두 같게 하려면 「모든 쪽에 같게 적용」을 누르세요.")) : null;
+    h("p", { class: "muted small" }, "효과와 빠르기를 고른 뒤 「미리보기 ▶」로 확인하세요. 고르기만 해서는 바뀌지 않고, 「모든 쪽에 같게 적용」을 눌러야 교사 화면·학생 화면 모두 그 효과로 넘어갑니다. 앞 쪽으로 돌아갈 때는 거꾸로 움직입니다. 쪽마다 다르게 하려면 아래 미리보기 밑의 칸에서 고르세요(그 칸은 고르면 바로 저장됩니다).")) : null;
   const pageFx = (i) => {
     const sel = h("select", { class: "thumb-fx", "aria-label": i + "쪽으로 넘어갈 때", title: i + "쪽으로 넘어갈 때 효과", draggable: "false",
       onmousedown(ev) { ev.stopPropagation(); },
