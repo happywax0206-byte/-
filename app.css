@@ -212,6 +212,8 @@ main.lesson .slide { cursor: zoom-in; }
 .tab-card.off:hover, .tab-card.off:focus-within { opacity: .8; }
 .tab-card.off strong { font-weight: 500; }
 .tab-card input { width: 100%; }
+.tab-rename { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .3rem; }
+.tab-rename .row { gap: .3rem; }
 .tab-card-head { display: flex; align-items: center; gap: .3rem; min-width: 0; }
 .tab-card-head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab-card.dragging { opacity: .3; }

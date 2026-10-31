@@ -967,7 +967,7 @@ function redrawTabNav() {
 }
 
 // 「탭 설정」(⚙ 설정 안): 수업모드·편집모드를 위아래로 나눠, 모드마다 모든 탭을 카드로 보인다.
-// 그 모드에 켜진 탭은 진하게, 꺼진 탭은 흐리게. 카드의 스위치로 켜고 끄고(두 모드에 다 켜도 됨), 칸에 단추 이름을 적는다.
+// 그 모드에 켜진 탭은 진하게, 꺼진 탭은 흐리게. 카드의 스위치로 켜고 끄고(두 모드에 다 켜도 됨), 「이름 바꾸기」 단추로 단추 이름을 바꾼다.
 // 왼쪽 ⠿ 를 끌어 순서를 바꾼다(순서는 두 모드가 같이 씀). 위쪽 막대에서 끌어 옮긴 순서도 여기 그대로 보인다. 이 브라우저에 교사마다 기억한다.
 let rowDrag = null;       // 탭 설정에서 끌고 있는 카드의 탭
 function drawTabSettings(note) {
@@ -990,19 +990,31 @@ function drawTabSettings(note) {
       },
     }, h("span", { class: "mode-knob", "aria-hidden": "true" }), on ? "켜짐" : "꺼짐");
   };
+  // 「이름 바꾸기」를 누르면 그 자리에 칸과 저장·취소. 비우고 저장하면 처음 이름으로 돌아간다(두 모드 카드가 같이 바뀜)
+  const rename = (k, box) => {
+    const input = h("input", { type: "text", maxlength: 20, value: tabName(k), placeholder: TABS[k], "aria-label": TABS[k] + " 단추 이름" });
+    const save = () => {
+      const v = input.value.trim();
+      if (v && v !== TABS[k]) tabNames[k] = v; else delete tabNames[k];
+      redraw("「" + TABS[k] + "」 단추 이름을 「" + tabName(k) + "」(으)로 정했습니다.");
+      refreshGear();
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.isComposing) return;   // 한글 입력 중의 Enter는 글자 확정
+      if (e.key === "Enter") { e.preventDefault(); save(); }
+      if (e.key === "Escape") { e.stopPropagation(); drawTabSettings(); }
+    });
+    box.replaceChildren(input, h("div", { class: "row" },
+      h("button", { class: "primary small-btn", type: "button", onclick: save }, "저장"),
+      h("button", { class: "ghost small-btn", type: "button", onclick() { drawTabSettings(); } }, "취소")));
+    input.focus();
+    input.select();
+  };
   const card = (k, mode) => {
     const on = MODES[mode].tabs.includes(k);
-    const input = h("input", {
-      type: "text", maxlength: 20, value: tabNames[k] || "", placeholder: TABS[k], "aria-label": TABS[k] + " 단추 이름",
-      oninput() {
-        const v = input.value.trim();
-        if (v) tabNames[k] = v; else delete tabNames[k];
-        // 두 모드의 같은 탭 카드는 이름 칸을 같이 쓴다
-        main.querySelectorAll('.tab-card[data-k="' + k + '"] input').forEach((i) => { if (i !== input) i.value = input.value; });
-        saveTabs();
-        redrawTabNav();
-      },
-    });
+    const box = h("div", { class: "tab-rename" },
+      tabNames[k] ? h("span", { class: "muted small" }, "원래 이름: " + TABS[k]) : "",
+      h("button", { class: "ghost small-btn", type: "button", onclick() { rename(k, box); } }, "✎ 이름 바꾸기"));
     const el = h("div", { class: "tab-card " + mode + (on ? " on" : " off") });
     // 손잡이(⠿)를 끌어 순서 바꾸기. 키보드로는 손잡이에서 화살표 키
     const grip = h("span", {
@@ -1030,7 +1042,7 @@ function drawTabSettings(note) {
     }, "⠿");
     grip.dataset.k = k;
     el.dataset.k = k;
-    el.append(h("div", { class: "tab-card-head" }, grip, h("strong", {}, TABS[k]), toggle(k, mode)), input);
+    el.append(h("div", { class: "tab-card-head" }, grip, h("strong", {}, tabName(k)), toggle(k, mode)), box);
     return el;
   };
   const section = (mode) => {
@@ -1278,6 +1290,7 @@ const PATCH_NOTES = [
       { title: "탭 설정: 끌어서 순서 바꾸기 · 기본 배치", desc: "「⚙ 설정 → 탭 설정」에서 왼쪽 ⠿ 를 끌어 탭 순서를 바꿉니다. 위쪽 막대에서 탭을 끌어 옮겨도 탭 설정 순서가 같이 바뀝니다. 「지금 배치를 기본으로 설정」으로 내 기본 배치를 정해 두고 「기본으로 되돌리기」로 돌아옵니다. 탭 설정은 이제 계정마다 따로 저장됩니다." },
     ],
     minor: [
+      "「탭 설정」: 카드마다 「✎ 이름 바꾸기」 단추가 생겼습니다. 누르고 새 이름을 적은 뒤 「저장」(또는 Enter)을 누르면 됩니다. 비우고 저장하면 처음 이름으로 돌아갑니다.",
       "「⚙ 설정」 목록과 프로필 목록이 겹쳐 보이지 않게, 하나를 열면 다른 하나는 저절로 닫힙니다.",
       "「탭 설정」 맨 위의 긴 설명 글을 지웠습니다.",
       "「⚙ 설정」 안의 화면(탭 설정·패치노트 등)을 보다가 수업모드·편집모드를 바꿔도 그 화면에 그대로 머뭅니다. 위쪽 탭 줄만 그 모드로 바뀝니다.",
