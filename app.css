@@ -204,6 +204,12 @@ main.lesson .slide { cursor: zoom-in; }
 .mode-pick.edit.on { border-color: #d97706; background: #d97706; color: #fff; }
 .tab-set td { vertical-align: middle; white-space: nowrap; }
 .tab-set input { width: 100%; min-width: 9rem; }
+.tab-set .tab-grip-cell { width: 1%; padding-right: 0; }
+.tab-grip { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 34px; border-radius: 6px; color: var(--muted); font-size: 1.1rem; cursor: grab; user-select: none; }
+.tab-grip:hover, .tab-grip:focus-visible { background: var(--accent-soft); color: var(--accent-ink); }
+.tab-set tr.dragging { opacity: .45; }
+.tab-set tr.drop-before td { box-shadow: inset 0 3px 0 var(--accent); }
+.tab-set tr.drop-after td { box-shadow: inset 0 -3px 0 var(--accent); }
 @media (prefers-reduced-motion: reduce) { .mode-knob, .mode-knob::after { transition: none; } }
 .top-right { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .5rem; margin-left: auto; }
 .top-right .mirror-status:empty { display: none; }

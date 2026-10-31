@@ -39,6 +39,7 @@ async function init() {
       error ? h("p", { class: "error" }, error.message) : null,
       h("button", { class: "ghost", type: "button", async onclick() { await sb.auth.signOut(); location.reload(); } }, "로그아웃"))));
   }
+  loadTabSettings();
   await loadProfile();
   ping();
   await loadBugCount();
@@ -851,9 +852,9 @@ function setTopHeight() {
 // ---------- 위쪽 탭과 수업모드·편집모드 ----------
 // 수업모드에서는 수업할 때 쓰는 탭, 편집모드에서는 미리 준비하는 탭만 위쪽에 보인다.
 // 모드 단추는 지금 모드를 보여 주고, 누르면 다른 모드로 바뀐다(그 모드에서 마지막으로 본 탭으로).
-// 탭은 끌어서 같은 모드 안에서 순서를 바꿀 수 있고, 그 순서는 이 브라우저에 기억한다(cra-tab-order).
+// 탭은 위쪽 막대나 「탭 설정」에서 끌어 순서를 바꾼다. 순서는 모든 탭이 하나로 같이 쓰고(tabOrder), 모드마다 그중 보일 탭만 보인다.
 // 「⚙ 설정」 단추 안의 탭(GEAR)은 어느 모드에도 속하지 않고, 열면 그 전에 있던 모드의 탭 줄이 그대로 보인다.
-// 「탭 설정」에서 탭마다 단추 이름과 어느 모드에 보일지(둘 다도 됨)를 바꿀 수 있다(cra-tab-names, cra-tab-modes).
+// 「탭 설정」에서 탭마다 단추 이름과 어느 모드에 보일지(둘 다도 됨)를 바꾼다. 모두 이 브라우저에 교사마다 기억한다(cra-tabs-교사id).
 const TABS = { run: "수업 진행", live: "학생 화면", students: "학생 관리", build: "질문·설문 만들기", preview: "수업 미리 보기", settings: "수업 설정", people: "프로필·공동작업자", manage: "관리", tabs: "탭 설정", notes: "패치노트", bugs: "버그 제보" };
 const MODES = { class: { name: "수업모드", tabs: ["run", "live", "students"] }, edit: { name: "편집모드", tabs: ["build", "preview", "settings"] } };
 const MODE_DEFAULT = { class: MODES.class.tabs.slice(), edit: MODES.edit.tabs.slice() };
@@ -863,9 +864,11 @@ let tabNav = null;        // 위쪽 막대의 탭 칸
 let tabDrag = null;       // 끌고 있는 탭
 const tabMark = h("span", { class: "tab-mark" });   // 끌어다 놓을 자리 표시
 let tabNames = {};        // 교사가 바꾼 단추 이름
-try { tabNames = JSON.parse(localStorage.getItem("cra-tab-names")) || {}; } catch {}
+const ALL_TABS = [...new Set([...MODE_DEFAULT.class, ...MODE_DEFAULT.edit])];
+let tabOrder = ALL_TABS.slice();   // 모든 탭의 순서(두 모드가 같이 쓴다)
+let tabDefault = null;    // 「기본으로 설정」으로 저장한 배치(없으면 처음 배치)
 const tabName = (k) => tabNames[k] || TABS[k];
-loadTabOrder();
+// 로그인 전에는 처음 배치(MODES 그대로). 로그인하면 loadTabSettings()가 그 교사의 배치를 읽는다
 // 지금 모드. 두 모드에 다 있는 탭과 설정 안의 탭은 마지막으로 있던 모드를 따른다
 const curMode = () => localStorage.getItem("cra-mode") === "class" && lesson ? "class" : "edit";
 const modeOf = (k) => {
@@ -895,27 +898,60 @@ function switchMode() {
   goTab(MODES[to].tabs.includes(last) ? last : MODES[to].tabs[0], to);
 }
 
-// 모드마다 보일 탭과 순서. 「탭 설정」이나 끌어 옮기기를 한 뒤에는 cra-tab-modes, 그 전에는 예전 순서(cra-tab-order)
-function loadTabOrder() {
-  let saved = null, custom = true;
-  try { saved = JSON.parse(localStorage.getItem("cra-tab-modes")); } catch {}
-  if (!saved) { custom = false; try { saved = JSON.parse(localStorage.getItem("cra-tab-order")); } catch {} }
-  for (const [name, m] of Object.entries(MODES)) {
-    const def = MODE_DEFAULT[name];
-    const list = saved && Array.isArray(saved[name]) ? saved[name] : [];
-    const order = list.filter((k, i) => TABS[k] && !GEAR.includes(k) && list.indexOf(k) === i && (custom || def.includes(k)));
-    m.tabs = custom ? order : order.concat(def.filter((k) => !order.includes(k)));
-  }
-  // 어느 모드에도 없는 탭(새로 생긴 탭)은 원래 모드 끝에, 빈 모드는 처음대로
+// 배치 = { names, order, class, edit }. 저장은 { cur: 지금 배치, def: 기본 배치 } 를 교사마다(cra-tabs-교사id)
+const tabsKey = () => "cra-tabs-" + (me ? me.id : "");
+const tabLayout = () => ({ names: { ...tabNames }, order: tabOrder.slice(), class: MODES.class.tabs.slice(), edit: MODES.edit.tabs.slice() });
+const sortByOrder = (list) => tabOrder.filter((k) => list.includes(k));
+
+function applyTabLayout(L) {
+  const ok = (list) => Array.isArray(list) ? list.filter((k, i) => ALL_TABS.includes(k) && list.indexOf(k) === i) : null;
+  tabNames = L && L.names && typeof L.names === "object" ? { ...L.names } : {};
+  const cls = ok(L && L.class), edt = ok(L && L.edit);
+  let order = ok(L && L.order) || [];
+  if (!order.length) order = [...(cls || []), ...(edt || []).filter((k) => !(cls || []).includes(k))];   // 순서가 없던 예전 저장
+  tabOrder = order.concat(ALL_TABS.filter((k) => !order.includes(k)));
+  const inMode = { class: cls || MODE_DEFAULT.class, edit: edt || MODE_DEFAULT.edit };
+  // 어느 모드에도 없는 탭(새로 생긴 탭)은 원래 모드에, 빈 모드는 처음대로
   for (const [name, def] of Object.entries(MODE_DEFAULT)) {
-    for (const k of def) if (!MODES.class.tabs.includes(k) && !MODES.edit.tabs.includes(k)) MODES[name].tabs.push(k);
-    if (!MODES[name].tabs.length) MODES[name].tabs = def.slice();
+    for (const k of def) if (!inMode.class.includes(k) && !inMode.edit.includes(k)) inMode[name] = inMode[name].concat(k);
   }
-  if (!MODES.edit.tabs.includes("settings")) MODES.edit.tabs.push("settings");   // 수업이 없을 때 새 수업을 만드는 곳
+  for (const name of Object.keys(MODES)) MODES[name].tabs = sortByOrder(inMode[name].length ? inMode[name] : MODE_DEFAULT[name]);
+  if (!MODES.edit.tabs.includes("settings")) MODES.edit.tabs = sortByOrder(MODES.edit.tabs.concat("settings"));   // 수업이 없을 때 새 수업을 만드는 곳
 }
 
-function saveTabModes() {
-  localStorage.setItem("cra-tab-modes", JSON.stringify({ class: MODES.class.tabs, edit: MODES.edit.tabs }));
+// 로그인한 뒤 그 교사의 배치를 읽는다. 처음이면 예전 판이 이 브라우저에 남긴 배치(cra-tab-names·cra-tab-modes·cra-tab-order)를 이어받는다.
+function loadTabSettings() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(tabsKey())); } catch {}
+  if (!saved || !saved.cur) {
+    let names = null, modes = null, order = null;
+    try { names = JSON.parse(localStorage.getItem("cra-tab-names")); } catch {}
+    try { modes = JSON.parse(localStorage.getItem("cra-tab-modes")); } catch {}
+    if (!modes) try { order = JSON.parse(localStorage.getItem("cra-tab-order")); } catch {}
+    const old = modes || (order && { class: (order.class || []).filter((k) => MODE_DEFAULT.class.includes(k)), edit: (order.edit || []).filter((k) => MODE_DEFAULT.edit.includes(k)) });
+    saved = { cur: names || old ? { names: names || {}, ...(old || {}) } : null, def: saved && saved.def || null };
+  }
+  applyTabLayout(saved.cur);
+  tabDefault = saved.def || null;
+}
+
+function saveTabs() {
+  try { localStorage.setItem(tabsKey(), JSON.stringify({ cur: tabLayout(), def: tabDefault })); } catch {}
+}
+
+// k를 before 탭 앞으로 옮긴다. before가 없으면 그 모드의 맨 끝(mode가 없으면 전체 맨 끝)
+function moveTab(k, before, mode) {
+  const o = tabOrder.filter((x) => x !== k);
+  let i = o.length;
+  if (before) i = o.indexOf(before);
+  else if (mode) {
+    const list = MODES[mode].tabs.filter((x) => x !== k);
+    if (list.length) i = o.indexOf(list[list.length - 1]) + 1;
+  }
+  o.splice(i, 0, k);
+  tabOrder = o;
+  for (const m of Object.values(MODES)) m.tabs = sortByOrder(m.tabs);
+  saveTabs();
 }
 
 function redrawTabNav() {
@@ -925,9 +961,12 @@ function redrawTabNav() {
   setTopHeight();
 }
 
-// 「탭 설정」(⚙ 설정 안): 위쪽 탭마다 단추 이름과, 수업모드·편집모드 중 어디에 보일지(둘 다도 됨). 이 브라우저에만 기억한다.
-function drawTabSettings() {
-  const msg = h("p", { class: "msg" });
+// 「탭 설정」(⚙ 설정 안): 위쪽 탭마다 단추 이름과, 수업모드·편집모드 중 어디에 보일지(둘 다도 됨). 왼쪽 ⠿ 를 끌어 순서를 바꾼다.
+// 위쪽 막대에서 끌어 옮긴 순서도 여기 그대로 보인다. 이 브라우저에 교사마다 기억한다.
+let rowDrag = null;       // 탭 설정 표에서 끌고 있는 줄의 탭
+function drawTabSettings(note) {
+  const msg = h("p", { class: "msg" }, note || "");
+  const redraw = (text) => { saveTabs(); drawTabSettings(text); redrawTabNav(); };
   const pick = (k, mode) => {
     const on = MODES[mode].tabs.includes(k), other = mode === "class" ? "edit" : "class";
     const why = !on ? ""
@@ -939,10 +978,8 @@ function drawTabSettings() {
       title: why || (on ? "누르면 " + MODES[mode].name + "에서 뺍니다" : "누르면 " + MODES[mode].name + "에도 보입니다"),
       onclick() {
         if (why) { msg.textContent = why; return; }
-        MODES[mode].tabs = on ? MODES[mode].tabs.filter((x) => x !== k) : MODES[mode].tabs.concat(k);
-        saveTabModes();
-        drawTabSettings();
-        redrawTabNav();
+        MODES[mode].tabs = on ? MODES[mode].tabs.filter((x) => x !== k) : sortByOrder(MODES[mode].tabs.concat(k));
+        redraw();
       },
     }, mode === "class" ? "수업" : "편집");
   };
@@ -952,36 +989,93 @@ function drawTabSettings() {
       oninput() {
         const v = input.value.trim();
         if (v) tabNames[k] = v; else delete tabNames[k];
-        localStorage.setItem("cra-tab-names", JSON.stringify(tabNames));
+        saveTabs();
         redrawTabNav();
       },
     });
-    return h("tr", {}, h("td", {}, TABS[k]), h("td", {}, input), h("td", {}, h("div", { class: "row" }, pick(k, "class"), pick(k, "edit"))));
+    // 손잡이(⠿)를 끌어 순서 바꾸기. 키보드로는 손잡이에서 ↑ ↓
+    const tr = h("tr", {});
+    const grip = h("span", {
+      class: "tab-grip", draggable: "true", tabindex: "0", role: "button", title: "끌어서 순서 바꾸기 (↑ ↓ 키로도 됩니다)", "aria-label": TABS[k] + " 순서 바꾸기",
+      ondragstart(e) {
+        rowDrag = k;
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", tabName(k));
+        e.dataTransfer.setDragImage(tr, 20, 20);
+        tr.classList.add("dragging");
+      },
+      ondragend() { rowDrag = null; tr.classList.remove("dragging"); },
+      onkeydown(e) {
+        const d = { ArrowUp: -1, ArrowDown: 1 }[e.key];
+        if (!d) return;
+        e.preventDefault();
+        const i = tabOrder.indexOf(k), j = i + d;
+        if (j < 0 || j >= tabOrder.length) return;
+        moveTab(k, d < 0 ? tabOrder[j] : tabOrder[j + 1] || null, null);
+        drawTabSettings();
+        redrawTabNav();
+        const again = main.querySelector('.tab-grip[data-k="' + k + '"]');
+        if (again) again.focus();
+      },
+    }, "⠿");
+    grip.dataset.k = k;
+    tr.dataset.k = k;
+    tr.append(h("td", { class: "tab-grip-cell" }, grip), h("td", {}, TABS[k]), h("td", {}, input), h("td", {}, h("div", { class: "row" }, pick(k, "class"), pick(k, "edit"))));
+    return tr;
   };
-  const all = [...new Set([...MODE_DEFAULT.class, ...MODE_DEFAULT.edit])];
+  const tbody = h("tbody", {}, tabOrder.map(row));
+  // 놓으면 마우스 아래 줄의 앞에 들어간다(줄 아래쪽 절반이면 그 뒤)
+  const others = () => [...tbody.children].filter((r) => r.dataset.k !== rowDrag);
+  const target = (e) => others().find((r) => { const b = r.getBoundingClientRect(); return e.clientY < b.top + b.height / 2; }) || null;
+  const clearMark = () => tbody.querySelectorAll(".drop-before, .drop-after").forEach((r) => r.classList.remove("drop-before", "drop-after"));
+  tbody.addEventListener("dragover", (e) => {
+    if (!rowDrag) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    clearMark();
+    const t = target(e), rows = others();
+    if (t) t.classList.add("drop-before");
+    else if (rows.length) rows[rows.length - 1].classList.add("drop-after");
+  });
+  tbody.addEventListener("dragleave", (e) => { if (!tbody.contains(e.relatedTarget)) clearMark(); });
+  tbody.addEventListener("drop", (e) => {
+    if (!rowDrag) return;
+    e.preventDefault();
+    const k = rowDrag, t = target(e);
+    rowDrag = null;
+    moveTab(k, t ? t.dataset.k : null, null);
+    drawTabSettings();
+    redrawTabNav();
+  });
+  const isDefault = !!tabDefault && JSON.stringify(tabLayout()) === JSON.stringify(tabDefault);
   main.replaceChildren(h("div", { class: "stack narrowish" },
     h("section", { class: "card stack" },
       h("h2", {}, "탭 설정"),
-      h("p", { class: "muted small" }, "위쪽 탭 단추의 이름을 바꾸고, 수업모드·편집모드 중 어디에 보일지 고릅니다. 「수업」「편집」을 눌러 켜고 끕니다(둘 다 켜면 두 모드에 다 보임). 칸을 비우면 처음 이름으로 돌아갑니다."),
+      h("p", { class: "muted small" }, "위쪽 탭 단추의 이름을 바꾸고, 수업모드·편집모드 중 어디에 보일지 고릅니다. 「수업」「편집」을 눌러 켜고 끕니다(둘 다 켜면 두 모드에 다 보임). 칸을 비우면 처음 이름으로 돌아갑니다. 왼쪽 ⠿ 를 끌어 순서를 바꿉니다. 위쪽 막대에서 탭을 끌어 옮겨도 여기 순서가 같이 바뀝니다."),
       h("div", { class: "table-wrap" }, h("table", { class: "tab-set" },
-        h("thead", {}, h("tr", {}, h("th", {}, "탭"), h("th", {}, "단추 이름"), h("th", {}, "보이는 곳"))),
-        h("tbody", {}, all.map(row)))),
+        h("thead", {}, h("tr", {}, h("th", { "aria-label": "순서" }), h("th", {}, "탭"), h("th", {}, "단추 이름"), h("th", {}, "보이는 곳"))),
+        tbody)),
       msg,
-      h("p", { class: "muted small" }, "이 설정은 이 브라우저에만 저장됩니다. 쪽 넘김은 지금 모드를 따릅니다: 수업모드에서는 학생 화면도 따라가고, 편집모드에서는 이 화면에서만 넘어갑니다."),
-      h("div", { class: "row" }, h("button", {
-        class: "ghost", type: "button",
-        onclick() {
-          if (!confirm("탭 이름과 보이는 곳을 모두 처음대로 되돌릴까요?")) return;
-          tabNames = {};
-          localStorage.removeItem("cra-tab-names");
-          localStorage.removeItem("cra-tab-modes");
-          localStorage.removeItem("cra-tab-order");
-          MODES.class.tabs = MODE_DEFAULT.class.slice();
-          MODES.edit.tabs = MODE_DEFAULT.edit.slice();
-          drawTabSettings();
-          redrawTabNav();
-        },
-      }, "처음대로 되돌리기")))));
+      h("p", { class: "muted small" }, "이 설정은 이 브라우저에 내 계정으로만 저장됩니다. 다른 선생님이 이 컴퓨터에서 로그인하면 그 선생님의 설정이 보입니다. 쪽 넘김은 지금 모드를 따릅니다: 수업모드에서는 학생 화면도 따라가고, 편집모드에서는 이 화면에서만 넘어갑니다."),
+      h("div", { class: "row" },
+        h("button", {
+          class: "primary", type: "button", disabled: isDefault,
+          title: "지금 순서·보이는 곳·단추 이름을 내 기본 배치로 저장합니다. 나중에 「기본으로 되돌리기」를 누르면 이 배치로 돌아옵니다.",
+          onclick() { tabDefault = tabLayout(); redraw("지금 배치를 기본으로 정했습니다."); },
+        }, isDefault ? "✓ 지금이 기본 배치" : "지금 배치를 기본으로 설정"),
+        h("button", {
+          class: "ghost", type: "button", disabled: !tabDefault || isDefault,
+          title: tabDefault ? "「기본으로 설정」해 둔 배치로 돌아갑니다" : "아직 기본으로 설정한 배치가 없습니다",
+          onclick() { applyTabLayout(tabDefault); redraw("기본 배치로 되돌렸습니다."); },
+        }, "기본으로 되돌리기"),
+        h("button", {
+          class: "ghost", type: "button",
+          onclick() {
+            if (!confirm("탭 이름·순서·보이는 곳을 이 웹앱의 처음 배치로 되돌릴까요? (기본으로 설정해 둔 배치는 그대로 남습니다)")) return;
+            applyTabLayout(null);
+            redraw("처음 배치로 되돌렸습니다.");
+          },
+        }, "처음대로 되돌리기")))));
 }
 
 function tabButton(k) {
@@ -1019,17 +1113,12 @@ function tabDropZone(nav, mode) {
     if (!tabDrag) return;
     e.preventDefault();
     const k = tabDrag, b = before(e);
-    const list = MODES[mode].tabs.filter((x) => x !== k);
-    const i = b ? list.indexOf(b.dataset.tab) : -1;
-    list.splice(i < 0 ? list.length : i, 0, k);
-    MODES[mode].tabs = list;
-    saveTabModes();
+    moveTab(k, b ? b.dataset.tab : null, mode);
     tabDrag = null;
     tabMark.remove();
     document.body.classList.remove("tab-dragging");
-    const nav2 = buildTabNav();
-    tabNav.replaceWith(nav2);
-    tabNav = nav2;
+    redrawTabNav();
+    if (tab === "tabs") drawTabSettings();   // 탭 설정을 보고 있으면 그 순서도 바로 바꾼다
   });
 }
 
@@ -1159,6 +1248,9 @@ document.addEventListener("visibilitychange", ping);
 // 마지막으로 본 날짜(cra-notes-seen)보다 새 소식이 있으면 설정 목록의 「패치노트」 옆에 「새 소식」, 그 날짜에는 NEW 표시.
 const PATCH_NOTES = [
   { date: "2026-10-31",
+    major: [
+      { title: "탭 설정: 끌어서 순서 바꾸기 · 기본 배치", desc: "「⚙ 설정 → 탭 설정」에서 왼쪽 ⠿ 를 끌어 탭 순서를 바꿉니다. 위쪽 막대에서 탭을 끌어 옮겨도 탭 설정 순서가 같이 바뀝니다. 「지금 배치를 기본으로 설정」으로 내 기본 배치를 정해 두고 「기본으로 되돌리기」로 돌아옵니다. 탭 설정은 이제 계정마다 따로 저장됩니다." },
+    ],
     minor: [
       "「학번」을 모두 「번호」로 바꿨습니다(학생 입장 화면의 보기는 「예: 3」, 교사 화면의 표·CSV 내려받기 제목, 안내 문구).",
     ] },
