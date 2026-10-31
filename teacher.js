@@ -1478,10 +1478,15 @@ function syncPresent() {
   drawMirrorStatus();
 }
 
+// 수업 화면은 실제 수업 쪽을 띄운다. 편집모드(수업 미리 보기)에서 넘긴 쪽은 교사 화면에만(보기만은 자기 쪽)
+function presentPage() {
+  return modeOf(tab) === "edit" && !readOnly() ? lesson.page : viewPage();
+}
+
 function presentState() {
   const L = lesson;
   return {
-    lesson: L && { id: L.id, title: L.title, slide_dir: L.slide_dir, slide_count: L.slide_count, page: viewPage(), transition: L.transition },
+    lesson: L && { id: L.id, title: L.title, slide_dir: L.slide_dir, slide_count: L.slide_count, page: presentPage(), transition: L.transition },
     sims: L ? activities.filter((a) => a.kind === "sim").map((a) => ({ id: a.id, title: a.title, html: a.html, html_ver: a.html_ver,
       page: a.page, page_to: a.page_to, sim_full: a.sim_full, sim_box: a.sim_box })) : [],
     show: presentShow,
@@ -1509,7 +1514,10 @@ if (presentCh) {
     }
     if (m.type === "bye") { presentOn = false; updateMirror(); }   // updateMirror가 끝나면 위쪽 단추도 다시 그린다
     if (m.type === "closed" && presentClose) presentClose();   // 수업 화면에서 Esc·닫기를 누르면 교사 화면에서도 닫는다
-    if (m.type === "step" && lesson && lesson.slide_count) setPage(viewPage() + (m.step > 0 ? 1 : -1));   // 수업 화면에서 ← → 를 누름
+    if (m.type === "step" && lesson && lesson.slide_count) {   // 수업 화면에서 ← → 를 누름: 수업 화면 쪽을 넘김(편집모드면 실제 수업 쪽을 넘김)
+      if (modeOf(tab) === "edit" && !readOnly()) { const n = Math.min(Math.max(lesson.page + (m.step > 0 ? 1 : -1), 1), lesson.slide_count); if (n !== lesson.page) setLesson({ page: n }); }
+      else setPage(viewPage() + (m.step > 0 ? 1 : -1));
+    }
   };
   presentCh.postMessage({ type: "who" });   // 이 탭을 새로 열었을 때 이미 열린 수업 화면이 있는지
 }
@@ -1714,7 +1722,7 @@ function drawRun() {
       hasSlides ? h("nav", { class: "pager" }, prev, where, next, h("span", { class: "spacer" }),
         h("button", { class: "ghost", type: "button", onclick() { if (stage.requestFullscreen) stage.requestFullscreen(); } }, "전체 화면"),
         h("button", { class: "ghost", type: "button", onclick: openPresent }, "수업 화면 띄우기")) : null,
-      hasSlides && preview ? h("p", { class: "muted small" }, "미리 보기: 여기서 쪽을 넘겨도 학생 화면은 따라 넘어가지 않습니다(수업 화면 띄우기 탭은 따라감).") : null,
+      hasSlides && preview ? h("p", { class: "muted small" }, "미리 보기: 여기서 쪽을 넘겨도 학생 화면과 수업 화면(프로젝터)은 따라 넘어가지 않습니다.") : null,
       h("div", { class: "row" },
         h("button", { class: "ghost", type: "button", onclick: showJoin }, "학생 접속 주소·QR"),
         preview ? null : h("button", { class: "ghost", type: "button", onclick() { downloadCSV(activities, lesson.code + "_전체응답"); } }, "전체 응답 CSV")),
