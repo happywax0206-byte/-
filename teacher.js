@@ -961,52 +961,57 @@ function redrawTabNav() {
   setTopHeight();
 }
 
-// 「탭 설정」(⚙ 설정 안): 위쪽 탭마다 단추 이름과, 수업모드·편집모드 중 어디에 보일지(둘 다도 됨). 왼쪽 ⠿ 를 끌어 순서를 바꾼다.
-// 위쪽 막대에서 끌어 옮긴 순서도 여기 그대로 보인다. 이 브라우저에 교사마다 기억한다.
-let rowDrag = null;       // 탭 설정 표에서 끌고 있는 줄의 탭
+// 「탭 설정」(⚙ 설정 안): 수업모드·편집모드를 위아래로 나눠, 모드마다 모든 탭을 카드로 보인다.
+// 그 모드에 켜진 탭은 진하게, 꺼진 탭은 흐리게. 카드의 스위치로 켜고 끄고(두 모드에 다 켜도 됨), 칸에 단추 이름을 적는다.
+// 왼쪽 ⠿ 를 끌어 순서를 바꾼다(순서는 두 모드가 같이 씀). 위쪽 막대에서 끌어 옮긴 순서도 여기 그대로 보인다. 이 브라우저에 교사마다 기억한다.
+let rowDrag = null;       // 탭 설정에서 끌고 있는 카드의 탭
 function drawTabSettings(note) {
   const msg = h("p", { class: "msg" }, note || "");
   const redraw = (text) => { saveTabs(); drawTabSettings(text); redrawTabNav(); };
-  const pick = (k, mode) => {
+  const toggle = (k, mode) => {
     const on = MODES[mode].tabs.includes(k), other = mode === "class" ? "edit" : "class";
     const why = !on ? ""
-      : !MODES[other].tabs.includes(k) ? "「" + tabName(k) + "」은(는) 한 모드에는 꼭 보여야 합니다. 다른 모드를 먼저 켜세요."
+      : !MODES[other].tabs.includes(k) ? "「" + tabName(k) + "」은(는) 한 모드에는 꼭 보여야 합니다. " + MODES[other].name + "에서 먼저 켜세요."
       : MODES[mode].tabs.length < 2 ? MODES[mode].name + "에는 탭이 하나는 있어야 합니다."
-      : k === "settings" && mode === "edit" ? "「" + tabName(k) + "」은(는) 수업이 없을 때 새 수업을 만드는 곳이라 편집모드에서 뺄 수 없습니다." : "";
+      : k === "settings" && mode === "edit" ? "「" + tabName(k) + "」은(는) 수업이 없을 때 새 수업을 만드는 곳이라 편집모드에서 끌 수 없습니다." : "";
     return h("button", {
-      type: "button", class: "mode-pick " + mode + (on ? " on" : ""), "aria-pressed": on ? "true" : "false",
-      title: why || (on ? "누르면 " + MODES[mode].name + "에서 뺍니다" : "누르면 " + MODES[mode].name + "에도 보입니다"),
+      type: "button", class: "tab-switch " + mode, role: "switch", "aria-checked": on ? "true" : "false",
+      "aria-label": MODES[mode].name + "에 " + TABS[k] + " 보이기",
+      title: why || (on ? "누르면 " + MODES[mode].name + "에서 끕니다" : "누르면 " + MODES[mode].name + "에 보입니다"),
       onclick() {
         if (why) { msg.textContent = why; return; }
         MODES[mode].tabs = on ? MODES[mode].tabs.filter((x) => x !== k) : sortByOrder(MODES[mode].tabs.concat(k));
         redraw();
       },
-    }, mode === "class" ? "수업" : "편집");
+    }, h("span", { class: "mode-knob", "aria-hidden": "true" }), on ? "켜짐" : "꺼짐");
   };
-  const row = (k) => {
+  const card = (k, mode) => {
+    const on = MODES[mode].tabs.includes(k);
     const input = h("input", {
       type: "text", maxlength: 20, value: tabNames[k] || "", placeholder: TABS[k], "aria-label": TABS[k] + " 단추 이름",
       oninput() {
         const v = input.value.trim();
         if (v) tabNames[k] = v; else delete tabNames[k];
+        // 두 모드의 같은 탭 카드는 이름 칸을 같이 쓴다
+        main.querySelectorAll('.tab-card[data-k="' + k + '"] input').forEach((i) => { if (i !== input) i.value = input.value; });
         saveTabs();
         redrawTabNav();
       },
     });
-    // 손잡이(⠿)를 끌어 순서 바꾸기. 키보드로는 손잡이에서 ↑ ↓
-    const tr = h("tr", {});
+    const el = h("div", { class: "tab-card " + mode + (on ? " on" : " off") });
+    // 손잡이(⠿)를 끌어 순서 바꾸기. 키보드로는 손잡이에서 화살표 키
     const grip = h("span", {
-      class: "tab-grip", draggable: "true", tabindex: "0", role: "button", title: "끌어서 순서 바꾸기 (↑ ↓ 키로도 됩니다)", "aria-label": TABS[k] + " 순서 바꾸기",
+      class: "tab-grip", draggable: "true", tabindex: "0", role: "button", title: "끌어서 순서 바꾸기 (화살표 키로도 됩니다)", "aria-label": TABS[k] + " 순서 바꾸기",
       ondragstart(e) {
         rowDrag = k;
         e.dataTransfer.effectAllowed = "move";
         e.dataTransfer.setData("text/plain", tabName(k));
-        e.dataTransfer.setDragImage(tr, 20, 20);
-        tr.classList.add("dragging");
+        e.dataTransfer.setDragImage(el, 20, 20);
+        el.classList.add("dragging");
       },
-      ondragend() { rowDrag = null; tr.classList.remove("dragging"); },
+      ondragend() { rowDrag = null; el.classList.remove("dragging"); },
       onkeydown(e) {
-        const d = { ArrowUp: -1, ArrowDown: 1 }[e.key];
+        const d = { ArrowUp: -1, ArrowLeft: -1, ArrowDown: 1, ArrowRight: 1 }[e.key];
         if (!d) return;
         e.preventDefault();
         const i = tabOrder.indexOf(k), j = i + d;
@@ -1014,47 +1019,54 @@ function drawTabSettings(note) {
         moveTab(k, d < 0 ? tabOrder[j] : tabOrder[j + 1] || null, null);
         drawTabSettings();
         redrawTabNav();
-        const again = main.querySelector('.tab-grip[data-k="' + k + '"]');
+        const again = main.querySelector('.tab-cards.' + mode + ' .tab-grip[data-k="' + k + '"]');
         if (again) again.focus();
       },
     }, "⠿");
     grip.dataset.k = k;
-    tr.dataset.k = k;
-    tr.append(h("td", { class: "tab-grip-cell" }, grip), h("td", {}, TABS[k]), h("td", {}, input), h("td", {}, h("div", { class: "row" }, pick(k, "class"), pick(k, "edit"))));
-    return tr;
+    el.dataset.k = k;
+    el.append(h("div", { class: "tab-card-head" }, grip, h("strong", {}, TABS[k]), toggle(k, mode)), input);
+    return el;
   };
-  const tbody = h("tbody", {}, tabOrder.map(row));
-  // 놓으면 마우스 아래 줄의 앞에 들어간다(줄 아래쪽 절반이면 그 뒤)
-  const others = () => [...tbody.children].filter((r) => r.dataset.k !== rowDrag);
-  const target = (e) => others().find((r) => { const b = r.getBoundingClientRect(); return e.clientY < b.top + b.height / 2; }) || null;
-  const clearMark = () => tbody.querySelectorAll(".drop-before, .drop-after").forEach((r) => r.classList.remove("drop-before", "drop-after"));
-  tbody.addEventListener("dragover", (e) => {
-    if (!rowDrag) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    clearMark();
-    const t = target(e), rows = others();
-    if (t) t.classList.add("drop-before");
-    else if (rows.length) rows[rows.length - 1].classList.add("drop-after");
-  });
-  tbody.addEventListener("dragleave", (e) => { if (!tbody.contains(e.relatedTarget)) clearMark(); });
-  tbody.addEventListener("drop", (e) => {
-    if (!rowDrag) return;
-    e.preventDefault();
-    const k = rowDrag, t = target(e);
-    rowDrag = null;
-    moveTab(k, t ? t.dataset.k : null, null);
-    drawTabSettings();
-    redrawTabNav();
-  });
+  const section = (mode) => {
+    const grid = h("div", { class: "tab-cards " + mode }, tabOrder.map((k) => card(k, mode)));
+    // 놓으면 마우스 아래 카드의 앞에 들어간다(카드 오른쪽 절반이면 그 뒤)
+    const others = () => [...grid.children].filter((c) => c.dataset.k !== rowDrag);
+    const target = (e) => others().find((c) => {
+      const r = c.getBoundingClientRect();
+      return e.clientY < r.top || (e.clientY < r.bottom && e.clientX < r.left + r.width / 2);
+    }) || null;
+    const clearMark = () => main.querySelectorAll(".tab-card.drop-before, .tab-card.drop-after").forEach((c) => c.classList.remove("drop-before", "drop-after"));
+    grid.addEventListener("dragover", (e) => {
+      if (!rowDrag) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      clearMark();
+      const t = target(e), cards = others();
+      if (t) t.classList.add("drop-before");
+      else if (cards.length) cards[cards.length - 1].classList.add("drop-after");
+    });
+    grid.addEventListener("dragleave", (e) => { if (!grid.contains(e.relatedTarget)) clearMark(); });
+    grid.addEventListener("drop", (e) => {
+      if (!rowDrag) return;
+      e.preventDefault();
+      const k = rowDrag, t = target(e);
+      rowDrag = null;
+      moveTab(k, t ? t.dataset.k : null, null);
+      drawTabSettings();
+      redrawTabNav();
+    });
+    return h("div", { class: "tab-mode " + mode },
+      h("h3", {}, MODES[mode].name, h("span", { class: "muted small" }, " · 켠 탭 " + MODES[mode].tabs.length + "개")),
+      grid);
+  };
   const isDefault = !!tabDefault && JSON.stringify(tabLayout()) === JSON.stringify(tabDefault);
   main.replaceChildren(h("div", { class: "stack narrowish" },
     h("section", { class: "card stack" },
       h("h2", {}, "탭 설정"),
-      h("p", { class: "muted small" }, "위쪽 탭 단추의 이름을 바꾸고, 수업모드·편집모드 중 어디에 보일지 고릅니다. 「수업」「편집」을 눌러 켜고 끕니다(둘 다 켜면 두 모드에 다 보임). 칸을 비우면 처음 이름으로 돌아갑니다. 왼쪽 ⠿ 를 끌어 순서를 바꿉니다. 위쪽 막대에서 탭을 끌어 옮겨도 여기 순서가 같이 바뀝니다."),
-      h("div", { class: "table-wrap" }, h("table", { class: "tab-set" },
-        h("thead", {}, h("tr", {}, h("th", { "aria-label": "순서" }), h("th", {}, "탭"), h("th", {}, "단추 이름"), h("th", {}, "보이는 곳"))),
-        tbody)),
+      h("p", { class: "muted small" }, "모드마다 모든 탭이 카드로 보입니다. 진한 카드는 그 모드의 위쪽에 보이는 탭, 흐린 카드는 안 보이는 탭입니다. 스위치로 켜고 끕니다(두 모드에 다 켜도 됩니다). 칸에 단추 이름을 적고, 비우면 처음 이름으로 돌아갑니다. 왼쪽 ⠿ 를 끌어 순서를 바꿉니다(두 모드가 같은 순서를 씁니다). 위쪽 막대에서 탭을 끌어 옮겨도 여기 순서가 같이 바뀝니다."),
+      section("class"),
+      section("edit"),
       msg,
       h("p", { class: "muted small" }, "이 설정은 이 브라우저에 내 계정으로만 저장됩니다. 다른 선생님이 이 컴퓨터에서 로그인하면 그 선생님의 설정이 보입니다. 쪽 넘김은 지금 모드를 따릅니다: 수업모드에서는 학생 화면도 따라가고, 편집모드에서는 이 화면에서만 넘어갑니다."),
       h("div", { class: "row" },
@@ -1249,6 +1261,7 @@ document.addEventListener("visibilitychange", ping);
 const PATCH_NOTES = [
   { date: "2026-10-31",
     major: [
+      { title: "탭 설정: 카드 모양으로", desc: "「⚙ 설정 → 탭 설정」이 표 대신 카드로 바뀌었습니다. 위에는 수업모드, 아래에는 편집모드의 탭 카드가 있고, 그 모드에 보이는 탭은 진하게, 안 보이는 탭은 흐리게 보입니다. 카드의 스위치로 켜고 끕니다. 끌어서 옮기기, 이름 바꾸기, 기본 배치 단추는 그대로입니다." },
       { title: "탭 설정: 끌어서 순서 바꾸기 · 기본 배치", desc: "「⚙ 설정 → 탭 설정」에서 왼쪽 ⠿ 를 끌어 탭 순서를 바꿉니다. 위쪽 막대에서 탭을 끌어 옮겨도 탭 설정 순서가 같이 바뀝니다. 「지금 배치를 기본으로 설정」으로 내 기본 배치를 정해 두고 「기본으로 되돌리기」로 돌아옵니다. 탭 설정은 이제 계정마다 따로 저장됩니다." },
     ],
     minor: [
