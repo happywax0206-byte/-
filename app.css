@@ -525,3 +525,12 @@ body.present .credit { display: none; }
   .note-date { position: static; flex-direction: row; align-items: baseline; gap: .5rem; }
   .note-newtag { margin-top: 0; }
 }
+
+/* 교사: 위쪽 줄은 창 너비와 상관없이 한 줄로 고정(제목·모드 | 탭 | 오른쪽 단추). 좁으면 탭 줄만 옆으로 밀어 본다 */
+.teacher .top { flex-wrap: nowrap; justify-content: flex-start; }
+.teacher .top-title { flex: 0 1 auto; flex-wrap: nowrap; }
+.teacher .top-title select { flex: 0 1 auto; min-width: 7rem; }
+.teacher .top .tabs { flex: 1 1 0; min-width: 0; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; padding: 3px 2px; scrollbar-width: thin; }
+.teacher .top .tab { flex: none; white-space: nowrap; }
+.teacher .top-right { flex: none; flex-wrap: nowrap; }
+.teacher .top-right > * { flex: none; white-space: nowrap; }
