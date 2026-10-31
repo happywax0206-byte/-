@@ -853,7 +853,7 @@ function setTopHeight() {
 // 수업모드에서는 수업할 때 쓰는 탭, 편집모드에서는 미리 준비하는 탭만 위쪽에 보인다.
 // 모드 단추는 지금 모드를 보여 주고, 누르면 다른 모드로 바뀐다(그 모드에서 마지막으로 본 탭으로).
 // 탭은 위쪽 막대나 「탭 설정」에서 끌어 순서를 바꾼다. 순서는 모든 탭이 하나로 같이 쓰고(tabOrder), 모드마다 그중 보일 탭만 보인다.
-// 「⚙ 설정」 단추 안의 탭(GEAR)은 어느 모드에도 속하지 않고, 열면 그 전에 있던 모드의 탭 줄이 그대로 보인다.
+// 「⚙ 설정」 단추 안의 탭(GEAR)은 어느 모드에도 속하지 않고, 열면 그 전에 있던 모드의 탭 줄이 그대로 보인다. 그 안에서 모드를 바꾸면 그 탭에 머문 채 탭 줄만 바뀐다.
 // 「탭 설정」에서 탭마다 단추 이름과 어느 모드에 보일지(둘 다도 됨)를 바꾼다. 모두 이 브라우저에 교사마다 기억한다(cra-tabs-교사id).
 const TABS = { run: "수업 진행", live: "학생 화면", students: "학생 관리", build: "질문·설문 만들기", preview: "수업 미리 보기", settings: "수업 설정", people: "프로필·공동작업자", manage: "관리", tabs: "탭 설정", notes: "패치노트", bugs: "버그 제보" };
 const MODES = { class: { name: "수업모드", tabs: ["run", "live", "students"] }, edit: { name: "편집모드", tabs: ["build", "preview", "settings"] } };
@@ -894,6 +894,11 @@ async function goTab(k, mode) {
 
 function switchMode() {
   const to = modeOf(tab) === "class" ? "edit" : "class";
+  if (GEAR.includes(tab)) {   // 설정 안의 탭은 그대로 두고 위쪽 탭 줄만 그 모드로 바꾼다
+    localStorage.setItem("cra-mode", to);
+    profileOpen = false; gearOpen = false;
+    return draw();
+  }
   const last = localStorage.getItem("cra-tab-" + to);
   goTab(MODES[to].tabs.includes(last) ? last : MODES[to].tabs[0], to);
 }
@@ -1265,6 +1270,7 @@ const PATCH_NOTES = [
       { title: "탭 설정: 끌어서 순서 바꾸기 · 기본 배치", desc: "「⚙ 설정 → 탭 설정」에서 왼쪽 ⠿ 를 끌어 탭 순서를 바꿉니다. 위쪽 막대에서 탭을 끌어 옮겨도 탭 설정 순서가 같이 바뀝니다. 「지금 배치를 기본으로 설정」으로 내 기본 배치를 정해 두고 「기본으로 되돌리기」로 돌아옵니다. 탭 설정은 이제 계정마다 따로 저장됩니다." },
     ],
     minor: [
+      "「⚙ 설정」 안의 화면(탭 설정·패치노트 등)을 보다가 수업모드·편집모드를 바꿔도 그 화면에 그대로 머뭅니다. 위쪽 탭 줄만 그 모드로 바뀝니다.",
       "「학번」을 모두 「번호」로 바꿨습니다(학생 입장 화면의 보기는 「예: 3」, 교사 화면의 표·CSV 내려받기 제목, 안내 문구).",
     ] },
   { date: "2026-10-30",
