@@ -182,7 +182,10 @@ main.lesson .slide { cursor: zoom-in; }
 .tab.on::after { background: #fff; }
 .tab:hover:not(:disabled)::after, .tab:focus-visible::after, .top .link:hover::after, .top .link:focus-visible::after, .present-btn:hover::after, .present-btn:focus-visible::after { transform: scaleX(1); }
 .top .link, .present-btn { position: relative; }
-@media (prefers-reduced-motion: reduce) { .tab::after, .top .link::after, .present-btn::after { transition: none; } }
+/* 막대와 함께 옅은 회색 상자도 깔아 마우스가 올라간 느낌을 준다(선택된 탭은 파란 바탕 그대로) */
+.tab, .top .link, .ghost.present-btn { transition: background-color .15s ease; }
+.tab:not(.on):hover:not(:disabled):not([aria-disabled="true"]), .tab:not(.on):focus-visible, .top .link:hover:not(:disabled), .top .link:focus-visible, .ghost.present-btn:hover:not(:disabled), .ghost.present-btn:focus-visible { background-color: rgba(15, 23, 42, .07); }
+@media (prefers-reduced-motion: reduce) { .tab::after, .top .link::after, .present-btn::after, .tab, .top .link, .ghost.present-btn { transition: none; } }
 .tab:disabled, .tab[aria-disabled="true"] { cursor: default; opacity: .55; }
 .tab[aria-disabled="true"]:hover::after { transform: scaleX(0); }
 .tab[draggable="true"] { cursor: grab; }
