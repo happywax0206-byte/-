@@ -1,12 +1,12 @@
 {
   "manifest_version": 3,
   "name": "수업 응답 · Supabase 사용량 읽기",
-  "version": "1.0.0",
-  "description": "수업 응답 교사 화면의 「관리」 탭에서, 이 브라우저가 Supabase 대시보드에 로그인되어 있을 때만 Usage 숫자를 읽어 보여 줍니다. 로그인은 하지 않습니다.",
+  "version": "1.1.0",
+  "description": "수업 응답 교사 화면과 LIVErary 사서실의 「관리」 탭에서, 이 브라우저가 Supabase 대시보드에 로그인되어 있을 때만 Usage 숫자를 읽어 보여 줍니다. 로그인은 하지 않습니다.",
   "permissions": ["scripting", "storage"],
   "host_permissions": ["https://supabase.com/*", "https://api.supabase.com/*"],
   "background": { "service_worker": "background.js" },
   "content_scripts": [
-    { "matches": ["https://happywax0206-byte.github.io/-/*"], "js": ["bridge.js"], "run_at": "document_start" }
+    { "matches": ["https://happywax0206-byte.github.io/-/*", "https://bdcastwiki.pages.dev/admin/*"], "js": ["bridge.js"], "run_at": "document_start" }
   ]
 }
