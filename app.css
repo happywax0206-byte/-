@@ -186,8 +186,8 @@ main.lesson .slide { cursor: zoom-in; }
 .tab:disabled, .tab[aria-disabled="true"] { cursor: default; opacity: .55; }
 .tab[aria-disabled="true"]:hover::after { transform: scaleX(0); }
 .tab[draggable="true"] { cursor: grab; }
-.tab-mark { flex: none; align-self: stretch; width: 3px; border-radius: 2px; background: var(--accent); }
-.tab-dragging .tabs { border-radius: 8px; outline: 2px dashed var(--line); outline-offset: 2px; }
+/* 끌어서 순서 바꾸기: 들어갈 자리에 생기는 빈칸(dragSort) */
+.drag-gap { flex: none; box-sizing: border-box; border: 2px dashed var(--accent); border-radius: 10px; background: var(--accent-soft); }
 /* 수업모드·편집모드 스위치: 지금 모드 이름을 보이고, 누르면 다른 모드로 */
 .tabs { align-items: center; }
 .mode-switch { display: inline-flex; align-items: center; gap: .5rem; padding: .3rem .9rem .3rem .35rem; border: 2px solid var(--accent); border-radius: 999px; background: var(--card); color: var(--accent); font-weight: 700; white-space: nowrap; }
@@ -216,9 +216,6 @@ main.lesson .slide { cursor: zoom-in; }
 .tab-rename .row { gap: .3rem; }
 .tab-card-head { display: flex; align-items: center; gap: .3rem; min-width: 0; }
 .tab-card-head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tab-card.dragging { opacity: .3; }
-.tab-card.drop-before { box-shadow: -4px 0 0 var(--accent); }
-.tab-card.drop-after { box-shadow: 4px 0 0 var(--accent); }
 .tab-switch { display: inline-flex; align-items: center; gap: .35rem; flex: none; padding: .15rem .5rem .15rem .2rem; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: .85rem; font-weight: 700; }
 .tab-switch .mode-knob { width: 34px; height: 20px; }
 .tab-switch .mode-knob::after { width: 14px; height: 14px; }
@@ -288,9 +285,7 @@ main.lesson .slide { cursor: zoom-in; }
 .act-item.on { border: 2px solid var(--accent); background: var(--accent-soft); }
 .act-row { display: flex; align-items: stretch; gap: .2rem; border-radius: 10px; }
 .act-row > .act-item { flex: 1; min-width: 0; }
-.act-row.dragging { opacity: .4; }
-.act-row.drop-before { box-shadow: 0 -3px 0 var(--accent); }
-.act-row.drop-after { box-shadow: 0 3px 0 var(--accent); }
+.act-group { display: flex; flex-direction: column; gap: 1rem; }
 .drag-handle { display: flex; align-items: center; padding: 0 .3rem; color: var(--muted); cursor: grab; user-select: none; letter-spacing: -.15em; }
 .drag-handle:active { cursor: grabbing; }
 .act-group-head { margin: .4rem 0 -.2rem; font-size: .82rem; font-weight: 700; color: var(--muted); }
@@ -305,9 +300,6 @@ main.lesson .slide { cursor: zoom-in; }
 .thumb .link { min-height: 32px; padding: 0 .3rem; font-size: .82rem; }
 .thumbs img { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 6px; }
 .thumb[draggable="true"] img { cursor: grab; }
-.thumb.dragging { opacity: .4; }
-.thumb.drop-before img { box-shadow: -4px 0 0 var(--accent); }
-.thumb.drop-after img { box-shadow: 4px 0 0 var(--accent); }
 progress { width: 100%; height: 10px; }
 input[type=file] { font: inherit; max-width: 100%; }
 

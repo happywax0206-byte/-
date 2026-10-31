@@ -861,8 +861,6 @@ const MODE_DEFAULT = { class: MODES.class.tabs.slice(), edit: MODES.edit.tabs.sl
 const GEAR = ["people", "manage", "tabs", "notes", "bugs"];
 const isRunTab = () => tab === "run" || tab === "preview";   // 수업 진행 화면을 쓰는 탭(미리 보기는 그 일부만)
 let tabNav = null;        // 위쪽 막대의 탭 칸
-let tabDrag = null;       // 끌고 있는 탭
-const tabMark = h("span", { class: "tab-mark" });   // 끌어다 놓을 자리 표시
 let tabNames = {};        // 교사가 바꾼 단추 이름
 const ALL_TABS = [...new Set([...MODE_DEFAULT.class, ...MODE_DEFAULT.edit])];
 let tabOrder = ALL_TABS.slice();   // 모든 탭의 순서(두 모드가 같이 쓴다)
@@ -969,7 +967,6 @@ function redrawTabNav() {
 // 「탭 설정」(⚙ 설정 안): 수업모드·편집모드를 위아래로 나눠, 모드마다 모든 탭을 카드로 보인다.
 // 그 모드에 켜진 탭은 진하게, 꺼진 탭은 흐리게. 카드의 스위치로 켜고 끄고(두 모드에 다 켜도 됨), 「이름 바꾸기」 단추로 단추 이름을 바꾼다.
 // 왼쪽 ⠿ 를 끌어 순서를 바꾼다(순서는 두 모드가 같이 씀). 위쪽 막대에서 끌어 옮긴 순서도 여기 그대로 보인다. 이 브라우저에 교사마다 기억한다.
-let rowDrag = null;       // 탭 설정에서 끌고 있는 카드의 탭
 function drawTabSettings(note) {
   const msg = h("p", { class: "msg" }, note || "");
   const redraw = (text) => { saveTabs(); drawTabSettings(text); redrawTabNav(); };
@@ -1019,14 +1016,6 @@ function drawTabSettings(note) {
     // 손잡이(⠿)를 끌어 순서 바꾸기. 키보드로는 손잡이에서 화살표 키
     const grip = h("span", {
       class: "tab-grip", draggable: "true", tabindex: "0", role: "button", title: "끌어서 순서 바꾸기 (화살표 키로도 됩니다)", "aria-label": TABS[k] + " 순서 바꾸기",
-      ondragstart(e) {
-        rowDrag = k;
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", tabName(k));
-        e.dataTransfer.setDragImage(el, 20, 20);
-        el.classList.add("dragging");
-      },
-      ondragend() { rowDrag = null; el.classList.remove("dragging"); },
       onkeydown(e) {
         const d = { ArrowUp: -1, ArrowLeft: -1, ArrowDown: 1, ArrowRight: 1 }[e.key];
         if (!d) return;
@@ -1047,29 +1036,8 @@ function drawTabSettings(note) {
   };
   const section = (mode) => {
     const grid = h("div", { class: "tab-cards " + mode }, tabOrder.map((k) => card(k, mode)));
-    // 놓으면 마우스 아래 카드의 앞에 들어간다(카드 오른쪽 절반이면 그 뒤)
-    const others = () => [...grid.children].filter((c) => c.dataset.k !== rowDrag);
-    const target = (e) => others().find((c) => {
-      const r = c.getBoundingClientRect();
-      return e.clientY < r.top || (e.clientY < r.bottom && e.clientX < r.left + r.width / 2);
-    }) || null;
-    const clearMark = () => main.querySelectorAll(".tab-card.drop-before, .tab-card.drop-after").forEach((c) => c.classList.remove("drop-before", "drop-after"));
-    grid.addEventListener("dragover", (e) => {
-      if (!rowDrag) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-      clearMark();
-      const t = target(e), cards = others();
-      if (t) t.classList.add("drop-before");
-      else if (cards.length) cards[cards.length - 1].classList.add("drop-after");
-    });
-    grid.addEventListener("dragleave", (e) => { if (!grid.contains(e.relatedTarget)) clearMark(); });
-    grid.addEventListener("drop", (e) => {
-      if (!rowDrag) return;
-      e.preventDefault();
-      const k = rowDrag, t = target(e);
-      rowDrag = null;
-      moveTab(k, t ? t.dataset.k : null, null);
+    dragSort(grid, ".tab-card", "grid", (el, to, list) => {
+      moveTab(el.dataset.k, list[to + 1] ? list[to + 1].dataset.k : null, null);
       drawTabSettings();
       redrawTabNav();
     });
@@ -1113,42 +1081,125 @@ function tabButton(k) {
     type: "button", class: tab === k ? "tab on" : "tab", "data-tab": k, draggable: "true", "aria-disabled": off ? "true" : null,
     title: "끌어서 순서를 바꿀 수 있습니다",
     onclick() { if (!off) goTab(k); },
-    ondragstart(e) {
-      tabDrag = k;
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", tabName(k));
-      document.body.classList.add("tab-dragging");
-    },
-    ondragend() { tabDrag = null; tabMark.remove(); document.body.classList.remove("tab-dragging"); },
   }, tabName(k));
 }
 
-// 놓으면 그 단추 앞에 들어간다(없으면 맨 끝)
+// 놓은 자리의 뒤 단추 앞에 들어간다(없으면 그 모드의 맨 끝)
 function tabDropZone(nav, mode) {
-  const before = (e) => [...nav.querySelectorAll("[data-tab]")].filter((b) => b.dataset.tab !== tabDrag).find((b) => {
-    const r = b.getBoundingClientRect();
-    return e.clientY < r.top || (e.clientY < r.bottom && e.clientX < r.left + r.width / 2);
-  }) || null;
-  nav.addEventListener("dragover", (e) => {
-    if (!tabDrag) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    const b = before(e);
-    if (b) b.before(tabMark); else nav.append(tabMark);
-  });
-  nav.addEventListener("dragleave", (e) => { if (!nav.contains(e.relatedTarget)) tabMark.remove(); });
-  nav.addEventListener("drop", (e) => {
-    if (!tabDrag) return;
-    e.preventDefault();
-    const k = tabDrag, b = before(e);
-    moveTab(k, b ? b.dataset.tab : null, mode);
-    tabDrag = null;
-    tabMark.remove();
-    document.body.classList.remove("tab-dragging");
+  dragSort(nav, "[data-tab]", "x", (el, to, list) => {
+    moveTab(el.dataset.tab, list[to + 1] ? list[to + 1].dataset.tab : null, mode);
     redrawTabNav();
     if (tab === "tabs") drawTabSettings();   // 탭 설정을 보고 있으면 그 순서도 바로 바꾼다
   });
 }
+
+// ---------- 끌어서 순서 바꾸기 ----------
+// 탭 줄·탭 설정 카드·활동 목록·슬라이드 미리보기가 같이 쓴다. box 바로 아래 칸(item) 하나를 끌면
+// 그 칸은 빠지고 같은 크기의 빈칸(.drag-gap)이 놓일 자리에 생긴다. 빈칸이 움직이면 다른 칸들이 부드럽게 밀려난다.
+// 판정: 다른 칸 위로 가서 그 칸의 반(빈칸이 더 작으면 빈칸 크기)만큼 넘어가면 빈칸이 그 칸과 자리를 바꾼다.
+// 칸 사이 틈이나 상자 밖(조금 벗어난 곳까지)에서는 빈칸이 그대로 있고, 끄는 동안 화면 어디서나 놓을 수 있어 금지 표시가 뜨지 않는다.
+// 놓으면 빈칸 자리로 들어간다. Esc를 누르면 원래 자리로 돌아간다.
+// axis: "y" 위아래 목록, "x" 한 줄, "grid" 여러 줄 격자. onDrop(끈 칸, 새 순서 번호, 새 순서의 칸 목록)은 자리가 바뀌었을 때만 부른다.
+// canStart(칸)가 false면 끌기를 시작하지 않는다(저장 중일 때).
+let sortDrag = null;
+function dragSort(box, item, axis, onDrop, canStart) {
+  const items = () => [...box.children].filter((c) => c.matches(item));
+  box.addEventListener("dragstart", (e) => {
+    const el = e.target.closest && e.target.closest(item);
+    if (sortDrag && !sortDrag.box.isConnected) sortDrag = null;
+    if (!el || el.parentNode !== box || sortDrag) return;
+    if (canStart && !canStart(el)) return e.preventDefault();
+    const r = el.getBoundingClientRect();
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", el.textContent.trim().slice(0, 50));
+    if (e.target !== el) e.dataTransfer.setDragImage(el, e.clientX - r.left, e.clientY - r.top);   // 손잡이만 끌어도 칸 전체가 따라오게
+    const ph = h("div", { class: "drag-gap", "aria-hidden": "true" });
+    ph.style.height = r.height + "px";
+    if (axis !== "y") ph.style.width = r.width + "px";
+    sortDrag = { box, item, axis, el, ph, onDrop, home: el.nextSibling, from: items().indexOf(el), slots: null };
+    // dragstart 안에서 바로 숨기면 브라우저가 끌기를 멈추므로 한 박자 뒤에 빈칸으로 바꾼다
+    setTimeout(() => {
+      if (!sortDrag || sortDrag.el !== el) return;
+      el.after(ph);
+      el.style.display = "none";
+      measureSort();
+    });
+  });
+  box.addEventListener("dragend", () => { if (sortDrag && sortDrag.box === box) finishSort(false); });
+}
+
+// 칸들의 자리(상자 기준이라 화면이 스크롤돼도 맞다). 밀려나는 움직임 도중의 위치로 판정하지 않으려고 따로 적어 둔다
+function measureSort() {
+  const d = sortDrag, b = d.box.getBoundingClientRect(), ox = b.left - d.box.scrollLeft, oy = b.top - d.box.scrollTop;
+  d.slots = [...d.box.children].filter((c) => c === d.ph || (c !== d.el && c.matches(d.item))).map((c) => {
+    const r = c.getBoundingClientRect();
+    return { el: c, l: r.left - ox, r: r.right - ox, t: r.top - oy, b: r.bottom - oy };
+  });
+}
+
+function sortOver(x, y) {
+  const d = sortDrag;
+  if (!d.slots) return;
+  const b = d.box.getBoundingClientRect();
+  if (x < b.left - 60 || x > b.right + 60 || y < b.top - 60 || y > b.bottom + 60) return;
+  const px = x - b.left + d.box.scrollLeft, py = y - b.top + d.box.scrollTop;
+  const list = d.slots, pi = list.findIndex((s) => s.el === d.ph), P = list[pi];
+  if (pi < 0) return;
+  const first = list[0], last = list[list.length - 1];
+  const hit = list.findIndex((s) => px >= s.l && px <= s.r && py >= s.t && py <= s.b);
+  let to = -1;
+  if (hit >= 0 && hit !== pi) {
+    const s = list[hit];
+    if (d.axis === "y") {
+      const k = Math.min(P.b - P.t, (s.b - s.t) / 2);
+      if (hit > pi ? py > s.b - k : py < s.t + k) to = hit;
+    } else {
+      const k = Math.min(P.r - P.l, (s.r - s.l) / 2);
+      if (hit > pi ? px > s.r - k : px < s.l + k) to = hit;
+    }
+  } else if (hit < 0) {
+    // 맨 앞 칸보다 앞, 맨 뒤 칸보다 뒤(빈 곳)면 맨 앞·맨 뒤로
+    if (d.axis === "y" ? py > last.b : py > last.b || (py >= last.t && px > last.r)) to = list.length - 1;
+    else if (d.axis === "y" ? py < first.t : py < first.t || (py <= first.b && px < first.l)) to = 0;
+  }
+  if (to < 0 || to === pi) return;
+  const moved = list.filter((s) => s.el !== d.ph).map((s) => s.el);
+  const before = moved.map((el) => el.getBoundingClientRect());
+  moved.forEach((el) => el.getAnimations().forEach((a) => a.cancel()));
+  if (to > pi) list[to].el.after(d.ph); else list[to].el.before(d.ph);
+  measureSort();
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  moved.forEach((el, i) => {
+    const r = el.getBoundingClientRect(), dx = before[i].left - r.left, dy = before[i].top - r.top;
+    if (dx || dy) el.animate([{ transform: "translate(" + dx + "px, " + dy + "px)" }, { transform: "none" }], { duration: 160, easing: "ease-out" });
+  });
+}
+
+function finishSort(drop) {
+  const d = sortDrag;
+  if (!d) return;
+  sortDrag = null;
+  [...d.box.children].forEach((c) => c.getAnimations().forEach((a) => a.cancel()));
+  if (drop && d.ph.isConnected) d.ph.replaceWith(d.el);
+  else { d.ph.remove(); d.box.insertBefore(d.el, d.home && d.home.parentNode === d.box ? d.home : null); }
+  d.el.style.display = "";
+  const list = [...d.box.children].filter((c) => c.matches(d.item));
+  const to = list.indexOf(d.el);
+  if (drop && to !== d.from) d.onDrop(d.el, to, list);
+}
+
+document.addEventListener("dragover", (e) => {
+  if (sortDrag && !sortDrag.box.isConnected) sortDrag = null;   // 끄는 도중 화면을 새로 그렸으면 그만둔다
+  if (!sortDrag) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "move";
+  sortOver(e.clientX, e.clientY);
+});
+document.addEventListener("drop", (e) => {
+  if (!sortDrag) return;
+  e.preventDefault();
+  finishSort(true);
+});
 
 // 모드 단추는 수업 제목 바로 옆에 둔다(탭 칸에 두면 제목 길이에 따라 자리가 바뀌므로)
 function buildModeSwitch() {
@@ -1290,6 +1341,7 @@ const PATCH_NOTES = [
       { title: "탭 설정: 끌어서 순서 바꾸기 · 기본 배치", desc: "「⚙ 설정 → 탭 설정」에서 왼쪽 ⠿ 를 끌어 탭 순서를 바꿉니다. 위쪽 막대에서 탭을 끌어 옮겨도 탭 설정 순서가 같이 바뀝니다. 「지금 배치를 기본으로 설정」으로 내 기본 배치를 정해 두고 「기본으로 되돌리기」로 돌아옵니다. 탭 설정은 이제 계정마다 따로 저장됩니다." },
     ],
     minor: [
+      "끌어서 순서 바꾸기(위쪽 탭 줄·탭 설정·활동 목록·슬라이드 미리보기): 파란 줄 대신, 끄는 동안 다른 칸이 밀려나며 들어갈 빈칸이 보입니다. 다른 칸의 반쯤 넘어가면 자리가 바뀌고, 칸 사이나 조금 벗어난 곳에서 놓아도 빈칸 자리로 들어갑니다(금지 표시가 뜨지 않음). Esc를 누르면 취소됩니다.",
       "「탭 설정」: 카드마다 「✎ 이름 바꾸기」 단추가 생겼습니다. 누르고 새 이름을 적은 뒤 「저장」(또는 Enter)을 누르면 됩니다. 비우고 저장하면 처음 이름으로 돌아갑니다.",
       "「⚙ 설정」 목록과 프로필 목록이 겹쳐 보이지 않게, 하나를 열면 다른 하나는 저절로 닫힙니다.",
       "「탭 설정」 맨 위의 긴 설명 글을 지웠습니다.",
@@ -2031,34 +2083,13 @@ const newId = () => Math.random().toString(36).slice(2, 8);
 const newQuestion = (type) => ({ id: newId(), type: type || "choice", text: "", options: ["", ""] });
 
 // 활동 목록: 손잡이(⋮⋮)를 끌어 순서를 바꾼다. 활동은 쪽 순서로 보이므로 같은 쪽(시작 쪽) 안에서만 옮긴다.
-let dragId = null;
 let moving = false;
 
 function activityList() {
   if (!activities.length) return h("p", { class: "muted small" }, "아직 활동이 없습니다.");
   const pageOf = (a) => a.page ?? null;
-  const clearMarks = () => document.querySelectorAll(".act-row.drop-before, .act-row.drop-after").forEach((el) => el.classList.remove("drop-before", "drop-after"));
-  let after = false;
   const row = (a) => h("div", {
-    class: "act-row", draggable: "true",
-    ondragstart(ev) {
-      if (moving) return ev.preventDefault();
-      dragId = a.id;
-      ev.dataTransfer.effectAllowed = "move";
-      ev.dataTransfer.setData("text/plain", a.id);
-      ev.currentTarget.classList.add("dragging");
-    },
-    ondragend(ev) { dragId = null; ev.currentTarget.classList.remove("dragging"); clearMarks(); },
-    ondragover(ev) {
-      const d = activities.find((x) => x.id === dragId);
-      if (!d || d.id === a.id || pageOf(d) !== pageOf(a)) return;
-      ev.preventDefault();
-      const r = ev.currentTarget.getBoundingClientRect();
-      after = ev.clientY > r.top + r.height / 2;
-      clearMarks();
-      ev.currentTarget.classList.add(after ? "drop-after" : "drop-before");
-    },
-    ondrop(ev) { ev.preventDefault(); clearMarks(); if (dragId) moveActivity(dragId, a.id, after); },
+    class: "act-row", draggable: "true", "data-id": a.id,
   },
     h("span", { class: "drag-handle", title: "끌어서 순서 바꾸기", "aria-hidden": "true" }, "⋮⋮"),
     h("button", {
@@ -2073,8 +2104,18 @@ function activityList() {
     else groups.push({ page: pageOf(a), items: [a] });
   }
   const showHeads = lesson.slide_count > 0 && groups.some((g) => g.page != null);
+  // 쪽마다 따로 끌어 옮긴다(다른 쪽 묶음으로는 빈칸이 넘어가지 않는다)
+  const groupBox = (g) => {
+    const box = h("div", { class: "act-group" }, g.items.map(row));
+    dragSort(box, ".act-row", "y", (el, to, list) => {
+      const next = list[to + 1], prev = list[to - 1];
+      if (next) moveActivity(el.dataset.id, next.dataset.id, false);
+      else if (prev) moveActivity(el.dataset.id, prev.dataset.id, true);
+    }, () => !moving);
+    return box;
+  };
   return h("div", { class: "stack" },
-    groups.map((g) => [showHeads ? h("p", { class: "act-group-head" }, g.page == null ? "언제든" : g.page + "쪽") : null, g.items.map(row)]),
+    groups.map((g) => [showHeads ? h("p", { class: "act-group-head" }, g.page == null ? "언제든" : g.page + "쪽") : null, groupBox(g)]),
     activities.length > 1 ? h("p", { class: "muted small" }, showHeads ? "⋮⋮를 끌어 같은 쪽 안에서 순서를 바꿉니다. 다른 쪽으로 옮기려면 활동을 열어 「어디에 보일까요?」를 바꾸세요." : "⋮⋮를 끌어 순서를 바꿉니다.") : null);
 }
 
@@ -3053,37 +3094,12 @@ function slidesCard() {
   // 애니메이션(html)이 슬라이드 자리에 뜨는 쪽
   const htmlOn = (i) => activities.find((a) => a.kind === "sim" && a.sim_full && a.page === i && !(a.page_to > i));
 
-  // 미리보기를 끌어 순서를 바꾼다. 그림의 왼쪽 반에 놓으면 그 앞, 오른쪽 반이면 그 뒤로 간다.
+  // 미리보기를 끌어 순서를 바꾼다. 끄는 동안 다른 그림이 밀려나며 들어갈 빈칸을 보인다.
   const thumbs = h("div", { class: "thumbs" });
-  let dragFrom = 0;
-  let after = false;
-  const clearMarks = () => thumbs.querySelectorAll(".drop-before, .drop-after").forEach((el) => el.classList.remove("drop-before", "drop-after"));
+  dragSort(thumbs, ".thumb", "grid", (el, to) => moveSlide(+el.dataset.i, to + 1, status), () => !slideBusy);
   for (let i = 1; i <= lesson.slide_count; i++) {
     thumbs.append(h("figure", {
-      class: "thumb", draggable: "true", title: "끌어서 순서 바꾸기",
-      ondragstart(ev) {
-        if (slideBusy) return ev.preventDefault();
-        dragFrom = i;
-        ev.dataTransfer.effectAllowed = "move";
-        ev.dataTransfer.setData("text/plain", String(i));
-        ev.currentTarget.classList.add("dragging");
-      },
-      ondragend(ev) { dragFrom = 0; ev.currentTarget.classList.remove("dragging"); clearMarks(); },
-      ondragover(ev) {
-        if (!dragFrom || dragFrom === i) return;
-        ev.preventDefault();
-        const r = ev.currentTarget.getBoundingClientRect();
-        after = ev.clientX > r.left + r.width / 2;
-        clearMarks();
-        ev.currentTarget.classList.add(after ? "drop-after" : "drop-before");
-      },
-      ondrop(ev) {
-        ev.preventDefault();
-        clearMarks();
-        if (!dragFrom) return;
-        const ins = after ? i + 1 : i;   // 이 번호 앞에 끼운다
-        moveSlide(dragFrom, ins > dragFrom ? ins - 1 : ins, status);
-      },
+      class: "thumb", draggable: "true", title: "끌어서 순서 바꾸기", "data-i": i,
     },
       h("img", { src: slideSrc(lesson, i, "s"), alt: i + "쪽", loading: "lazy", draggable: "false" }),
       h("figcaption", {}, h("span", { title: htmlOn(i) ? htmlOn(i).title : null }, i + "쪽" + (htmlOn(i) ? " · 애니메이션" : "")),

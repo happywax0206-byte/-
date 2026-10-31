@@ -106,3 +106,4 @@ CLAUDE.md에서 옮겨 온 날짜별 기록. 어떤 기능이 왜·어떻게 그
 - 2026-10-31: 수업 미리 보기(편집모드)에서 쪽을 넘겨도 수업 화면(present)은 따라가지 않음: `presentState`가 `presentPage()`(편집모드면 `lesson.page`)를 보냄. 편집모드에서 수업 화면의 ← →는 실제 수업 쪽을 넘김.
 - 2026-10-31: 교사 위쪽 줄(`.teacher .top`)을 접히지 않는 한 줄로 고정: 창이 좁아도 제목·탭·오른쪽 단추 자리가 그대로, 넘치면 탭 줄(`.tabs`)만 가로 스크롤.
 - 2026-10-31: 첫 화면 빠르게: `index.html`·`teacher.html`에 Supabase `preconnect`, `loadLessons`의 lessons·`lesson_owners`·`lesson_rights`를 `Promise.all`로 한꺼번에 부름.
+- 2026-10-31: 끌어서 순서 바꾸기를 공용 `dragSort`(+`sortOver`·`measureSort`·`finishSort`)로 통일(탭 줄 `tabDropZone`·탭 설정 카드·활동 목록 `.act-group`·슬라이드 `.thumbs`): 파란 줄 대신 빈칸 `.drag-gap`이 움직이고 나머지가 밀려남(FLIP 애니메이션). 다른 칸 반쯤 넘으면 자리 바꿈, 끄는 동안 document 전체가 놓기 허용(금지 커서 없음), Esc 취소.
