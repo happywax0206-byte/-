@@ -125,7 +125,7 @@ function drawPeople() {
     lesson ? membersCard()
       : h("section", { class: "card stack" }, h("h2", {}, "공동작업자"), h("p", { class: "muted" }, "위쪽에서 수업을 고르면 그 수업의 공동작업자를 보고 초대할 수 있습니다."))),
     folderPanel().el);   // 오른쪽 빈 칸: 수업 폴더
-  main.classList.add("people-grid");
+  main.classList.add("with-folders");
 }
 
 // ---------- 버그 제보 ----------
@@ -847,7 +847,8 @@ function draw() {
   setTopHeight();
   ({ run: drawRun, preview: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings, people: drawPeople, manage: drawManage, tabs: drawTabSettings, notes: drawNotes, bugs: drawBugs })[tab]();
   if (readOnly() && !GEAR.includes(tab) && !isRunTab()) {   // 수업 진행 화면은 높이가 꼭 맞으므로 위쪽 「보기만」 표시만
-    if (tab === "build" || tab === "settings") main.querySelectorAll(":scope > *").forEach((el) => { el.inert = true; el.classList.add("read-only"); });
+    // 수업 폴더 칸은 내 것이므로 보기만 수업을 보고 있어도 쓸 수 있다
+    if (tab === "build" || tab === "settings") main.querySelectorAll(":scope > :not(.folder-panel)").forEach((el) => { el.inert = true; el.classList.add("read-only"); });
     main.before(h("p", { class: "banner read-only-banner" }, "👁 보기만 할 수 있는 수업입니다. 쪽을 넘겨도 학생 화면은 따라가지 않고, 아무것도 바뀌지 않습니다. 고치려면 수업을 만든 선생님께 고치기 권한을 달라고 하세요."));
   }
   schedule();
@@ -1371,7 +1372,7 @@ document.addEventListener("visibilitychange", ping);
 const PATCH_NOTES = [
   { date: "2026-11-02",
     major: [
-      { title: "📁 수업 폴더", desc: "「⚙ 설정 → 프로필·공동작업자」 오른쪽에 수업을 만든 선생님마다 폴더(👤)가 저절로 생기고, 이미 있는 수업과 앞으로 만드는 수업이 모두 그 안에 카드로 보입니다. 카드를 누르면 그 수업으로 갑니다. 「＋ 폴더 만들기」로 나만 보는 폴더를 만들고, 카드를 끌어다 놓거나 카드 아래 📁 칸에서 골라 넣으세요." },
+      { title: "📁 수업 폴더", desc: "「수업 설정」과 「⚙ 설정 → 프로필·공동작업자」 오른쪽에 컴퓨터 폴더처럼 「○○○ 선생님」 폴더가 보입니다. 이미 있는 수업과 앞으로 만드는 수업은 만든 선생님 폴더에 저절로 들어갑니다. 폴더에 들어가면 그 선생님이 만든 모든 수업이 첫 쪽 그림 카드로 보이고, 카드를 누르면 그 수업으로 갑니다. 「＋ 폴더 만들기」로 나만 보는 폴더도 만들 수 있습니다." },
       { title: "📎 카드에 자료 파일 붙이기", desc: "「질문·설문 만들기」의 카드 편집에서 「파일 붙이기」로 PDF·한글·PPT·사진 등을 붙이면, 학생 화면의 그 카드에 자료가 보이고 눌러서 열거나 내려받습니다(10개까지, 한 개에 50MB까지)." },
       { title: "공개한 파일 답을 친구들도 내려받기", desc: "수업 진행에서 학생의 파일 답을 「공개」하면 이제 친구들도 그 파일을 눌러 열어 보거나 내려받을 수 있습니다(예전에는 이름만 보였음). 공개를 끝내면 친구들은 더 이상 받을 수 없습니다." },
     ],
@@ -2959,7 +2960,7 @@ function drawSettings() {
   const folderPick = h("select", {
     async onchange() {
       if (!lesson) return;
-      if (await moveToFolder(lesson.id, folderPick.value)) { refreshPicker(); flash(folderPick.value ? "폴더에 넣었습니다." : "폴더에서 뺐습니다."); }
+      if (await moveToFolder(lesson.id, folderPick.value)) { panel.repaint(); flash(folderPick.value ? "폴더에 넣었습니다." : "폴더에서 뺐습니다."); }
       else fillFolderPick();
     },
   });
@@ -2974,6 +2975,7 @@ function drawSettings() {
       ...mine.map((f) => h("option", { value: f.id, selected: !!cur && cur.id === f.id }, "📁 " + f.name)));
     folderLabel.hidden = !mine.length;
   }
+  const panel = folderPanel(fillFolderPick);
   fillFolderPick();
 
   async function submit(ev) {
@@ -3062,7 +3064,9 @@ function drawSettings() {
       h("div", { class: "row" },
         h("button", { class: "ghost", type: "button", onclick: showJoin }, "QR 크게 보기"),
         h("button", { class: "ghost", type: "button", onclick: duplicate }, "다른 반용으로 복제"),
-        isMine(lesson) || (profile && profile.admin) ? h("button", { class: "ghost danger", type: "button", onclick: remove }, "수업 지우기") : null)) : null));
+        isMine(lesson) || (profile && profile.admin) ? h("button", { class: "ghost danger", type: "button", onclick: remove }, "수업 지우기") : null)) : null),
+    panel.el);   // 오른쪽 빈 칸: 수업 폴더(「프로필·공동작업자」와 같음)
+  main.classList.add("with-folders");
 }
 
 // ---------- 수업 폴더 ----------
@@ -3073,9 +3077,9 @@ function drawSettings() {
 const folderOf = (id) => (lessonFolders || []).find((f) => f.lessons.includes(id)) || null;
 const folderLessons = (f) => f.lessons.map((id) => lessons.find((l) => l.id === id)).filter(Boolean);
 const folderTeacher = (f) => f.teacher || me.id;
-// 수업을 만든 선생님 이름(나는 「내 수업」)
+// 수업을 만든 선생님 이름 「○○○ 선생님」(내 프로필에 이름이 없으면 「내 수업」)
 function teacherName(id) {
-  if (id === me.id) return "내 수업";
+  if (id === me.id) return profile && profile.name ? profile.name + " 선생님" : "내 수업";
   // setup.sql 전이면 lesson_teachers가 없다: 관리자는 lesson_owners의 이름이라도 쓴다
   const t = lessonTeachers[id] || lessonOwners[(lessons.find((l) => l.owner === id && lessonOwners[l.id]) || {}).id];
   return t ? (t.name ? t.name + " 선생님" : t.email || "다른 선생님") : "다른 선생님";
@@ -3113,19 +3117,25 @@ async function moveToFolder(lessonId, folderId) {
 
 const refreshPicker = () => { if (pickEl) pickEl.replaceChildren(...pickerOptions().flat(Infinity).filter(Boolean)); };
 
-function folderPanel() {
+// 컴퓨터 폴더처럼: 처음에는 선생님 폴더 목록 → 선생님 폴더에 들어가면 그 선생님이 만든 모든 수업 카드(+ 직접 만든 폴더)
+// → 직접 만든 폴더에 들어가면 그 폴더의 수업 카드. 어디에 들어가 있는지는 「수업 설정」과 「프로필·공동작업자」가 함께 쓰고 기억한다.
+let folderPath = null;   // { teacher, folder } (없으면 맨 위)
+function folderPanel(onChange) {
   const el = h("section", { class: "card stack folder-panel" });
-  const closedKey = "cra-folders-closed-" + me.id;
-  const closed = new Set(JSON.parse(localStorage.getItem(closedKey) || "[]"));
+  const pathKey = "cra-folder-path-" + me.id;
+  if (!folderPath) folderPath = JSON.parse(localStorage.getItem(pathKey) || "{}");
   let dragging = null;   // 끌고 있는 수업
 
   function changed() {
     repaint();
     refreshPicker();
+    if (onChange) onChange();
   }
-  function toggle(key, close) {
-    if (close) closed.add(key); else closed.delete(key);
-    localStorage.setItem(closedKey, JSON.stringify([...closed]));
+  function go(teacher, folder) {
+    folderPath = { teacher: teacher || null, folder: folder || null };
+    localStorage.setItem(pathKey, JSON.stringify(folderPath));
+    repaint();
+    el.scrollIntoView({ block: "nearest" });
   }
 
   // 카드를 누르면 그 수업으로 간다: 지금 모드(수업모드·편집모드)에서 마지막으로 본 탭으로
@@ -3146,9 +3156,8 @@ function folderPanel() {
     const { data, error } = await folderWrite(sb.from("lesson_folders").insert({ name, sort, teacher }).select());
     if (error) { alert("폴더를 만들지 못했습니다: " + error.message); return false; }
     lessonFolders.push(data[0]);
-    toggle("t:" + teacher, false);
     changed();
-    flash("「" + name + "」 폴더를 만들었습니다. 수업 카드를 끌어다 넣거나 카드의 📁 칸에서 고르세요.");
+    flash("「" + name + "」 폴더를 만들었습니다. 수업 카드를 끌어다 넣거나 카드 아래 📁 칸에서 고르세요.");
     return true;
   }
   async function rename(f) {
@@ -3161,17 +3170,73 @@ function folderPanel() {
   }
   async function drop(f) {
     const n = folderLessons(f).length;
-    if (!confirm("「" + f.name + "」 폴더를 지울까요?" + (n ? "\n안에 있는 수업 " + n + "개는 지워지지 않고 「" + teacherName(folderTeacher(f)) + "」 바로 아래로 갑니다." : ""))) return;
+    if (!confirm("「" + f.name + "」 폴더를 지울까요?" + (n ? "\n안에 있는 수업 " + n + "개는 지워지지 않고 「" + teacherName(folderTeacher(f)) + "」 폴더에 그대로 있습니다." : ""))) return;
     const { error } = await folderWrite(sb.from("lesson_folders").delete().eq("id", f.id));
     if (error) return alert("지우지 못했습니다: " + error.message);
     lessonFolders = lessonFolders.filter((x) => x !== f);
+    folderPath = { teacher: folderTeacher(f), folder: null };
+    localStorage.setItem(pathKey, JSON.stringify(folderPath));
     changed();
   }
 
-  // 폴더 만들기 칸: 이름 + 어느 선생님 폴더 안에(선생님이 여럿일 때만 고름)
-  function addForm(ids) {
+  // 수업 카드: 첫 쪽 그림(없으면 「화면 없음」)과 그 아래 수업 이름. 누르면 그 수업으로 간다.
+  // 직접 만든 폴더가 있으면 카드를 그 폴더 아이콘에 끌어다 놓거나 아래 📁 칸에서 고른다
+  function card(l) {
+    const subs = (lessonFolders || []).filter((f) => folderTeacher(f) === l.owner);
+    const cur = folderOf(l.id);
+    const thumb = h("div", { class: "lesson-thumb" });
+    if (l.slide_count > 0 && (l.slide_dir || "").trim()) {
+      const img = h("img", { src: slideSrc(l, 1, "s"), alt: "", loading: "lazy", draggable: "false" });
+      img.addEventListener("error", () => {
+        const base = slideSrc(l, 1);
+        if (img.src !== new URL(base, location.href).href) img.src = base;   // 작은 그림이 없으면 원래 그림
+        else thumb.replaceChildren(h("span", { class: "lesson-thumb-none" }, "화면 없음"));
+      });
+      thumb.append(img);
+    } else thumb.append(h("span", { class: "lesson-thumb-none" }, "화면 없음"));
+    const pick = subs.length ? h("select", {
+      class: "lesson-card-folder", "aria-label": "이 수업을 넣을 폴더", title: "이 수업을 넣을 폴더(나만 보임)",
+      onclick(e) { e.stopPropagation(); },
+      onkeydown(e) { e.stopPropagation(); },
+      async onchange() {
+        if (await moveToFolder(l.id, pick.value)) changed(); else pick.value = cur ? cur.id : "";
+      },
+    }, h("option", { value: "" }, "📁 폴더에 안 넣음"), subs.map((f) => h("option", { value: f.id, selected: !!cur && cur.id === f.id }, "📁 " + f.name))) : null;
+    return h("div", {
+      class: "lesson-card" + (lesson && l.id === lesson.id ? " on" : "") + (l.ended ? " ended" : ""),
+      draggable: subs.length ? "true" : null, role: "button", tabindex: "0",
+      title: l.title + " (" + l.code + ") · 누르면 이 수업으로 갑니다",
+      ondragstart(e) { dragging = l; e.dataTransfer.setData("text/plain", l.id); e.dataTransfer.effectAllowed = "move"; },
+      ondragend() { dragging = null; },
+      onclick() { openLesson(l); },
+      onkeydown(e) { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); openLesson(l); } },
+    }, thumb,
+      h("strong", { class: "lesson-card-title" }, l.title),
+      l.ended || lessonRights[l.id] === false ? h("span", { class: "muted small" }, [l.ended ? "종료" : null, lessonRights[l.id] === false ? "보기만" : null].filter(Boolean).join(" · ")) : null,
+      pick);
+  }
+  const cards = (ls) => h("div", { class: "lesson-cards" }, ls.map(card));
+
+  // 폴더 아이콘(누르면 들어감). 직접 만든 폴더는 카드를 끌어다 놓는 자리도 된다
+  function tile(label, sub, onopen, f) {
+    const t = h("button", {
+      class: "folder-tile", type: "button", onclick: onopen,
+      ondragover(e) { if (!f || !dragging || dragging.owner !== folderTeacher(f)) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; t.classList.add("drop-on"); },
+      ondragleave() { t.classList.remove("drop-on"); },
+      async ondrop(e) {
+        if (!f) return;
+        e.preventDefault(); t.classList.remove("drop-on");
+        const id = e.dataTransfer.getData("text/plain");
+        if (lessons.some((l) => l.id === id) && await moveToFolder(id, f.id)) { changed(); flash("「" + f.name + "」 폴더에 넣었습니다."); }
+      },
+    }, h("span", { class: "folder-tile-icon", "aria-hidden": "true" }, f ? "📁" : "🗂"),
+      h("strong", { class: "folder-tile-name" }, label),
+      h("span", { class: "muted small" }, sub));
+    return t;
+  }
+
+  function addForm(teacher) {
     const name = h("input", { type: "text", maxlength: 30, placeholder: "새 폴더 이름 (예: 2학년 물리)", "aria-label": "새 폴더 이름" });
-    const where = h("select", { "aria-label": "어느 선생님 폴더 안에 만들까요" }, ids.map((t) => h("option", { value: t }, "👤 " + teacherName(t) + " 안에")));
     const btn = h("button", { class: "primary", type: "submit" }, "＋ 폴더 만들기");
     return h("form", {
       class: "folder-add",
@@ -3180,104 +3245,68 @@ function folderPanel() {
         const n = name.value.trim().slice(0, 30);
         if (!n) { name.focus(); return; }
         btn.disabled = true;
-        const ok = await addFolder(n, ids.length > 1 ? where.value : me.id);
+        const ok = await addFolder(n, teacher);
         btn.disabled = false;
         if (ok) name.value = "";
       },
-    }, name, ids.length > 1 ? where : null, btn);
+    }, name, btn);
+  }
+  const crumb = (label, onclick) => h("button", { class: "link folder-back", type: "button", onclick }, "← " + label);
+
+  // 맨 위: 선생님 폴더 목록
+  function rootView(ids) {
+    return [
+      h("h2", {}, "📁 수업 폴더"),
+      h("p", { class: "muted small" }, "수업은 만든 선생님 폴더에 저절로 들어갑니다(앞으로 만드는 수업도). 폴더를 누르면 들어갑니다."),
+      profile && !profile.name ? h("p", { class: "muted small" }, "「⚙ 설정 → 프로필·공동작업자」에서 이름을 적으면 내 폴더가 「○○○ 선생님」으로 보입니다.") : null,
+      h("div", { class: "folder-tiles" }, ids.map((t) => {
+        const n = lessons.filter((l) => l.owner === t).length;
+        return tile(teacherName(t), "수업 " + n + "개" + (t === me.id ? " · 나" : ""), () => go(t, null), null);
+      })),
+    ];
   }
 
-  // 수업 카드: 누르면 그 수업으로 감. 끌어서 같은 선생님의 다른 폴더에 놓거나, 아래 📁 칸에서 폴더를 고른다
-  function card(l) {
-    const subs = (lessonFolders || []).filter((f) => folderTeacher(f) === l.owner);
-    const cur = folderOf(l.id);
-    const pick = subs.length ? h("select", {
-      class: "lesson-card-folder", "aria-label": "이 수업을 넣을 폴더", title: "이 수업을 넣을 폴더",
-      onclick(e) { e.stopPropagation(); },
-      async onchange(e) {
-        e.stopPropagation();
-        if (await moveToFolder(l.id, pick.value)) changed(); else pick.value = cur ? cur.id : "";
-      },
-    }, h("option", { value: "" }, "📁 폴더 없음"), subs.map((f) => h("option", { value: f.id, selected: !!cur && cur.id === f.id }, "📁 " + f.name))) : null;
-    const tags = [l.kind === "survey" ? "설문" : "슬라이드" + (l.slide_count ? " " + l.slide_count + "쪽" : ""),
-      l.ended ? "종료" : null, lessonRights[l.id] === false ? "보기만" : null].filter(Boolean);
-    return h("div", {
-      class: "lesson-card" + (lesson && l.id === lesson.id ? " on" : "") + (l.ended ? " ended" : ""),
-      draggable: "true", role: "button", tabindex: "0",
-      title: "누르면 이 수업으로 갑니다" + (subs.length ? " · 끌어서 다른 폴더에 놓을 수 있습니다" : ""),
-      ondragstart(e) { dragging = l; e.dataTransfer.setData("text/plain", l.id); e.dataTransfer.effectAllowed = "move"; },
-      ondragend() { dragging = null; },
-      onclick() { openLesson(l); },
-      onkeydown(e) { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); openLesson(l); } },
-    },
-      h("span", { class: "lesson-card-icon", "aria-hidden": "true" }, l.kind === "survey" ? "📝" : "🖼"),
-      h("strong", { class: "lesson-card-title" }, l.title),
-      h("span", { class: "lesson-card-meta" }, h("span", { class: "lesson-card-code" }, l.code), " · " + tags.join(" · ")),
-      h("span", { class: "muted small" }, new Date(l.created_at).toLocaleDateString("ko-KR") + " 만듦"),
-      pick);
+  // 선생님 폴더 안: 제목 = 선생님 이름, 직접 만든 폴더 + 그 선생님이 만든 모든 수업 카드
+  function teacherView(t) {
+    const mine = lessons.filter((l) => l.owner === t);
+    const subs = (lessonFolders || []).filter((f) => folderTeacher(f) === t);
+    return [
+      crumb("모든 폴더", () => go(null, null)),
+      h("h2", { class: "folder-title" }, "🗂 " + teacherName(t)),
+      lessonFolders ? h("div", { class: "stack folder-section" },
+        h("div", { class: "row between" }, h("h3", {}, "폴더"), h("span", { class: "pill private-pill" }, "🔒 직접 만든 폴더는 나만 봅니다")),
+        subs.length ? h("div", { class: "folder-tiles" }, subs.map((f) => tile(f.name, "수업 " + folderLessons(f).length + "개", () => go(t, f.id), f))) : null,
+        addForm(t),
+        subs.length ? h("p", { class: "muted small" }, "수업 카드를 폴더 아이콘에 끌어다 놓거나, 카드 아래 📁 칸에서 폴더를 고르세요.") : null)
+        : h("p", { class: "banner" }, "폴더를 더 만들려면 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요."),
+      h("h3", {}, "수업 " + mine.length + "개"),
+      mine.length ? cards(mine) : h("p", { class: "muted" }, "아직 만든 수업이 없습니다."),
+    ];
   }
-  const cards = (ls) => h("div", { class: "lesson-cards" }, ls.map(card));
 
-  // 끌어 놓는 칸: 직접 만든 폴더 하나(f), 또는 그 선생님 폴더 바로 아래(f = null). 다른 선생님 수업은 받지 않는다
-  const dropZone = (teacher, f, cls, kids) => {
-    const zone = h("div", {
-      class: cls,
-      ondragover(e) {
-        if (!dragging || dragging.owner !== teacher) return;
-        e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; zone.classList.add("drop-on");
-        const outer = zone.parentElement.closest(".drop-on");   // 안쪽 폴더에 놓을 때는 바깥 선생님 폴더 표시를 끈다
-        if (outer) outer.classList.remove("drop-on");
-      },
-      ondragleave(e) { if (!zone.contains(e.relatedTarget)) zone.classList.remove("drop-on"); },
-      async ondrop(e) {
-        e.preventDefault(); e.stopPropagation(); zone.classList.remove("drop-on");
-        const id = e.dataTransfer.getData("text/plain");
-        if (!lessons.some((l) => l.id === id)) return;
-        if (f) toggle(f.id, false);
-        if (await moveToFolder(id, f ? f.id : "")) changed();
-      },
-    }, kids);
-    return zone;
-  };
-  const head = (key, open, label, count, tools) => h("div", { class: "folder-head" },
-    h("button", { class: "folder-toggle", type: "button", "aria-expanded": open ? "true" : "false", onclick() { toggle(key, open); repaint(); } },
-      h("span", { "aria-hidden": "true" }, open ? "▾" : "▸"), label, h("span", { class: "pill" }, count + "개")),
-    tools);
-
-  function teacherBox(teacher) {
-    const mine = lessons.filter((l) => l.owner === teacher);
-    const subs = (lessonFolders || []).filter((f) => folderTeacher(f) === teacher);
-    const loose = mine.filter((l) => !folderOf(l.id));
-    const key = "t:" + teacher;
-    const open = !closed.has(key);
-    return dropZone(teacher, null, "folder teacher-folder", [
-      head(key, open, "👤 " + teacherName(teacher), mine.length, null),
-      open ? h("div", { class: "folder-kids" },
-        subs.map((f) => {
-          const ls = folderLessons(f);
-          const fopen = !closed.has(f.id);
-          return dropZone(teacher, f, "folder sub-folder", [
-            head(f.id, fopen, "📁 " + f.name, ls.length, [
-              h("span", { class: "pill private-pill", title: "직접 만든 폴더는 나만 봅니다" }, "🔒 나만 보기"),
-              h("button", { class: "link", type: "button", onclick() { rename(f); } }, "이름 바꾸기"),
-              h("button", { class: "link danger", type: "button", onclick() { drop(f); } }, "지우기")]),
-            fopen ? (ls.length ? cards(ls) : h("p", { class: "muted small folder-empty" }, "수업 카드를 여기로 끌어 놓거나, 카드 아래 📁 칸에서 이 폴더를 고르세요.")) : null,
-          ]);
-        }),
-        loose.length ? cards(loose) : null,
-        mine.length ? null : h("p", { class: "muted small folder-empty" }, "아직 만든 수업이 없습니다.")) : null,
-    ]);
+  // 직접 만든 폴더 안
+  function subView(f) {
+    const t = folderTeacher(f);
+    const ls = folderLessons(f);
+    return [
+      crumb(teacherName(t), () => go(t, null)),
+      h("div", { class: "row between" },
+        h("h2", { class: "folder-title" }, "📁 " + f.name),
+        h("div", { class: "row" },
+          h("span", { class: "pill private-pill" }, "🔒 나만 보기"),
+          h("button", { class: "link", type: "button", onclick() { rename(f); } }, "이름 바꾸기"),
+          h("button", { class: "link danger", type: "button", onclick() { drop(f); } }, "폴더 지우기"))),
+      h("p", { class: "muted small" }, teacherName(t) + " 폴더 안의 폴더 · 수업 " + ls.length + "개"),
+      ls.length ? cards(ls) : h("p", { class: "muted" }, "아직 넣은 수업이 없습니다. 「" + teacherName(t) + "」 폴더에서 카드를 이 폴더에 끌어다 놓거나, 카드 아래 📁 칸에서 이 폴더를 고르세요."),
+    ];
   }
 
   function repaint() {
     const ids = teacherIds();
     if (!ids.includes(me.id)) ids.unshift(me.id);
-    el.replaceChildren(
-      h("h2", {}, "📁 수업 폴더"),
-      h("p", { class: "muted small" }, "수업은 만든 선생님 폴더(👤)에 저절로 들어갑니다. 앞으로 만드는 수업도 마찬가지입니다. 카드를 누르면 그 수업으로 갑니다."),
-      lessonFolders ? addForm(ids) : h("p", { class: "banner" }, "폴더를 더 만들려면 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요."),
-      lessonFolders ? h("p", { class: "muted small" }, "🔒 직접 만든 폴더는 나만 봅니다. 다른 선생님 화면에는 보이지 않습니다.") : null,
-      ids.map(teacherBox));
+    const f = folderPath.folder && (lessonFolders || []).find((x) => x.id === folderPath.folder);
+    const t = folderPath.teacher && ids.includes(folderPath.teacher) ? folderPath.teacher : null;
+    el.replaceChildren(...(f ? subView(f) : t ? teacherView(t) : rootView(ids)).flat().filter(Boolean));
   }
   repaint();
   return { el, repaint: changed };
