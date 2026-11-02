@@ -1454,6 +1454,37 @@ revoke all on function bug_reply_delete(uuid) from public;
 grant execute on function bug_reply(uuid, text) to authenticated;
 grant execute on function bug_reply_delete(uuid) to authenticated;
 
+-- 수업 폴더(「수업 설정」 옆 칸): 화면에는 수업을 만든 선생님마다 이름 폴더가 저절로 생기고(표에 없음, lesson_teachers로 이름만 받음),
+-- 그 안에 선생님이 직접 만드는 폴더가 이 표다. 만든 선생님만 보고 다른 선생님에게는 보이지 않는다.
+-- teacher: 어느 선생님 폴더 안의 폴더인지(그 선생님이 만든 수업만 넣는다, 비어 있으면 나).
+-- lessons에는 이 폴더에 넣은 수업 id를 적는다. 수업이 지워져도 폴더는 남고 그 id만 무시된다.
+create table if not exists lesson_folders (
+  id         uuid primary key default gen_random_uuid(),
+  owner      uuid not null default auth.uid(),
+  name       text not null check (length(name) between 1 and 30),
+  lessons    uuid[] not null default '{}' check (cardinality(lessons) <= 500),
+  sort       int not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists lesson_folders_owner on lesson_folders (owner);
+alter table lesson_folders enable row level security;
+drop policy if exists folder_own on lesson_folders;
+create policy folder_own on lesson_folders for all to authenticated
+  using (owner = auth.uid() and is_teacher()) with check (owner = auth.uid() and is_teacher());
+revoke all on lesson_folders from anon;
+grant select, insert, update, delete on lesson_folders to authenticated;
+alter table lesson_folders add column if not exists teacher uuid;
+
+-- 내가 볼 수 있는 수업을 만든 선생님들 {선생님id: {email, name}} (수업 폴더의 선생님 이름)
+create or replace function lesson_teachers() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_object_agg(x.owner::text, jsonb_build_object('email', x.email, 'name', t.name)), '{}'::jsonb)
+  from (select distinct l.owner, lower(u.email) email from lessons l left join auth.users u on u.id = l.owner where can_lesson(l.id)) x
+  left join teachers t on t.email = x.email
+$$;
+revoke all on function lesson_teachers() from public;
+grant execute on function lesson_teachers() to authenticated;
+
 -- ------------------------------------------------------------
 -- 교사 이메일: happywax0206@gmail.com 을 자기 이메일(소문자)로 바꾸세요. 여러 명이면 줄을 더하면 됩니다.
 -- 함께 쓸 선생님은 여기에 적지 않아도 됩니다: 교사 화면 「⚙ 설정 → 프로필·공동작업자」에서 이메일로 초대하면 됩니다.
