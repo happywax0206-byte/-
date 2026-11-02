@@ -1226,7 +1226,31 @@ document.addEventListener("dragover", (e) => {
   e.preventDefault();
   e.dataTransfer.dropEffect = "move";
   sortOver(e.clientX, e.clientY);
+  sortScroll(e.clientX, e.clientY);
 });
+
+// 끄는 칸을 화면 위·아래 끝으로 가져가면 그쪽으로 천천히 스크롤한다(끝에 가까울수록 조금 빨라짐).
+// 끄는 동안 브라우저는 휠 스크롤을 잘 받지 않으므로, 화면 밖에 있는 슬라이드 자리로도 옮길 수 있게 한다.
+const SORT_EDGE = 90, SORT_SPEED = 9;   // 끝에서 몇 px 안쪽부터, 한 화면(1/60초)에 최대 몇 px
+let sortPtr = null;
+function sortScroll(x, y) {
+  const running = sortPtr;
+  sortPtr = { x, y, at: performance.now() };
+  if (running) return;
+  const step = () => {
+    // 끌기가 끝났거나, 손가락이 창 밖으로 나가 신호가 끊기면 멈춘다
+    if (!sortDrag || !sortPtr || performance.now() - sortPtr.at > 250) { sortPtr = null; return; }
+    const { x: px, y: py } = sortPtr;
+    const dy = py < SORT_EDGE ? -(SORT_EDGE - py) : py > innerHeight - SORT_EDGE ? py - (innerHeight - SORT_EDGE) : 0;
+    if (dy) {
+      const before = scrollY;
+      scrollBy(0, Math.sign(dy) * Math.max(1, Math.round(SORT_SPEED * Math.min(1, Math.abs(dy) / SORT_EDGE))));
+      if (scrollY !== before) sortOver(px, py);   // 화면이 움직이면 손 아래 칸이 바뀌므로 빈칸 자리도 다시 본다
+    }
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
 // 새 칸 위로 들어가는 순간(dragenter)도 받아 줘야 다음 dragover 전까지 금지 표시가 깜빡이지 않는다
 document.addEventListener("dragenter", (e) => {
   if (!sortDrag) return;
@@ -3026,7 +3050,7 @@ function drawSettings() {
 
   async function copyInto(copy) {
     // 슬라이드 그림은 같은 것을 함께 쓴다(원래 수업을 지워도 다른 수업이 쓰는 그림은 남긴다)
-    await sb.from("lessons").update({ slide_dir: lesson.slide_dir, slide_count: lesson.slide_count,
+    await sb.from("lessons").update({ slide_dir: unlockedDir(lesson.slide_dir), slide_count: lesson.slide_count,
       ...("transition" in lesson && lesson.transition ? { transition: lesson.transition } : {}) }).eq("id", copy.id);
     if (activities.length) {
       // 자료 파일은 새 수업 폴더로 복사한다(원래 수업을 지우면 그 폴더의 파일도 지워지므로)
@@ -3809,6 +3833,52 @@ async function checkSlideNums(folder) {
   }
 }
 
+// 공동작업자와 같은 수업을 함께 열어 두면 서로의 화면은 저절로 새로 그려지지 않아, 내 화면의 슬라이드 순서·질문 쪽 번호가 예전 것일 수 있다.
+// 쪽 번호를 바꾸기(옮기기·지우기) 전에 서버의 최신 수업을 다시 받아 보고, 그사이 누가 바꿨으면 아무것도 하지 않고 새 순서를 불러온다.
+// 또 slide_dir 끝에 「&busy=시각.누구」 표시를 붙인다. 서버 값이 내가 본 값과 같을 때만 붙으므로 두 사람이 동시에 시작해도 한 사람만 되고,
+// 표시가 있는 동안 다른 선생님은 기다린다(그림 이름이 꼬이지 않게). 끝나면 freshSlideDir가 표시를 지운다. 멈춘 채 남은 표시는 2분 뒤 무시한다.
+// 돌려주는 값: 서버에서 새로 받은 이 수업의 질문 목록(쪽 번호 계산에 쓴다)
+const SLIDE_LOCK_MS = 120000;
+class SlidesChanged extends Error {}
+const unlockedDir = (dir) => (dir || "").replace(/[?&]busy=[^&]*$/, "");
+async function claimSlides() {
+  const shown = lesson, who = me.id.slice(0, 8);
+  const { data, error } = await sb.from("lessons").select("*").eq("id", shown.id).single();
+  if (error) throw error;
+  const lock = /[?&]busy=(\d+)\.(\w+)$/.exec(data.slide_dir || "");
+  if (lock && lock[2] !== who && Date.now() - +lock[1] < SLIDE_LOCK_MS) {
+    throw new SlidesChanged("다른 선생님이 지금 이 수업의 슬라이드를 바꾸고 있습니다. 잠시 뒤 다시 해 보세요.");
+  }
+  if (unlockedDir(data.slide_dir) !== unlockedDir(shown.slide_dir) || data.slide_count !== shown.slide_count) {
+    throw new SlidesChanged("다른 선생님이 그사이 이 수업의 슬라이드를 바꿨습니다. 바뀐 순서를 새로 불러올 테니 확인하고 다시 해 주세요.");
+  }
+  const base = unlockedDir(data.slide_dir);
+  const dir = base + (base.includes("?") ? "&" : "?") + "busy=" + Date.now() + "." + who;
+  const u = await sb.from("lessons").update({ slide_dir: dir }).eq("id", shown.id).eq("slide_dir", data.slide_dir).select("id");
+  if (u.error) throw u.error;
+  if (!u.data.length) throw new SlidesChanged("다른 선생님이 같은 때에 슬라이드를 바꾸기 시작했습니다. 새로 불러올 테니 확인하고 다시 해 주세요.");
+  shown.slide_dir = dir;
+  shown.page = data.page;
+  shown.transition = data.transition;
+  const a = await sb.from("activities").select("*").eq("lesson_id", shown.id);
+  if (a.error) throw a.error;
+  return sortActivities(a.data);
+}
+
+// 중간에 멈췄을 때 「바꾸는 중」 표시를 지운다(번호는 「번호 다시 맞추기」로 바로잡는다)
+async function releaseSlides() {
+  if (!lesson || !/[?&]busy=/.test(lesson.slide_dir || "")) return;
+  const dir = freshSlideDir(lesson.slide_dir, slideSized(lesson));
+  const u = await sb.from("lessons").update({ slide_dir: dir }).eq("id", lesson.id).eq("slide_dir", lesson.slide_dir);
+  if (!u.error) lesson.slide_dir = dir;
+}
+
+// 다른 선생님 때문에 시작하지 못했을 때: 알리고 최신 상태를 다시 그린다
+async function slidesChanged(e) {
+  alert(e.message);
+  await loadLessons(lesson.id);
+}
+
 // 슬라이드 한 장을 from 쪽에서 to 쪽으로 옮긴다. 사이의 그림은 한 칸씩 밀리거나 당겨진다.
 // 질문은 붙어 있던 슬라이드를 따라간다. 여러 쪽에 걸친 질문은 옮긴 슬라이드를 빼고 남은 쪽들을 따라간다.
 function slideMoveMap(from, to) {
@@ -3839,11 +3909,20 @@ async function moveSlideFiles(folder, x, y) {
 async function moveSlide(from, to, status) {
   if (slideBusy || from === to) return;
   let folder;
-  try { folder = editableSlideFolder(); } catch (e) { return alert(e.message); }
+  try { folder = editableSlideFolder(); } catch (e) { alert(e.message); return draw(); }   // 끌어 놓은 자리를 원래대로
   slideBusy = true;
   document.querySelectorAll(".thumb button, .slide-tools button").forEach((b) => { b.disabled = true; });
-  const st = sb.storage.from("slides");
   const mv = (x, y) => moveSlideFiles(folder, x, y);
+  let acts;
+  try {
+    status.textContent = "최신 슬라이드 순서를 확인하는 중…";
+    acts = await claimSlides();
+  } catch (e) {
+    slideBusy = false;
+    if (e instanceof SlidesChanged) return slidesChanged(e);
+    alert("옮기지 못했습니다: " + (e.message || e));
+    return loadLessons(lesson.id);
+  }
   try {
     status.textContent = from + "쪽을 " + to + "쪽 자리로 옮기는 중…";
     await checkSlideNums(folder);
@@ -3855,7 +3934,7 @@ async function moveSlide(from, to, status) {
     await mv(park, to);
 
     const newPos = slideMoveMap(from, to);
-    for (const a of activities) {
+    for (const a of acts) {
       if (a.page == null) continue;
       const r = movedRange(a, from, newPos);
       if (r.page === a.page && r.page_to === (a.page_to > a.page ? a.page_to : null)) continue;
@@ -3871,6 +3950,7 @@ async function moveSlide(from, to, status) {
     slideBusy = false;
     await loadLessons(lesson.id);
   } catch (e) {
+    await releaseSlides().catch(() => {});
     slideBusy = false;
     document.querySelectorAll(".thumb button, .slide-tools button").forEach((b) => { b.disabled = false; });
     status.textContent = "멈췄습니다: " + (e.message || e) + " · 「번호 다시 맞추기」를 누르면 남은 그림으로 번호를 다시 맞춥니다.";
@@ -3884,8 +3964,9 @@ async function deleteSlide(k, status) {
   try { folder = editableSlideFolder(); } catch (e) { return alert(e.message); }
   const base = lesson.slide_dir.split("?")[0];
   // 이 쪽 자리에 뜨는 애니메이션은 쪽과 함께 지운다(남겨 두면 당겨진 다음 슬라이드를 가린다)
-  const sims = k ? activities.filter((a) => a.kind === "sim" && a.sim_full && a.page === k && !(a.page_to > k)) : [];
+  const simsOf = (list) => k ? list.filter((a) => a.kind === "sim" && a.sim_full && a.page === k && !(a.page_to > k)) : [];
   if (k) {
+    const sims = simsOf(activities);
     const onIt = activities.filter((a) => a.page === k && !(a.page_to > k) && !sims.includes(a));
     if (!confirm(k + "쪽 슬라이드를 지울까요? 뒤쪽 슬라이드가 한 칸씩 앞으로 당겨집니다." +
       (sims.length ? "\n이 쪽의 애니메이션 「" + sims.map((a) => a.title).join("」, 「") + "」도 함께 지웁니다." : "") +
@@ -3894,6 +3975,17 @@ async function deleteSlide(k, status) {
   slideBusy = true;
   document.querySelectorAll(".thumb button, .slide-tools button").forEach((b) => { b.disabled = true; });
   const st = sb.storage.from("slides");
+  let acts, sims;   // 서버에서 새로 받은 질문 목록(화면의 것은 예전 것일 수 있다)
+  try {
+    status.textContent = "최신 슬라이드 순서를 확인하는 중…";
+    acts = await claimSlides();
+    sims = simsOf(acts);
+  } catch (e) {
+    slideBusy = false;
+    if (e instanceof SlidesChanged) return slidesChanged(e);
+    alert("하지 못했습니다: " + (e.message || e));
+    return loadLessons(lesson.id);
+  }
   try {
     status.textContent = "슬라이드 목록을 확인하는 중…";
     let nums = await slideNums(folder);
@@ -3917,7 +4009,7 @@ async function deleteSlide(k, status) {
     }
     if (k) {
       const shift = (pg) => (pg == null ? pg : pg > k ? pg - 1 : pg);
-      for (const a of activities) {
+      for (const a of acts) {
         if (a.page == null || sims.includes(a)) continue;
         const page = Math.min(shift(a.page), Math.max(left, 1));
         let to = a.page_to > a.page ? Math.min(shift(a.page_to), Math.max(left, 1)) : a.page_to ?? null;
@@ -3938,6 +4030,7 @@ async function deleteSlide(k, status) {
     slideBusy = false;
     await loadLessons(lesson.id);
   } catch (e) {
+    await releaseSlides().catch(() => {});
     slideBusy = false;
     document.querySelectorAll(".thumb button, .slide-tools button").forEach((b) => { b.disabled = false; });
     status.textContent = "멈췄습니다: " + (e.message || e) + " · 「번호 다시 맞추기」를 누르면 남은 그림으로 번호를 다시 맞춥니다.";
