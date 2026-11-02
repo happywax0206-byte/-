@@ -16,6 +16,7 @@
 - 수업 화면(프로젝터): `present.html` + `present.js` (교사 탭과 BroadcastChannel)
 - DB·보안 규칙·함수 전부: `setup.sql` · Supabase 사용량 읽는 Chrome 확장: `extension/` · 라이브러리: `vendor/`
 - 독립 시뮬레이션 페이지(수업 앱과 별개): beats, pendulum, pendulum-advanced, spring, string-pulse, drum, circuit, binary-doppler, sonic-boom (`.html`)
+- 독립 도구 페이지: `dedup.html`(닉네임 중복 거르기, SheetJS 사용)
 
 ## 꼭 지킬 것 (예전에 버그가 났던 곳)
 

@@ -704,6 +704,7 @@ async function loadLesson() {
     activities = sortActivities(data);
     await Promise.all([loadResponses(), loadSlidesShared()]);
     removeOrphanFiles().catch(() => {});
+    removeOrphanMaterials().catch(() => {});
   }
   draw();
 }
@@ -747,6 +748,7 @@ async function loadResponses(full = true) {
     responses = responses.filter((r) => !got.has(key(r)) && ids.includes(r.activity_id)).concat(rs.data);
   }
   respSince = responses.reduce((m, r) => Math.max(m, Date.parse(r.updated_at) || 0), 0);
+  syncSharedFiles();   // 공개한 학생이 파일 답을 바꿨으면 복사본도 바꾼다(바뀐 것이 없으면 아무것도 안 함)
 }
 
 function schedule() {
@@ -774,7 +776,8 @@ async function save(table, row, id) {
   if (error) {
     alert("저장하지 못했습니다: " + error.message +
       (/page_to/.test(error.message) ? " · 여러 쪽에 걸친 질문을 쓰려면 Supabase SQL Editor에서 setup.sql을 한 번 실행하세요. 끝 쪽 칸을 비우면 지금도 저장됩니다." : "") +
-      (/sim_box/.test(error.message) ? " · 「슬라이드 위 원하는 자리에」를 쓰려면 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요." : ""));
+      (/sim_box/.test(error.message) ? " · 「슬라이드 위 원하는 자리에」를 쓰려면 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요." : "") +
+      (/files/.test(error.message) ? " · 자료 파일을 붙이려면 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요." : ""));
     return null;
   }
   return data[0];
@@ -830,7 +833,7 @@ function draw() {
       tabNav,
       h("div", { class: "top-right" },
         lesson ? mirrorStatus : null,
-        lesson ? h("button", { class: "ghost present-btn", type: "button", title: "학생에게 보여 줄 슬라이드만 새 탭에 띄웁니다", onclick: openPresent }, "▣ 수업 화면 띄우기") : null,
+        lesson ? h("button", { class: "ghost present-btn open-present", type: "button", hidden: presentOn, title: "학생에게 보여 줄 슬라이드만 새 탭에 띄웁니다", onclick: openPresent }, "▣ 수업 화면 띄우기") : null,
         gearEl, profileEl)),
     main);
   setTopHeight();
@@ -1341,6 +1344,16 @@ document.addEventListener("visibilitychange", ping);
 //   없는 칸은 빼도 된다.
 // 마지막으로 본 날짜(cra-notes-seen)보다 새 소식이 있으면 설정 목록의 「패치노트」 옆에 「새 소식」, 그 날짜에는 NEW 표시.
 const PATCH_NOTES = [
+  { date: "2026-11-02",
+    major: [
+      { title: "📎 카드에 자료 파일 붙이기", desc: "「질문·설문 만들기」의 카드 편집에서 「파일 붙이기」로 PDF·한글·PPT·사진 등을 붙이면, 학생 화면의 그 카드에 자료가 보이고 눌러서 열거나 내려받습니다(10개까지, 한 개에 50MB까지)." },
+      { title: "공개한 파일 답을 친구들도 내려받기", desc: "수업 진행에서 학생의 파일 답을 「공개」하면 이제 친구들도 그 파일을 눌러 열어 보거나 내려받을 수 있습니다(예전에는 이름만 보였음). 공개를 끝내면 친구들은 더 이상 받을 수 없습니다." },
+    ],
+    minor: [
+      "「수업 화면 띄우기」를 누르면 그 단추 자리에 「동기화」·「수업 화면 닫기」가 나오고, 수업 화면을 닫으면 다시 「수업 화면 띄우기」가 나옵니다.",
+      "세로로 긴 슬라이드(세로 PDF·그림)는 16:9 칸에 작게 들어가지 않고 세로로 길게 보입니다.",
+    ],
+    fix: ["조작 보내기 중에 유튜브를 전체 화면으로 키우면 수업 화면이 까맣게 되던 것을 고쳤습니다."] },
   { date: "2026-10-31",
     major: [
       { title: "탭 설정: 카드 모양으로", desc: "「⚙ 설정 → 탭 설정」이 표 대신 카드로 바뀌었습니다. 위에는 수업모드, 아래에는 편집모드의 탭 카드가 있고, 그 모드에 보이는 탭은 진하게, 안 보이는 탭은 흐리게 보입니다. 카드의 스위치로 켜고 끕니다. 끌어서 옮기기, 이름 바꾸기, 기본 배치 단추는 그대로입니다." },
@@ -1699,10 +1712,15 @@ function updateMirror() {
     // 화면 공유는 여기서 묻지 않는다(대답을 기다리는 동안 쪽 넘김까지 멈췄던 버그). 교사가 누를 때만 askCapture로 묻는다.
     if (!captureTrack()) { mirrorOn = null; return; }
     const t = captureTrack();
-    if (want.el !== mirrorEl) {
+    // 칸 안의 유튜브 등이 자기 「전체 화면」 단추로 커지면 그 칸 밖(맨 위 층)에 그려져서 잘라 낸 칸이 까맣게 된다.
+    // 그동안은 자르지 않고 탭 전체를 보낸다(탭에는 커진 영상만 보인다). 전체 화면이 끝나면 다시 그 칸만 잘라 보낸다.
+    const fs = document.fullscreenElement;
+    const whole = !!fs && fs !== want.el && want.el.contains(fs);
+    if (want.el !== mirrorEl || whole !== mirrorWhole) {
       try {
-        if (window.RestrictionTarget) await t.restrictTo(await RestrictionTarget.fromElement(want.el));
-        else await t.cropTo(await CropTarget.fromElement(want.el));
+        if (window.RestrictionTarget) await t.restrictTo(whole ? null : await RestrictionTarget.fromElement(want.el));
+        else await t.cropTo(whole ? undefined : await CropTarget.fromElement(want.el));
+        mirrorWhole = whole;
         setMirrorEl(want.el);
       } catch (err) {
         // 쪽을 넘기는 중이라 칸이 아직 그려지지 않았을 때 등. 잠시 뒤 다시 해 본다(같은 칸에 몇 번까지만)
@@ -1715,7 +1733,7 @@ function updateMirror() {
       }
     }
     try { presentWin.cra_stream(capture); } catch (_) { mirrorOn = null; return; }
-    mirrorOn = { mode: want.mode, id: want.id || null, frozen: !mirrorSeen };
+    mirrorOn = { mode: want.mode, id: want.id || null, frozen: !mirrorSeen && !mirrorWhole };
   }).catch((err) => { console.warn(err); mirrorOn = null; }).then(() => { if (!mirrorOn) setMirrorEl(null); sendPresent(); drawMirrorStatus(); });
 }
 
@@ -1723,13 +1741,15 @@ function updateMirror() {
 // 화면 잘라 보내기는 실제로 화면에 보이는 부분만 잡을 수 있어서, 스크롤로 칸이 화면 밖으로 나가면
 // 수업 화면은 마지막 장면에서 멈춰 둔다(frozen). 다시 보이면 이어서 보인다.
 let mirrorSeen = true;
+let mirrorWhole = false;   // 칸 안의 것이 전체 화면이라 탭 전체를 보내는 중
 let mirrorRetry = 0, mirrorRetryEl = null;
 const mirrorIO = window.IntersectionObserver ? new IntersectionObserver((entries) => {
   const seen = entries[entries.length - 1].intersectionRatio > 0.97;
   if (seen === mirrorSeen) return;
   mirrorSeen = seen;
-  if (mirrorOn) { mirrorOn = { ...mirrorOn, frozen: !seen }; sendPresent(); }
+  if (mirrorOn) { mirrorOn = { ...mirrorOn, frozen: !seen && !mirrorWhole }; sendPresent(); }
 }, { threshold: [0, 0.5, 0.97, 1] }) : null;
+document.addEventListener("fullscreenchange", () => { if (presentOn) updateMirror(); });
 
 function setMirrorEl(el) {
   if (el === mirrorEl) return;
@@ -1740,9 +1760,10 @@ function setMirrorEl(el) {
   if (el) { el.classList.add("mirroring"); if (mirrorIO) mirrorIO.observe(el); }
 }
 
-// 위쪽 막대: 수업 화면이 열려 있으면 「수업 화면 닫기」와, 조작을 보내는 중인지(꺼져 있으면 켜는 단추)
+// 위쪽 막대: 수업 화면이 열려 있으면 「수업 화면 띄우기」 대신 「동기화」·「수업 화면 닫기」와, 조작을 보내는 중인지(꺼져 있으면 켜는 단추)
 function drawMirrorStatus() {
   requestAnimationFrame(setTopHeight);   // 단추 글자가 바뀌어 위쪽 막대 높이가 달라질 수 있다
+  document.querySelectorAll(".open-present").forEach((b) => { b.hidden = presentOn; });
   mirrorStatus.hidden = !presentOn;
   if (!presentOn) return mirrorStatus.replaceChildren();
   const state = !canMirror() ? null
@@ -1782,7 +1803,7 @@ function drawRun() {
       hasSlides ? stage : h("p", { class: "card muted" }, lesson.kind === "survey" ? "설문 전용입니다. 학생 화면에는 모든 설문이 보입니다." : "슬라이드가 없는 수업입니다. 학생 화면에는 모든 활동이 보입니다."),
       hasSlides ? h("nav", { class: "pager" }, prev, where, next, h("span", { class: "spacer" }),
         h("button", { class: "ghost", type: "button", onclick() { if (stage.requestFullscreen) stage.requestFullscreen(); } }, "전체 화면"),
-        h("button", { class: "ghost", type: "button", onclick: openPresent }, "수업 화면 띄우기")) : null,
+        h("button", { class: "ghost open-present", type: "button", hidden: presentOn, onclick: openPresent }, "수업 화면 띄우기")) : null,
       hasSlides && preview ? h("p", { class: "muted small" }, "미리 보기: 여기서 쪽을 넘겨도 학생 화면과 수업 화면(프로젝터)은 따라 넘어가지 않습니다.") : null,
       h("div", { class: "row" },
         h("button", { class: "ghost", type: "button", onclick: showJoin }, "학생 접속 주소·QR"),
@@ -1966,6 +1987,7 @@ function runBlock(a) {
       h("div", { class: "row" }, editBtn(a), hideBtn(a))),
     seen,
     activityDescription(a) ? linkedDescription(activityDescription(a)) : null,
+    materialsView(a),
     a.questions.map((q) => linkedDescription(q.text)));
   const docs = docsOf(a);
   const scored = docs.filter((d) => d.r.total);
@@ -1981,7 +2003,8 @@ function runBlock(a) {
       h("div", { class: "row" }, editBtn(a), hideBtn(a))),
     h("div", { class: "row" }, seen,
       h("p", { class: nShared ? "pill on" : "pill" }, nShared ? "응답 공개: " + [nCharts ? "그래프 " + nCharts + "개" : "", nAnswers ? "답 " + nAnswers + "개" : ""].filter(Boolean).join(" · ") + " (" + (a.named ? "이름과 함께" : "이름 없이") + ")" : "응답: 각자 자기 답만 봄")),
-    h("p", { class: "muted small" }, "응답 " + docs.length + " / " + students.length + "명" + (avg ? " · 평균 " + avg : "") + " · 친구들에게 보여 줄 답만 「공개」를 누르세요."),
+    materialsView(a),
+    h("p", { class: "muted small" }, "응답 " + docs.length + " / " + students.length + "명" + (avg ? " · 평균 " + avg : "") + " · 친구들에게 보여 줄 답만 「공개」를 누르세요. 파일 답은 공개하면 친구들도 내려받을 수 있습니다."),
     summaryView(a.questions, docs, { openFile, tools: (q) => shareQBtn(a, q),
       answerTools: (q, d) => h("span", { class: "answer-tools" }, shareABtn(a, q, d), removeBtn(a, d.r, q)) }),
     h("div", { class: "row" },
@@ -2059,6 +2082,7 @@ async function setActivity(a, change) {
   for (const k of Object.keys(change)) before[k] = a[k];
   Object.assign(a, change);
   refreshRun();
+  if ("shared_a" in change || "shared_q" in change) syncSharedFiles();   // 공개한 파일 답을 친구들이 내려받게(복사는 저장과 함께 시작)
   const { error } = await sb.from("activities").update(change).eq("id", a.id);
   if (!error) return;
   if (/hidden|shared_q|shared_a/.test(error.message)) {
@@ -2431,11 +2455,45 @@ function editor() {
       h("label", {}, info ? "설명문 (학생은 읽기만 합니다)" : "질문", text),
       choice ? h("label", {}, "보기 (한 줄에 하나씩)", opts) : null,
       acceptSel ? h("label", {}, "받을 파일", acceptSel) : null,
-      acceptSel ? h("p", { class: "muted small" }, "학생은 " + FILE_COUNT + "개까지, 한 개에 " + fileSize(FILE_MAX) + "까지 올립니다. 파일은 교사만 열어 볼 수 있고, 「응답 공개」해도 친구들에게는 파일 이름만 보입니다.") : null,
+      acceptSel ? h("p", { class: "muted small" }, "학생은 " + FILE_COUNT + "개까지, 한 개에 " + fileSize(FILE_MAX) + "까지 올립니다. 파일은 교사만 열어 볼 수 있고, 수업 진행에서 「공개」를 누른 답의 파일은 친구들도 열어 보고 내려받을 수 있습니다.") : null,
       answerPick,
       explain ? h("label", {}, "해설", explain) : null,
       quiz && !choice ? h("p", { class: "muted small" }, "글로 답하는 질문은 자동 채점하지 않습니다.") : null);
   });
+
+  // 자료 파일: 고르면 바로 공개 저장소(shared)에 올리고 목록에 더한다. 「저장」을 눌러야 학생에게 보인다(뺀 파일은 저장할 때 지운다).
+  // 올리고 저장하지 않은 파일은 removeOrphanMaterials가 이틀 뒤 지운다
+  if (!Array.isArray(e.files)) e.files = [];
+  const matMsg = h("p", { class: e._matErr ? "error small" : "small" }, e._matErr || "");
+  delete e._matErr;
+  const matInput = h("input", { type: "file", multiple: true, accept: Object.keys(FILE_TYPES).map((x) => "." + x).join(","), onchange: addMaterials });
+  const matList = h("div", { class: "file-list" }, e.files.map((f, i) => h("div", { class: "file-item" },
+    h("button", { class: "link file-link", type: "button", onclick() { openSharedFile(f); } }, f.name),
+    f.size ? h("span", { class: "muted small" }, fileSize(f.size)) : null,
+    h("button", { class: "link danger", type: "button", onclick() { e.files.splice(i, 1); redraw(); } }, "빼기"))));
+  async function addMaterials() {
+    const picked = [...matInput.files];
+    matInput.value = "";
+    if (!picked.length) return;
+    if (e.files.length + picked.length > MATERIAL_COUNT) { matMsg.className = "error small"; matMsg.textContent = "자료는 " + MATERIAL_COUNT + "개까지 붙일 수 있습니다."; return; }
+    matInput.disabled = true;
+    matMsg.className = "status";
+    try {
+      for (const f of picked) {
+        const ext = fileExt(f.name);
+        if (!FILE_TYPES[ext]) throw new Error(f.name + ": 올릴 수 없는 파일 종류입니다.");
+        if (f.size > MATERIAL_MAX) throw new Error(f.name + ": " + fileSize(MATERIAL_MAX) + "가 넘습니다.");
+        matMsg.textContent = "올리는 중… " + f.name;
+        const path = lesson.id + "/m_" + randomHex() + "." + ext;
+        const { error } = await sb.storage.from("shared").upload(path, f, { contentType: FILE_TYPES[ext], upsert: false });
+        if (error) throw new Error(f.name + ": " + error.message + (/bucket|not found/i.test(error.message) ? " · 먼저 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요." : ""));
+        e.files.push({ path, name: f.name.slice(0, 80), size: f.size });
+      }
+    } catch (err) {
+      e._matErr = "올리지 못했습니다: " + (err.message || err);
+    }
+    redraw();
+  }
 
   async function saveActivity() {
     e.title = e.title.trim();
@@ -2468,9 +2526,15 @@ function editor() {
       : "퀴즈 칸이 없어져 이 카드가 질문 카드가 됩니다. 학생들이 답을 다시 고칠 수 있게 됩니다. 저장할까요?")) return;
     const row = { kind, title: e.title, page: e.page, show_answer: e.show_answer, named: e.named, questions: e.questions };
     if (!putPageTo(row, e, msg)) return;
+    // 자료 칸(files)은 데이터베이스에 그 칸이 있거나(불러온 활동에 보일 때) 붙인 자료가 있을 때만 보낸다
+    if (e.files.length || activities.some((x) => "files" in x)) row.files = e.files.map((f) => ({ path: f.path, name: f.name, size: f.size }));
+    const before = e.id ? activities.find((x) => x.id === e.id) : null;
     if (!e.id) { row.lesson_id = lesson.id; row.sort = activities.length; }
     const saved = await save("activities", row, e.id);
     if (!saved) return;
+    // 뺀 자료는 저장소에서도 지운다
+    const dropped = (before && Array.isArray(before.files) ? before.files : []).map((f) => f.path).filter((p) => !e.files.some((f) => f.path === p));
+    if (dropped.length) await sb.storage.from("shared").remove(dropped);
     const { data } = await sb.from("activities").select("*").eq("lesson_id", lesson.id);
     activities = sortActivities(data || []);
     editing = JSON.parse(JSON.stringify(saved));
@@ -2480,9 +2544,11 @@ function editor() {
 
   async function removeActivity() {
     if (!confirm("「" + e.title + "」을(를) 지울까요? 학생 응답도 함께 지워집니다.")) return;
+    const mats = ((activities.find((x) => x.id === e.id) || {}).files || []).map((f) => f.path);
     const { error } = await sb.from("activities").delete().eq("id", e.id);
     if (error) { msg.textContent = error.message; return; }
     await removeSubmissionFiles(lesson.id, e.id);
+    if (mats.length) await sb.storage.from("shared").remove(mats);
     activities = activities.filter((a) => a.id !== e.id);
     editing = null;
     drawBuild();
@@ -2497,6 +2563,11 @@ function editor() {
       placeControls(e, redraw)),
       lesson.slide_count && e.page != null ? h("p", { class: "muted small grow" }, "끝 쪽을 적으면 그 사이 쪽마다 같은 카드가 보이고, 학생이 쓴 답도 이어서 보입니다.") : null,
     h("label", {}, "카드 설명문 (선택)", description),
+    h("div", { class: "stack" },
+      h("p", { class: "q-label" }, "자료 파일 (선택) · 학생이 카드에서 내려받습니다"),
+      h("label", { class: "file-pick" }, "파일 붙이기", matInput),
+      h("p", { class: "muted small" }, "사진, PDF, 한글·워드·엑셀·PPT, zip, 음성·영상 · " + MATERIAL_COUNT + "개까지 · 한 개에 " + fileSize(MATERIAL_MAX) + "까지 · 「저장」을 눌러야 학생에게 보입니다."),
+      matList, matMsg),
     h("div", { class: "row wrap" },
       hasQuiz ? h("label", { class: "check" }, h("input", { type: "checkbox", checked: e.show_answer, onchange(ev) { e.show_answer = ev.target.checked; } }), "제출 뒤 정답과 해설 보여 주기") : null,
       h("label", { class: "check" }, h("input", { type: "checkbox", checked: e.named, onchange(ev) { e.named = ev.target.checked; } }), "친구들에게 응답을 공개하거나 크게 볼 때 이름 표시")),
@@ -2893,10 +2964,22 @@ function drawSettings() {
     await sb.from("lessons").update({ slide_dir: lesson.slide_dir, slide_count: lesson.slide_count,
       ...("transition" in lesson && lesson.transition ? { transition: lesson.transition } : {}) }).eq("id", copy.id);
     if (activities.length) {
+      // 자료 파일은 새 수업 폴더로 복사한다(원래 수업을 지우면 그 폴더의 파일도 지워지므로)
+      const files = {};
+      for (const a of activities) {
+        if (!Array.isArray(a.files) || !a.files.length) continue;
+        files[a.id] = [];
+        for (const f of a.files) {
+          const path = copy.id + "/m_" + randomHex() + "." + fileExt(f.path);
+          const { error } = await sb.storage.from("shared").copy(f.path, path);
+          if (!error) files[a.id].push({ ...f, path });
+        }
+      }
       const r = await sb.from("activities").insert(activities.map((a) => ({
         lesson_id: copy.id, kind: a.kind, title: a.title, page: a.page, show_answer: a.show_answer, named: a.named, hidden: a.hidden || undefined, questions: a.questions, sort: a.sort,
         // 나중에 더한 칸은 데이터베이스에 있을 때만 복사한다(시뮬레이션 html·띄우는 자리, 끝 쪽)
         ...Object.fromEntries(["page_to", "html", "sim_full", "sim_box"].filter((k) => k in a).map((k) => [k, a[k]])),
+        ...(files[a.id] ? { files: files[a.id] } : {}),
       })));
       if (r.error) alert("활동을 복사하지 못했습니다: " + r.error.message);
     }
@@ -3640,15 +3723,13 @@ async function slideFilesOf(l) {
 // ---------- 학생이 올린 파일 ----------
 // 저장소는 비공개라 10분짜리 주소를 받아 연다. 그림·PDF·글은 새 탭에서 보고, 나머지는 원래 이름으로 내려받는다.
 async function openFile(f) {
-  // 파일 종류는 서버가 정한 자리(path)의 확장자로만 본다. 학생이 적어 보낸 이름(f.name)은 「숙제.hwp.exe」처럼 속일 수 있으므로
-  // 내려받는 이름의 확장자도 path 것으로 바꾸고, 앱이 받는 종류가 아니면 열지 않는다
-  const ext = fileExt(f.path);
-  if (!FILE_TYPES[ext]) return alert("이 앱이 받지 않는 종류의 파일이라 열지 않습니다(." + ext + ").");
-  const base = String(f.name || "파일").replace(/\.[^.]*$/, "").replace(/[\\/:*?"<>|\u0000-\u001f‪-‮⁦-⁩]/g, "_").slice(0, 100) || "파일";
-  const view = /^(image\/(jpeg|png|gif|webp)|application\/pdf|text\/plain)$/.test(FILE_TYPES[ext]);
+  // 종류·내려받는 이름은 학생이 적어 보낸 이름이 아니라 서버가 정한 자리(path)로 정한다(common.js downloadName)
+  const name = downloadName(f);
+  if (!name) return alert("이 앱이 받지 않는 종류의 파일이라 열지 않습니다(." + fileExt(f.path) + ").");
+  const view = viewableFile(f);
   const win = view ? window.open("", "_blank") : null;   // 팝업 차단을 피하려고 누른 즉시 연다
   if (win) win.opener = null;   // 열린 탭이 이 교사 화면을 다른 주소로 바꾸지 못하게
-  const { data, error } = await sb.storage.from("submissions").createSignedUrl(f.path, 600, view ? undefined : { download: base + "." + ext });
+  const { data, error } = await sb.storage.from("submissions").createSignedUrl(f.path, 600, view ? undefined : { download: name });
   if (error) {
     if (win) win.close();
     return alert("파일을 열지 못했습니다: " + error.message + (/not found/i.test(error.message) ? " · 수업이나 활동을 지우면서 함께 지워졌을 수 있습니다." : ""));
@@ -3657,9 +3738,70 @@ async function openFile(f) {
   else location.href = data.signedUrl;
 }
 
+// 저장소 파일 이름에 넣는 무작위 글자(16자리). 공개 저장소는 이름을 아는 사람만 내려받으므로 짐작할 수 없어야 한다
+function randomHex() {
+  return [...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// ---------- 친구들에게 공개한 학생 파일 ----------
+// 학생 파일(submissions)은 비공개라 친구들이 열 수 없다. 그래서 교사가 파일 답을 「공개」하면 그 파일을 공개 저장소(shared)의
+// 같은 이름으로 복사하고, 공개를 끝내거나 답이 바뀌면 복사본을 지운다. 응답을 받을 때마다 맞추되 공개할 것이 그대로면 아무것도 하지 않는다.
+let sharedSig = "";
+let sharedBusy = false;
+let sharedRetryAt = 0;
+function sharedFilePaths() {
+  const out = new Set();
+  for (const a of activities) for (const q of askedQuestions(a)) {
+    if (q.type !== "file") continue;
+    const ids = sharedIds(a, q);
+    for (const r of responses) {
+      if (r.activity_id !== a.id || !ids.includes(r.student_id)) continue;
+      for (const f of [].concat(r.answers[q.id] ?? [])) if (f && typeof f.path === "string" && f.path.startsWith(lesson.id + "/")) out.add(f.path);
+    }
+  }
+  return out;
+}
+async function syncSharedFiles() {
+  if (!lesson || readOnly() || sharedBusy || Date.now() < sharedRetryAt) return;
+  if (!activities.some((a) => (a.questions || []).some((q) => q.type === "file"))) return;
+  const lessonId = lesson.id;
+  const want = sharedFilePaths();
+  const sig = lessonId + ":" + [...want].sort().join("|");
+  if (sig === sharedSig) return;
+  sharedBusy = true;
+  try {
+    const st = sb.storage.from("shared");
+    const have = new Set();
+    for (let offset = 0; offset < 50000; offset += 1000) {
+      const { data, error } = await st.list(lessonId, { limit: 1000, offset });
+      if (error || !data) throw error || new Error("list");
+      data.forEach((o) => { if (o.id && !o.name.startsWith("m_")) have.add(lessonId + "/" + o.name); });   // m_: 교사 자료
+      if (data.length < 1000) break;
+    }
+    for (const p of want) if (!have.has(p)) {
+      const { error } = await sb.storage.from("submissions").copy(p, p, { destinationBucket: "shared" });
+      if (error && !/exists|duplicate/i.test(error.message || "")) throw error;
+    }
+    const gone = [...have].filter((p) => !want.has(p));
+    for (let i = 0; i < gone.length; i += 100) await st.remove(gone.slice(i, i + 100));
+    sharedSig = sig;
+  } catch (err) {
+    // setup.sql을 아직 다시 실행하지 않아 shared 저장소가 없을 때 등. 1분 뒤 다시 해 본다
+    console.warn("공개 파일 맞추기 실패", err);
+    sharedRetryAt = Date.now() + 60000;
+  } finally {
+    sharedBusy = false;
+  }
+}
+
 // 활동(또는 수업 전체)을 지울 때 학생이 올린 파일도 지운다. 파일 이름이 「수업/활동_학생_….확장자」 꼴이다.
+// 친구들에게 공개한 복사본(shared 저장소, 같은 이름)과, 수업 전체를 지울 때는 교사 자료(m_…)도 함께 지운다.
 async function removeSubmissionFiles(lessonId, activityId) {
-  const st = sb.storage.from("submissions");
+  await removeLessonFiles("submissions", lessonId, activityId);
+  await removeLessonFiles("shared", lessonId, activityId);
+}
+async function removeLessonFiles(bucket, lessonId, activityId) {
+  const st = sb.storage.from(bucket);
   for (let round = 0; round < 50; round++) {
     const { data, error } = await st.list(lessonId, { limit: 1000, search: activityId || "" });
     if (error || !data || !data.length) return;
@@ -3698,6 +3840,24 @@ async function removeOrphanFiles() {
     if (data.length < 1000) break;
   }
   for (let i = 0; i < gone.length; i += 100) await st.remove(gone.slice(i, i + 100));
+}
+
+// 교사가 자료로 올렸다가 저장하지 않았거나 뺀 파일(shared 저장소의 m_…): 수업을 열 때 한 번, 이틀 지난 것만 지운다
+const cleanedMaterials = new Set();
+async function removeOrphanMaterials() {
+  if (!lesson || readOnly() || cleanedMaterials.has(lesson.id)) return;
+  cleanedMaterials.add(lesson.id);
+  const lessonId = lesson.id;
+  // 활동 목록을 새로 받는다(다른 교사가 방금 붙인 자료도 지우지 않게). 못 받으면 아무것도 지우지 않는다
+  const { data: acts, error } = await sb.from("activities").select("files").eq("lesson_id", lessonId);
+  if (error || !acts) return;
+  const used = new Set(acts.flatMap((a) => (Array.isArray(a.files) ? a.files : []).map((f) => f && f.path)));
+  const st = sb.storage.from("shared");
+  const old = Date.now() - 2 * 24 * 3600 * 1000;
+  const { data } = await st.list(lessonId, { limit: 1000, search: "m_" });
+  const gone = (data || []).filter((o) => o.id && o.name.startsWith("m_") && !used.has(lessonId + "/" + o.name) && Date.parse(o.created_at) < old)
+    .map((o) => lessonId + "/" + o.name);
+  if (gone.length) await st.remove(gone);
 }
 
 // ---------- CSV ----------

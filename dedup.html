@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>닉네임 중복 거르기</title>
+<script src="vendor/xlsx.full.min.js"></script>
+<style>
+:root {
+  --bg: #f4f6fa; --card: #ffffff; --ink: #1d2433; --muted: #5d6678; --line: #e1e5ee;
+  --accent: #2f6fde; --accent-ink: #fff; --dup: #fde8ec; --dup-ink: #b3263f; --keep: #e5f5ea; --keep-ink: #1f7a3d;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151c; --card: #1b2029; --ink: #e8ebf2; --muted: #9aa3b5; --line: #2c3340;
+    --accent: #6ea1ff; --accent-ink: #0d1220; --dup: #3a1f27; --dup-ink: #ff8da3; --keep: #1c3325; --keep-ink: #7fd89b;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  line-height: 1.5;
+}
+main { max-width: 1000px; margin: 0 auto; padding: 20px 16px 48px; }
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+.sub { color: var(--muted); margin: 0 0 18px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+.card h2 { font-size: 1.05rem; margin: 0 0 10px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+button, select {
+  font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  border-radius: 10px; padding: 8px 14px; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+label { cursor: pointer; }
+.drop {
+  border: 2px dashed var(--line); border-radius: 12px; padding: 28px 16px; text-align: center; color: var(--muted);
+  cursor: pointer; transition: border-color .15s, background .15s;
+}
+.drop.over, .drop:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.drop strong { color: var(--ink); font-size: 1.1rem; }
+textarea {
+  width: 100%; min-height: 120px; font: inherit; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px; resize: vertical;
+}
+.or { text-align: center; color: var(--muted); margin: 12px 0; }
+.note { color: var(--muted); font-size: .9rem; margin: 8px 0 0; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.stat { background: var(--bg); border-radius: 10px; padding: 10px 14px; }
+.stat b { display: block; font-size: 1.6rem; }
+.stat span { color: var(--muted); font-size: .9rem; }
+.stat.bad b { color: var(--dup-ink); }
+.stat.good b { color: var(--keep-ink); }
+.groups { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { background: var(--dup); color: var(--dup-ink); border-radius: 999px; padding: 4px 12px; font-size: .95rem; }
+.chip small { opacity: .8; margin-left: 4px; }
+.tablewrap { overflow: auto; max-height: 520px; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .95rem; }
+th, td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+th { position: sticky; top: 0; background: var(--card); z-index: 1; }
+td.num { color: var(--muted); font-variant-numeric: tabular-nums; }
+tr.removed td { background: var(--dup); color: var(--dup-ink); }
+tr.removed td.name { text-decoration: line-through; }
+tr.kept td.name { background: var(--keep); color: var(--keep-ink); font-weight: 700; }
+td.name { font-weight: 600; }
+.tag { font-size: .8rem; border-radius: 6px; padding: 1px 6px; margin-left: 6px; text-decoration: none; display: inline-block; }
+.tag.del { background: var(--dup-ink); color: var(--card); }
+.tag.keep { background: var(--keep-ink); color: var(--card); }
+.hidden { display: none; }
+.ok { color: var(--keep-ink); font-weight: 700; }
+</style>
+</head>
+<body>
+<main>
+  <h1>닉네임 중복 거르기</h1>
+  <p class="sub">명단 파일을 올리면 겹치는 닉네임을 찾아 표시하고, 하나씩만 남긴 파일을 만들어 줍니다.</p>
+
+  <section class="card">
+    <h2>1. 명단 넣기</h2>
+    <div class="drop" id="drop">
+      <strong>여기로 파일을 끌어 놓거나 눌러서 고르세요</strong><br>
+      엑셀(.xlsx, .xls), CSV, 텍스트(.txt)
+    </div>
+    <input type="file" id="file" accept=".xlsx,.xls,.csv,.txt,.tsv" class="hidden">
+    <div class="or">또는 직접 붙여넣기 (한 줄에 한 명, 엑셀에서 복사해도 됩니다)</div>
+    <textarea id="paste" placeholder="홍길동&#10;김철수&#10;홍길동"></textarea>
+    <div class="row" style="margin-top:8px"><button id="pasteGo">붙여넣은 내용으로 검사</button></div>
+    <p class="note">파일은 서버로 보내지 않고 이 브라우저 안에서만 처리합니다.</p>
+  </section>
+
+  <section class="card hidden" id="optCard">
+    <h2>2. 설정</h2>
+    <div class="row">
+      <span id="sheetBox" class="hidden">시트 <select id="sheet"></select></span>
+      <span>닉네임 칸 <select id="col"></select></span>
+      <label><input type="checkbox" id="header"> 첫 줄은 제목 줄</label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label><input type="checkbox" id="ignCase" checked> 대소문자 무시 (Abc = abc)</label>
+      <label><input type="checkbox" id="ignSpace" checked> 띄어쓰기 무시 (홍 길동 = 홍길동)</label>
+      <span>남길 것 <select id="keep"><option value="first">처음 나온 것</option><option value="last">마지막에 나온 것</option></select></span>
+    </div>
+  </section>
+
+  <section class="card hidden" id="resCard">
+    <h2>3. 결과</h2>
+    <div class="stats">
+      <div class="stat"><b id="sTotal">0</b><span>전체 줄</span></div>
+      <div class="stat bad"><b id="sDupNames">0</b><span>중복된 닉네임</span></div>
+      <div class="stat bad"><b id="sRemoved">0</b><span>지울 줄</span></div>
+      <div class="stat good"><b id="sLeft">0</b><span>남는 줄</span></div>
+    </div>
+    <div id="groupsBox" style="margin-top:14px">
+      <p style="margin:0 0 8px">중복된 닉네임 (나온 횟수)</p>
+      <div class="groups" id="groups"></div>
+    </div>
+    <p id="noDup" class="ok hidden" style="margin:14px 0 0">중복된 닉네임이 없습니다.</p>
+    <div class="row" style="margin-top:14px">
+      <button class="primary" id="dlXlsx">정리된 엑셀 받기</button>
+      <button id="dlCsv">CSV 받기</button>
+      <button id="copy">정리된 닉네임 복사</button>
+      <label><input type="checkbox" id="onlyDup"> 중복만 보기</label>
+    </div>
+    <p class="note" id="copyMsg"></p>
+  </section>
+
+  <section class="card hidden" id="tblCard">
+    <h2>미리보기</h2>
+    <div class="tablewrap"><table id="tbl"></table></div>
+    <p class="note" id="tblNote"></p>
+  </section>
+</main>
+
+<script>
+const MAX_ROWS_SHOWN = 1000;
+const HEADER_WORDS = /닉네임|별명|이름|성명|name|nick|아이디|^id$/i;
+
+const $ = id => document.getElementById(id);
+let book = null;      // { name, sheets: { 시트이름: [[칸,...], ...] } }
+let result = null;    // 마지막 검사 결과
+
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  if (attrs) for (const k in attrs) {
+    if (k === 'class') e.className = attrs[k]; else e.setAttribute(k, attrs[k]);
+  }
+  for (const k of kids) if (k !== null && k !== undefined && k !== false) e.append(k);
+  return e;
+}
+
+function decodeText(buf) {
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buf).replace(/^﻿/, ''); }
+  catch { return new TextDecoder('euc-kr').decode(buf); }   // 한글 엑셀이 저장한 CSV
+}
+
+function textToRows(text) {
+  const lines = text.replace(/\r\n?/g, '\n').split('\n');
+  while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+  return lines.map(l => l.includes('\t') ? l.split('\t') : [l]);
+}
+
+function sheetRows(ws) {
+  return XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '', blankrows: false })
+    .map(r => r.map(c => String(c ?? '')));
+}
+
+async function loadFile(f) {
+  const buf = await f.arrayBuffer();
+  const ext = f.name.split('.').pop().toLowerCase();
+  const base = f.name.replace(/\.[^.]+$/, '');
+  let sheets = {};
+  try {
+    if (ext === 'xlsx' || ext === 'xls') {
+      const wb = XLSX.read(buf, { type: 'array' });
+      for (const n of wb.SheetNames) sheets[n] = sheetRows(wb.Sheets[n]);
+    } else if (ext === 'csv') {
+      const wb = XLSX.read(decodeText(buf), { type: 'string', raw: true });
+      sheets[base] = sheetRows(wb.Sheets[wb.SheetNames[0]]);
+    } else {
+      sheets[base] = textToRows(decodeText(buf));
+    }
+  } catch (e) {
+    alert('파일을 읽지 못했습니다: ' + e.message);
+    return;
+  }
+  setBook(base, sheets);
+}
+
+function setBook(name, sheets) {
+  book = { name, sheets };
+  const names = Object.keys(sheets);
+  const sel = $('sheet');
+  sel.replaceChildren(...names.map(n => el('option', { value: n }, `${n} (${sheets[n].length}줄)`)));
+  // 내용이 가장 많은 시트를 먼저 고른다
+  sel.value = names.reduce((a, b) => sheets[b].length > sheets[a].length ? b : a, names[0]);
+  $('sheetBox').classList.toggle('hidden', names.length < 2);
+  onSheetChange();
+  for (const id of ['optCard', 'resCard', 'tblCard']) $(id).classList.remove('hidden');
+}
+
+function curRows() { return book ? book.sheets[$('sheet').value] || [] : []; }
+
+function onSheetChange() {
+  const rows = curRows();
+  const first = rows[0] || [];
+  const width = Math.max(1, ...rows.slice(0, 50).map(r => r.length));
+  const hasHeader = first.some(c => HEADER_WORDS.test(c.trim()));
+  $('header').checked = hasHeader;
+  fillColumns(width);
+  // 제목 줄에서 닉네임 칸을 찾아 고른다 (닉네임 > 이름 순)
+  let pick = 0;
+  if (hasHeader) {
+    const i1 = first.findIndex(c => /닉네임|별명|nick/i.test(c));
+    const i2 = first.findIndex(c => HEADER_WORDS.test(c.trim()));
+    pick = i1 >= 0 ? i1 : Math.max(0, i2);
+  }
+  $('col').value = String(pick);
+  run();
+}
+
+function fillColumns(width) {
+  const rows = curRows();
+  const first = rows[0] || [];
+  const useHead = $('header').checked;
+  const keep = $('col').value;
+  $('col').replaceChildren(...Array.from({ length: width }, (_, i) => {
+    const label = useHead && first[i] ? first[i] : (rows.find(r => r[i])?.[i] || '');
+    return el('option', { value: String(i) }, `${colLetter(i)}열` + (label ? ` · ${label.slice(0, 20)}` : ''));
+  }));
+  if (keep && +keep < width) $('col').value = keep;
+}
+
+function colLetter(i) {
+  let s = '';
+  for (i++; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + (i - 1) % 26) + s;
+  return s;
+}
+
+function keyOf(name) {
+  let k = name.normalize('NFC').trim();
+  if ($('ignSpace').checked) k = k.replace(/\s+/g, '');
+  if ($('ignCase').checked) k = k.toLowerCase();
+  return k;
+}
+
+function run() {
+  if (!book) return;
+  const all = curRows();
+  const useHead = $('header').checked;
+  const head = useHead ? all[0] : null;
+  const body = useHead ? all.slice(1) : all;
+  const col = +$('col').value;
+  const keepLast = $('keep').value === 'last';
+
+  // 닉네임별로 몇 번째 줄들에 나오는지 모은다 (빈 칸은 건너뜀)
+  const groups = new Map();
+  body.forEach((r, i) => {
+    const name = (r[col] || '').trim();
+    if (!name) return;
+    const k = keyOf(name);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(i);
+  });
+
+  const status = new Array(body.length).fill('');   // '' | 'kept' | 'removed'
+  const dups = [];
+  for (const idx of groups.values()) {
+    if (idx.length < 2) continue;
+    dups.push(idx);
+    const keepAt = keepLast ? idx[idx.length - 1] : idx[0];
+    for (const i of idx) status[i] = i === keepAt ? 'kept' : 'removed';
+  }
+
+  const cleaned = body.filter((_, i) => status[i] !== 'removed');
+  result = { head, body, status, dups, cleaned, col, useHead };
+  render();
+}
+
+function render() {
+  const { head, body, status, dups, cleaned, col, useHead } = result;
+  const removed = body.length - cleaned.length;
+  $('sTotal').textContent = body.length;
+  $('sDupNames').textContent = dups.length;
+  $('sRemoved').textContent = removed;
+  $('sLeft').textContent = cleaned.length;
+
+  $('groupsBox').classList.toggle('hidden', dups.length === 0);
+  $('noDup').classList.toggle('hidden', dups.length > 0 || body.length === 0);
+  $('groups').replaceChildren(...dups
+    .slice().sort((a, b) => b.length - a.length)
+    .map(idx => el('span', { class: 'chip' }, body[idx[0]][col].trim(), el('small', null, `×${idx.length}`))));
+
+  // 미리보기 표
+  const width = Math.max(1, ...body.slice(0, 200).map(r => r.length), head ? head.length : 0);
+  const rowNo = i => i + (useHead ? 2 : 1);   // 원래 파일에서의 줄 번호
+  const thead = el('tr', null, el('th', null, '줄'),
+    ...Array.from({ length: width }, (_, c) => el('th', null, head && head[c] ? head[c] : `${colLetter(c)}열`)));
+
+  const onlyDup = $('onlyDup').checked;
+  let shown = body.map((_, i) => i);
+  if (onlyDup) {
+    // 같은 닉네임끼리 붙여서 보여 준다
+    shown = dups.slice().sort((a, b) => a[0] - b[0]).flat();
+  }
+  const total = shown.length;
+  shown = shown.slice(0, MAX_ROWS_SHOWN);
+
+  const trs = shown.map(i => {
+    const r = body[i];
+    const st = status[i];
+    const cells = Array.from({ length: width }, (_, c) => {
+      if (c !== col) return el('td', null, r[c] || '');
+      const tag = st === 'removed' ? el('span', { class: 'tag del' }, '지움')
+        : st === 'kept' ? el('span', { class: 'tag keep' }, '남김') : null;
+      return el('td', { class: 'name' }, r[c] || '', tag);
+    });
+    return el('tr', st ? { class: st } : null, el('td', { class: 'num' }, String(rowNo(i))), ...cells);
+  });
+  $('tbl').replaceChildren(el('thead', null, thead), el('tbody', null, ...trs));
+  $('tblNote').textContent = total > MAX_ROWS_SHOWN
+    ? `앞의 ${MAX_ROWS_SHOWN}줄만 보여 줍니다 (전체 ${total}줄). 받는 파일에는 모두 들어 있습니다.`
+    : (onlyDup && total === 0 ? '중복된 줄이 없습니다.' : '');
+}
+
+function outRows() {
+  return result.head ? [result.head, ...result.cleaned] : result.cleaned;
+}
+
+function outName(ext) { return `${book.name}_중복제거.${ext}`; }
+
+$('dlXlsx').onclick = () => {
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(outRows()), '정리됨');
+  XLSX.writeFile(wb, outName('xlsx'));
+};
+
+$('dlCsv').onclick = () => {
+  const csv = XLSX.utils.sheet_to_csv(XLSX.utils.aoa_to_sheet(outRows()));
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });   // BOM: 엑셀에서 한글 안 깨지게
+  const a = el('a', { href: URL.createObjectURL(blob), download: outName('csv') });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+
+$('copy').onclick = async () => {
+  const names = result.cleaned.map(r => (r[result.col] || '').trim()).filter(Boolean);
+  try {
+    await navigator.clipboard.writeText(names.join('\n'));
+    $('copyMsg').textContent = `닉네임 ${names.length}개를 복사했습니다.`;
+  } catch {
+    $('copyMsg').textContent = '복사하지 못했습니다. 엑셀 받기를 써 주세요.';
+  }
+};
+
+// 파일 넣기
+const drop = $('drop');
+drop.onclick = () => $('file').click();
+$('file').onchange = e => { if (e.target.files[0]) loadFile(e.target.files[0]); e.target.value = ''; };
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => {
+  e.preventDefault(); drop.classList.remove('over');
+  if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+};
+$('pasteGo').onclick = () => {
+  const rows = textToRows($('paste').value);
+  if (!rows.length) { alert('붙여넣은 내용이 없습니다.'); return; }
+  setBook('붙여넣은명단', { '붙여넣은 명단': rows });
+};
+
+$('sheet').onchange = onSheetChange;
+$('header').onchange = () => { fillColumns($('col').options.length); run(); };
+for (const id of ['col', 'ignCase', 'ignSpace', 'keep']) $(id).onchange = run;
+$('onlyDup').onchange = render;
+</script>
+</body>
+</html>

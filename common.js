@@ -51,6 +51,38 @@ function fileLinks(list, open) {
     open ? h("button", { class: "link file-link", type: "button", onclick() { open(f); } }, f.name) : h("span", {}, f.name)]);
 }
 
+// 내려받을 때의 파일 이름. 종류는 서버가 정한 자리(path)의 확장자로만 본다. 적어 보낸 이름(f.name)은 「숙제.hwp.exe」처럼 속일 수 있으므로
+// 확장자를 path 것으로 바꾸고, 파일 이름에 쓸 수 없는 글자와 글자 방향을 뒤집는 글자는 뺀다. 앱이 받는 종류가 아니면 null
+function downloadName(f) {
+  const ext = fileExt(f.path);
+  if (!FILE_TYPES[ext]) return null;
+  const base = String(f.name || "파일").replace(/\.[^.]*$/, "").replace(/[\\/:*?"<>|\u0000-\u001f‪-‮⁦-⁩]/g, "_").slice(0, 100) || "파일";
+  return base + "." + ext;
+}
+// 그림·PDF·글은 새 탭에서 보고, 나머지는 내려받는다
+const viewableFile = (f) => /^(image\/(jpeg|png|gif|webp)|application\/pdf|text\/plain)$/.test(FILE_TYPES[fileExt(f.path)] || "");
+
+// 공개 저장소(shared)의 파일: 교사가 카드에 붙인 자료, 교사가 친구들에게 공개한 학생 파일(setup.sql shared 저장소)
+const MATERIAL_MAX = 50 * 1024 * 1024;   // 교사 자료 한 개 크기(저장소 한도와 같게)
+const MATERIAL_COUNT = 10;
+function openSharedFile(f) {
+  const name = downloadName(f);
+  if (!name) return alert("이 앱이 받지 않는 종류의 파일이라 열지 않습니다.");
+  const view = viewableFile(f);
+  const url = sb.storage.from("shared").getPublicUrl(f.path, view ? undefined : { download: name }).data.publicUrl;
+  if (view) window.open(url, "_blank", "noopener");
+  else location.href = url;
+}
+
+// 카드에 붙인 자료 목록(없으면 null)
+function materialsView(a) {
+  const files = Array.isArray(a.files) ? a.files.filter((f) => f && f.path) : [];
+  if (!files.length) return null;
+  return h("div", { class: "materials" }, h("strong", {}, "📎 자료"),
+    files.map((f) => h("button", { class: "material", type: "button", title: viewableFile(f) ? "새 탭에서 보기" : "내려받기", onclick() { openSharedFile(f); } },
+      h("span", { class: "file-name" }, f.name), f.size ? h("span", { class: "muted small" }, fileSize(f.size)) : null)));
+}
+
 // 화면 요소 만들기. 학생이 쓴 글은 늘 글자(텍스트)로만 넣는다(innerHTML을 쓰지 않음).
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
@@ -251,6 +283,13 @@ document.addEventListener("error", (e) => {
   const src = img.getAttribute("src") || "";
   const base = src.replace(/(\/slides\/.*\/\d+)-[sl](\.jpg)/, "$1$2");
   if (base !== src) { slideMissing.add(src); img.src = base; }
+}, true);
+
+// 세로로 긴 슬라이드(세로 PDF·그림)는 16:9 칸에 작게 넣지 않고 그림 모양 그대로 세로로 길게 보인다(CSS .slide.portrait)
+document.addEventListener("load", (e) => {
+  const img = e.target;
+  if (!img || img.tagName !== "IMG" || !img.classList.contains("slide") || !img.naturalWidth) return;
+  img.classList.toggle("portrait", img.naturalHeight > img.naturalWidth);
 }, true);
 
 // 창 크기가 바뀌거나 전체 화면이 되면 더 큰 그림이 필요할 때만 바꾼다(작아질 때는 그대로)

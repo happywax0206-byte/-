@@ -786,7 +786,7 @@ function cardFor(a) {
     cards.set(a.id, c);
   }
   c.a = a;
-  const formSig = JSON.stringify([a.title, a.kind, a.questions, a.saved_at, a.score]);
+  const formSig = JSON.stringify([a.title, a.kind, a.questions, a.saved_at, a.score, a.files]);
   if (formSig !== c.formSig) {
     c.formSig = formSig;
     buildForm(c);
@@ -802,7 +802,8 @@ function cardFor(a) {
       h("div", { class: "others" },
         h("h3", {}, "친구들의 응답"),
         h("p", { class: "muted small" }, "선생님이 공개한 질문만 보입니다 · " + (a.named ? "이름과 함께" : "이름 없이") + " · " + (a.others || []).length + "명"),
-        summaryView(a.questions, a.others || [], { only })),
+        // 파일 답은 선생님이 공개한 것만 공개 저장소에 복사되어 있어 눌러서 열어 보거나 내려받는다
+        summaryView(a.questions, a.others || [], { only, openFile: openSharedFile })),
     ] : []));
   }
   return c.el;
@@ -816,6 +817,7 @@ function buildForm(c) {
     c.form.replaceChildren(...[
       h("div", { class: "card-head" }, h("h2", {}, a.title), h("span", { class: "badge" }, "설명 카드")),
       activityDescription(a) ? linkedDescription(activityDescription(a)) : null,
+      materialsView(a),
       ...a.questions.map((q) => linkedDescription(q.text))].filter(Boolean));
     return;
   }
@@ -960,6 +962,7 @@ function buildForm(c) {
   c.form.replaceChildren(...[
     h("div", { class: "card-head" }, h("h2", {}, a.title), h("span", { class: "badge" }, KIND_NAME[a.kind])),
     activityDescription(a) ? linkedDescription(activityDescription(a)) : null,
+    materialsView(a),
     quizDone && a.total ? h("p", { class: "score" }, "점수 " + a.score + " / " + a.total) : null,
     rows, err, btn, status, unsaveBtn].flat().filter(Boolean));
 }

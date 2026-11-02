@@ -95,6 +95,10 @@ alter table activities add constraint activities_shared_q_size check (jsonb_type
 alter table activities add column if not exists shared_a jsonb not null default '{}';
 alter table activities drop constraint if exists activities_shared_a_size;
 alter table activities add constraint activities_shared_a_size check (jsonb_typeof(shared_a) = 'object' and octet_length(shared_a::text) <= 100000);
+-- 나중에 더한 칸: 교사가 카드에 붙인 자료 파일 [{path, name, size}]. 공개 저장소(shared)에 있고 학생이 내려받는다
+alter table activities add column if not exists files jsonb not null default '[]';
+alter table activities drop constraint if exists activities_files_size;
+alter table activities add constraint activities_files_size check (jsonb_typeof(files) = 'array' and octet_length(files::text) <= 5000);
 
 -- 친구들에게 무엇이든 공개된 질문 id 목록(질문 전체 공개 + 답 하나라도 공개). 학생에게는 이것만 보내고 학생 id는 보내지 않는다
 create or replace function shared_list(p_q jsonb, p_a jsonb) returns jsonb
@@ -585,6 +589,7 @@ begin
         'id', a.id, 'kind', a.kind, 'title', a.title, 'page', a.page, 'page_to', a.page_to, 'named', a.named,
         'shared', jsonb_array_length(shared_list(a.shared_q, a.shared_a)) > 0, 'shared_q', shared_list(a.shared_q, a.shared_a),
         'sim_full', a.sim_full, 'sim_box', a.sim_box, 'html_ver', case when a.kind = 'sim' then md5(coalesce(a.html, '')) end,
+        'files', a.files,
         'questions', case
           when a.kind = 'quiz' and a.show_answer and r.student_id is not null then a.questions
           else (select coalesce(jsonb_agg(q - 'answer' - 'explain'), '[]'::jsonb) from jsonb_array_elements(a.questions) q)
@@ -1239,6 +1244,28 @@ create policy submissions_student_read on storage.objects for select to anon, au
 -- 교사는 볼 수 있는 수업의 폴더(수업id/…)만
 create policy submissions_teacher_read on storage.objects for select to authenticated using (bucket_id = 'submissions' and can_lesson_path((storage.foldername(name))[1]));
 create policy submissions_teacher_delete on storage.objects for delete to authenticated using (bucket_id = 'submissions' and can_edit_lesson_path((storage.foldername(name))[1]));
+
+-- ------------------------------------------------------------
+-- 학생이 내려받는 파일(공개 저장소): 교사가 카드에 붙인 자료(수업id/m_무작위.확장자)와,
+-- 교사가 친구들에게 「공개」한 학생 파일의 복사본(submissions와 같은 이름: 수업id/활동id_학생id_무작위.확장자. 공개를 끝내면 교사 화면이 지운다).
+-- 이름에 무작위 글자가 있어 주소를 받은 학생만 내려받는다. 목록 보기·올리기·지우기는 교사만(그 수업 폴더)
+-- ------------------------------------------------------------
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+  values ('shared', 'shared', true, 52428800, array[
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif', 'application/pdf', 'text/plain',
+    'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/x-hwp', 'application/vnd.hancom.hwpx', 'application/zip',
+    'audio/mpeg', 'audio/mp4', 'video/mp4', 'video/quicktime'])
+  on conflict (id) do update set public = true, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists shared_teacher_read on storage.objects;
+drop policy if exists shared_teacher_insert on storage.objects;
+drop policy if exists shared_teacher_delete on storage.objects;
+create policy shared_teacher_read on storage.objects for select to authenticated using (bucket_id = 'shared' and can_lesson_path((storage.foldername(name))[1]));
+create policy shared_teacher_insert on storage.objects for insert to authenticated with check (bucket_id = 'shared' and can_edit_lesson_path((storage.foldername(name))[1]));
+create policy shared_teacher_delete on storage.objects for delete to authenticated using (bucket_id = 'shared' and can_edit_lesson_path((storage.foldername(name))[1]));
 
 -- ------------------------------------------------------------
 -- 버그 제보: 교사 화면 「⚙ 설정 → 버그 제보」에서 보낸 글.
