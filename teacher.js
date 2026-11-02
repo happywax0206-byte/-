@@ -3334,7 +3334,9 @@ function membersCard() {
           : "불러오지 못했습니다: " + error.message));
       return;
     }
-    const owner = data.owner && data.owner.me;
+    // 초대·빼기·권한 바꾸기: 만든 선생님과 관리자(setup.sql 전이면 만든 선생님만)
+    const owner = "can_manage" in data ? data.can_manage : !!(data.owner && data.owner.me);
+    const asAdmin = owner && !(data.owner && data.owner.me);
     const email = h("input", { type: "email", maxlength: 200, placeholder: "초대할 선생님 이메일", "aria-label": "초대할 선생님 이메일" });
     const msg = h("p", { class: "msg" });
     async function invite(e) {
@@ -3344,7 +3346,7 @@ function membersCard() {
       const r = await sb.rpc("add_member", { p_lesson: forLesson.id, p_email: email.value });
       const err = r.error ? r.error.message : r.data.error;
       if (err) {
-        msg.textContent = { bad_email: "이메일 모양을 확인하세요.", self: "내 이메일은 넣지 않아도 됩니다.", full: "공동작업자는 20명까지입니다.", not_owner: "수업을 만든 선생님만 초대할 수 있습니다." }[err] || "초대하지 못했습니다: " + err;
+        msg.textContent = { bad_email: "이메일 모양을 확인하세요.", self: "내 이메일은 넣지 않아도 됩니다.", full: "공동작업자는 20명까지입니다.", not_owner: "수업을 만든 선생님과 관리자만 초대할 수 있습니다." }[err] || "초대하지 못했습니다: " + err;
         return;
       }
       refresh();
@@ -3365,7 +3367,8 @@ function membersCard() {
     }
     box.replaceChildren(...[
       h("h2", {}, "공동작업자"),
-      h("p", { class: "muted small" }, "초대한 선생님은 이 수업을 함께 보고, 고치고, 진행할 수 있습니다. 수업 지우기와 공동작업자 초대는 만든 선생님만 할 수 있습니다."),
+      h("p", { class: "muted small" }, "초대한 선생님은 이 수업을 함께 보고, 고치고, 진행할 수 있습니다. 수업 지우기와 공동작업자 초대는 만든 선생님(초대·빼기는 관리자도)만 할 수 있습니다."),
+      asAdmin ? h("p", { class: "banner" }, "관리자 권한으로 다른 선생님 수업의 공동작업자를 초대하고 뺄 수 있습니다.") : null,
       owner && data.members.length ? h("p", { class: "muted small" }, "선생님마다 「✏️ 고치기 가능 / 👁 보기만」 단추를 누르면 권한이 바뀝니다. 보기만이면 슬라이드·질문·학생 답을 볼 수만 있고, 쪽 넘기기(학생 화면)·제출 열기·응답 공개·질문 고치기·학생 관리는 할 수 없습니다.") : null,
       person(data.owner || { email: "(알 수 없음)" }, "만든 사람"),
       data.members.map((p) => person(p, [p.me ? "나" : p.joined ? null : "가입 전", p.can_edit === false ? "보기만" : null].filter(Boolean).join(" · "),

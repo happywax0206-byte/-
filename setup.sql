@@ -1018,17 +1018,19 @@ begin
              order by m.added_at)
       from lesson_members m left join teachers t on t.email = m.email
       where m.lesson_id = p_lesson), '[]'::jsonb),
-    'can_edit', can_edit_lesson(p_lesson));
+    'can_edit', can_edit_lesson(p_lesson),
+    -- 공동작업자 초대·빼기·권한 바꾸기를 할 수 있는지: 만든 교사와 관리자
+    'can_manage', l.owner = auth.uid() or is_admin());
 end $$;
 
--- 공동작업자의 고치기 권한 주기·빼기: 수업을 만든 교사만
+-- 공동작업자의 고치기 권한 주기·빼기: 수업을 만든 교사와 관리자
 create or replace function set_member_edit(p_lesson uuid, p_email text, p_edit boolean) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
   l lessons;
 begin
   select * into l from lessons where id = p_lesson;
-  if not found or not is_teacher() or l.owner <> auth.uid() then return jsonb_build_object('error', 'not_owner'); end if;
+  if not found or not is_teacher() or (l.owner <> auth.uid() and not is_admin()) then return jsonb_build_object('error', 'not_owner'); end if;
   update lesson_members set can_edit = coalesce(p_edit, true) where lesson_id = p_lesson and email = lower(trim(coalesce(p_email, '')));
   if not found then return jsonb_build_object('error', 'gone'); end if;
   return jsonb_build_object('ok', true);
@@ -1040,7 +1042,7 @@ language sql stable security definer set search_path = public as $$
   select coalesce(jsonb_object_agg(l.id, can_edit_lesson(l.id)), '{}'::jsonb) from lessons l where can_lesson(l.id)
 $$;
 
--- 공동작업자 초대: 수업을 만든 교사만. 초대한 이메일은 교사 목록에도 넣어 로그인할 수 있게 한다.
+-- 공동작업자 초대: 수업을 만든 교사와 관리자(모든 수업). 초대한 이메일은 교사 목록에도 넣어 로그인할 수 있게 한다.
 create or replace function add_member(p_lesson uuid, p_email text) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -1048,7 +1050,7 @@ declare
   l lessons;
 begin
   select * into l from lessons where id = p_lesson;
-  if not found or not is_teacher() or l.owner <> auth.uid() then return jsonb_build_object('error', 'not_owner'); end if;
+  if not found or not is_teacher() or (l.owner <> auth.uid() and not is_admin()) then return jsonb_build_object('error', 'not_owner'); end if;
   if e !~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$' or length(e) > 200 then return jsonb_build_object('error', 'bad_email'); end if;
   if e = my_email() then return jsonb_build_object('error', 'self'); end if;
   if (select count(*) from lesson_members where lesson_id = p_lesson) >= 20 then return jsonb_build_object('error', 'full'); end if;
@@ -1057,7 +1059,7 @@ begin
   return jsonb_build_object('ok', true);
 end $$;
 
--- 공동작업자 빼기: 만든 교사는 누구든, 공동작업자는 자기 자신만(「이 수업에서 나가기」)
+-- 공동작업자 빼기: 만든 교사와 관리자는 누구든, 공동작업자는 자기 자신만(「이 수업에서 나가기」)
 create or replace function remove_member(p_lesson uuid, p_email text) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -1065,7 +1067,7 @@ declare
   l lessons;
 begin
   select * into l from lessons where id = p_lesson;
-  if not found or not is_teacher() or (l.owner <> auth.uid() and e <> my_email()) then return jsonb_build_object('error', 'not_owner'); end if;
+  if not found or not is_teacher() or (l.owner <> auth.uid() and not is_admin() and e <> my_email()) then return jsonb_build_object('error', 'not_owner'); end if;
   delete from lesson_members where lesson_id = p_lesson and email = e;
   -- 초대로만 들어온 교사가 이제 어느 수업에도 없으면 교사 목록에서도 뺀다(로그인해도 교사 화면을 못 쓴다)
   delete from teachers t where t.email = e and t.invited
