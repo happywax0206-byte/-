@@ -8,6 +8,7 @@ let lessons = [];
 let lessonOwners = {};   // 관리자만: 초대받지 않은 수업 id → 만든 선생님 {email, name}
 let lessonRights = {};   // 수업 id → 고칠 수 있는지(false = 보기만 공동작업자)
 let lessonFolders = null; // 내 수업 폴더 [{ id, name, teacher, lessons: [수업 id], sort }]. null = setup.sql을 아직 다시 실행하지 않음
+let featuredId = null;    // 내 중요 수업 id(학생 입장 화면의 수업 코드 칸에 저절로 들어감)
 let lessonTeachers = {};  // 볼 수 있는 수업을 만든 선생님 id → {email, name} (수업 폴더의 선생님 이름)
 let lesson = null;        // 지금 고른 수업(없으면 새 수업 만들기)
 let activities = [];
@@ -681,17 +682,19 @@ async function loadLessons(selectId) {
   // 세 가지를 한꺼번에 묻는다(차례로 기다리지 않아 첫 화면이 빨리 뜬다)
   // 관리자: 초대받지 않은 다른 선생님 수업도 보이므로 누가 만들었는지 함께 받는다
   // lesson_rights: 공동작업자로 「보기만」 초대받은 수업. setup.sql 전이면 모두 고칠 수 있다고 본다
-  const [{ data, error }, r, rights, fd, lt] = await Promise.all([
+  const [{ data, error }, r, rights, fd, lt, ft] = await Promise.all([
     sb.from("lessons").select("*").order("created_at"),
     profile && profile.admin ? sb.rpc("lesson_owners") : null,
     sb.rpc("lesson_rights"),
     sb.from("lesson_folders").select("*").order("sort").order("created_at"),
     sb.rpc("lesson_teachers"),
+    sb.rpc("my_featured"),
   ]);
   if (error) return fatal(error);
   lessons = data;
   lessonFolders = fd.error ? null : fd.data;
   lessonTeachers = lt.error || !lt.data ? {} : lt.data;
+  featuredId = ft.error ? null : ft.data || null;
   lessonOwners = r && !r.error && r.data ? r.data : {};
   lessonRights = rights.error || !rights.data ? {} : rights.data;
   lesson = lessons.find((l) => l.id === selectId) || lessons[0] || null;
@@ -858,7 +861,7 @@ function draw() {
 // 위쪽 「수업 고르기」 목록. 수업 폴더처럼 선생님마다(👤), 그 안에 만든 폴더마다(📁) 묶는다. 내 수업만 있고 폴더도 없으면 그냥 목록
 let pickEl = null;
 function pickerOptions() {
-  const opt = (l) => h("option", { value: l.id, selected: lesson && l.id === lesson.id }, (l.ended ? "[종료] " : "") + (l.kind === "survey" ? "[설문] " : "") + lessonTag(l) + l.title + " (" + l.code + ")");
+  const opt = (l) => h("option", { value: l.id, selected: lesson && l.id === lesson.id }, (l.ended ? "[종료] " : "") + (l.kind === "survey" ? "[설문] " : "") + (l.id === featuredId ? "⭐ " : "") + lessonTag(l) + l.title + " (" + l.code + ")");
   const ids = teacherIds();
   const folders = (lessonFolders || []).map((f) => [f, folderLessons(f)]).filter(([, ls]) => ls.length);
   const last = h("option", { value: "new", selected: !lesson }, "+ 새 수업 만들기");
@@ -1372,6 +1375,7 @@ document.addEventListener("visibilitychange", ping);
 const PATCH_NOTES = [
   { date: "2026-11-02",
     major: [
+      { title: "⭐ 중요 수업", desc: "「수업 설정 → 학생 접속」의 「중요 수업으로 정하기」나 수업 폴더 카드의 ☆를 누르면, 학생 입장 화면의 수업 코드 칸에 그 수업 코드가 저절로 들어갑니다(선생님마다 하나). 학생 입장 화면에는 이제 수업 코드 칸이 늘 보여서 학생이 직접 입력하거나 고칠 수 있습니다." },
       { title: "📁 수업 폴더", desc: "「수업 설정」과 「⚙ 설정 → 프로필·공동작업자」 오른쪽에 컴퓨터 폴더처럼 「○○○ 선생님」 폴더가 보입니다. 이미 있는 수업과 앞으로 만드는 수업은 만든 선생님 폴더에 저절로 들어갑니다. 폴더에 들어가면 그 선생님이 만든 모든 수업이 첫 쪽 그림 카드로 보이고, 카드를 누르면 그 수업으로 갑니다. 「＋ 폴더 만들기」로 나만 보는 폴더도 만들 수 있습니다." },
       { title: "📎 카드에 자료 파일 붙이기", desc: "「질문·설문 만들기」의 카드 편집에서 「파일 붙이기」로 PDF·한글·PPT·사진 등을 붙이면, 학생 화면의 그 카드에 자료가 보이고 눌러서 열거나 내려받습니다(10개까지, 한 개에 50MB까지)." },
       { title: "공개한 파일 답을 친구들도 내려받기", desc: "수업 진행에서 학생의 파일 답을 「공개」하면 이제 친구들도 그 파일을 눌러 열어 보거나 내려받을 수 있습니다(예전에는 이름만 보였음). 공개를 끝내면 친구들은 더 이상 받을 수 없습니다." },
@@ -2121,6 +2125,18 @@ async function setActivity(a, change) {
   }
   fatal(error);
 }
+
+// 중요 수업 정하기(l = null이면 풀기). 학생 입장 화면의 수업 코드 칸에 이 수업 코드가 저절로 들어간다
+async function setFeatured(l) {
+  const r = await sb.rpc("set_featured", { p_lesson: l ? l.id : null });
+  const err = r.error ? r.error.message : r.data && r.data.error;
+  if (err) return alert(/set_featured|function/i.test(err) ? "중요 수업을 쓰려면 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요." : "정하지 못했습니다: " + err);
+  featuredId = l ? l.id : null;
+  flash(l ? "⭐ 「" + l.title + "」을 중요 수업으로 정했습니다. 학생 입장 화면에 이 수업 코드가 들어갑니다." : "중요 수업을 풀었습니다.");
+  draw();
+}
+// 내 학생 입장 주소: 코드 칸에 내 중요 수업 코드가 저절로 들어간다
+const myStudentUrl = () => new URL("index.html?t=" + me.id, location.href).href;
 
 function joinUrl(l) {
   return new URL("index.html?c=" + encodeURIComponent(l.code), location.href).href;
@@ -3061,6 +3077,7 @@ function drawSettings() {
     lesson ? h("section", { class: "card stack" },
       h("h2", {}, "학생 접속"),
       h("p", { class: "join-url" }, joinUrl(lesson)),
+      featuredBox(),
       h("div", { class: "row" },
         h("button", { class: "ghost", type: "button", onclick: showJoin }, "QR 크게 보기"),
         h("button", { class: "ghost", type: "button", onclick: duplicate }, "다른 반용으로 복제"),
@@ -3194,6 +3211,13 @@ function folderPanel(onChange) {
       });
       thumb.append(img);
     } else thumb.append(h("span", { class: "lesson-thumb-none" }, "화면 없음"));
+    const star = l.id === featuredId;
+    thumb.append(h("button", {
+      class: "lesson-star" + (star ? " on" : ""), type: "button", "aria-pressed": star ? "true" : "false",
+      title: star ? "중요 수업입니다(학생 입장 화면에 이 코드가 들어감) · 누르면 풀기" : "중요 수업으로 정하기(학생 입장 화면에 이 코드가 들어감)",
+      onclick(e) { e.stopPropagation(); setFeatured(star ? null : l); },
+      onkeydown(e) { e.stopPropagation(); },
+    }, star ? "★" : "☆"));
     const pick = subs.length ? h("select", {
       class: "lesson-card-folder", "aria-label": "이 수업을 넣을 폴더", title: "이 수업을 넣을 폴더(나만 보임)",
       onclick(e) { e.stopPropagation(); },
@@ -3310,6 +3334,19 @@ function folderPanel(onChange) {
   }
   repaint();
   return { el, repaint: changed };
+}
+
+// 「수업 설정 → 학생 접속」의 중요 수업 칸
+function featuredBox() {
+  const on = lesson.id === featuredId;
+  const url = myStudentUrl();
+  return h("div", { class: "featured-box" + (on ? " on" : "") },
+    h("button", { class: on ? "primary" : "ghost", type: "button", onclick() { setFeatured(on ? null : lesson); } },
+      on ? "⭐ 중요 수업입니다 (누르면 풀기)" : "☆ 중요 수업으로 정하기"),
+    h("p", { class: "muted small" }, "중요 수업으로 정하면 학생 입장 화면의 수업 코드 칸에 이 수업 코드가 저절로 들어갑니다(선생님마다 하나). 학생은 코드를 지우고 다른 코드를 입력할 수도 있습니다."),
+    h("p", { class: "small" }, "내 학생 입장 주소 ", h("span", { class: "muted" }, "(내 중요 수업 코드가 들어감)"), h("br"), h("span", { class: "join-url" }, url), " ",
+      h("button", { class: "link", type: "button", onclick(e) { navigator.clipboard.writeText(url).then(() => { e.target.textContent = "복사했습니다"; }); } }, "주소 복사")),
+    h("p", { class: "muted small" }, "주소 끝의 ?t=… 없이 열면 가장 최근에 정한 중요 수업(어느 선생님이든)의 코드가 들어갑니다."));
 }
 
 // 공동작업자: 수업을 만든 교사가 이메일로 초대한 교사는 이 수업을 함께 보고 고치고 진행한다(지우기는 만든 교사만)

@@ -27,8 +27,19 @@ const cards = new Map(); // 활동 id → 화면 카드
 
 // 시작은 파일 맨 끝에서 한다(아래쪽 let/const가 모두 만들어진 뒤에 poll이 돌아야 한다)
 
-function start() {
-  code = (params.get("c") || localStorage.getItem("cra-last-code") || "").trim();
+// 중요 수업: 선생님이 고른 수업의 코드를 입장 화면 칸에 미리 넣는다(주소의 t=선생님id, 없으면 가장 최근에 정한 것)
+let featured = null;   // { code, title }
+
+async function start() {
+  if (!params.get("c")) {
+    try {
+      const t = (params.get("t") || "").trim();
+      const { data } = await sb.rpc("featured_code", /^[0-9a-f-]{36}$/i.test(t) ? { p_teacher: t } : {});
+      if (data && data.code) featured = data;
+    } catch (e) { /* 서버가 예전 판이면 그냥 넘어간다 */ }
+  }
+  const last = (localStorage.getItem("cra-last-code") || "").trim();
+  code = (params.get("c") || (featured && featured.code) || last).trim();
   // 예전 판은 수업마다 열쇠를 따로 저장했다: 있으면 그대로 옮겨 쓴다
   localStorage.removeItem("cra-shared-device");   // 예전 판의 「같이 쓰는 기기」 표시(이제는 그게 기본)
   // 개인 기기로 고르지 않은 기기에 예전 판이 남긴 자동 로그인 열쇠와 쓰던 답은 지운다
@@ -43,7 +54,8 @@ function start() {
     token = code ? localStorage.getItem("cra-token:" + code.toLowerCase()) : null;
     if (token) localStorage.setItem(TOKEN_KEY, token);
   }
-  if (token && code) poll();
+  // 이미 입장한 기기: 주소에 코드가 있거나 지난번 수업 그대로면 바로 들어가고, 중요 수업이 바뀌었으면 코드 칸에 넣어 보여 준다
+  if (token && code && (params.get("c") || code === last)) poll();
   else if (token) showCodeOnly();
   else showEntry();
 }
@@ -62,7 +74,7 @@ function showCodeOnly(notice) {
   shell = null;
   cards.clear();
   const me = keep().getItem(ME_KEY) || "";
-  const codeIn = h("input", { type: "text", value: params.get("c") ? "" : code, autocomplete: "off", maxlength: 20, placeholder: "예: K7P2Q", autocapitalize: "characters", required: true });
+  const codeIn = h("input", { type: "text", value: code, autocomplete: "off", maxlength: 20, placeholder: "예: K7P2Q", autocapitalize: "characters", required: true });
   const msg = h("p", { class: "msg" }, notice || "");
   app.replaceChildren(h("main", { class: "narrow" },
     h("header", { class: "intro" }, h("p", { class: "eyebrow" }, me ? me + " 학생" : "수업 응답"), h("h1", {}, "수업 코드 입력")),
@@ -74,9 +86,10 @@ function showCodeOnly(notice) {
         history.replaceState(null, "", "?c=" + encodeURIComponent(codeIn.value.trim()));
         enterLesson(codeIn.value);
       },
-    }, h("label", {}, "수업 코드", codeIn), h("button", { class: "primary big", type: "submit" }, "입장하기"), msg),
+    }, h("label", {}, "수업 코드", codeIn), featuredNote(), h("button", { class: "primary big", type: "submit" }, "입장하기"), msg),
     h("p", { class: "center" }, h("button", { class: "link", type: "button", onclick() { logout(""); } }, me ? me + " 학생이 아니면: 다른 학생으로 들어가기" : "다른 학생으로 들어가기"))));
   codeIn.focus();
+  codeIn.select();
 }
 
 // ---------- 입장 ----------
@@ -143,7 +156,8 @@ function showEntry(notice) {
       } else msg.textContent = "알 수 없는 오류입니다. 다시 시도하세요.";
     },
   },
-    fromLink ? null : h("label", {}, "수업 코드", codeIn),
+    h("label", {}, "수업 코드", codeIn),
+    featuredNote(),
     h("label", {}, "번호", noIn),
     h("label", {}, "이름", nameIn),
     h("label", {}, "비밀번호 (숫자 4자리)", pinIn),
@@ -160,7 +174,14 @@ function showEntry(notice) {
       h("h1", {}, "입장하기")),
     form,
     h("p", { class: "muted small center" }, "비밀번호를 잊었다면 선생님께 말하세요. 초기화해도 쓴 답은 지워지지 않습니다.")));
-  (fromLink ? noIn : codeIn).focus();
+  (code ? noIn : codeIn).focus();
+}
+
+// 코드 칸 아래 안내: 중요 수업 코드가 들어가 있을 때
+function featuredNote() {
+  return featured && code === featured.code && !params.get("c")
+    ? h("p", { class: "muted small" }, "⭐ 선생님이 정한 오늘의 수업 「" + featured.title + "」 코드가 들어가 있습니다. 다른 수업이면 코드를 지우고 새로 입력하세요.")
+    : null;
 }
 
 // 나간 순간을 교사 화면 「마지막 접속」에 적는다. 화면을 닫는 중에도 끝까지 가도록 keepalive로 직접 보낸다.

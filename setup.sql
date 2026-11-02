@@ -1487,6 +1487,52 @@ $$;
 revoke all on function lesson_teachers() from public;
 grant execute on function lesson_teachers() to authenticated;
 
+-- 중요 수업: 선생님마다 하나. 학생 입장 화면의 수업 코드 칸에 저절로 들어간다.
+-- 학생 주소 index.html?t=선생님id 는 그 선생님의 중요 수업, t 없이 열면 가장 최근에 정한 중요 수업.
+create table if not exists featured_lessons (
+  teacher   uuid primary key,
+  lesson_id uuid not null references lessons(id) on delete cascade,
+  set_at    timestamptz not null default now()
+);
+alter table featured_lessons enable row level security;   -- 정책 없음: 아래 함수로만 쓴다
+revoke all on featured_lessons from anon, authenticated;
+
+-- 중요 수업 정하기(p_lesson이 null이면 풀기). 볼 수 있는 수업이면 된다(공동작업자로 초대받은 수업도)
+create or replace function set_featured(p_lesson uuid) returns jsonb
+language plpgsql security definer set search_path = public as $$
+begin
+  if not is_teacher() then raise exception 'not a teacher'; end if;
+  if p_lesson is null then
+    delete from featured_lessons where teacher = auth.uid();
+    return jsonb_build_object('ok', true);
+  end if;
+  if not can_lesson(p_lesson) then return jsonb_build_object('error', 'not_allowed'); end if;
+  insert into featured_lessons (teacher, lesson_id, set_at) values (auth.uid(), p_lesson, now())
+    on conflict (teacher) do update set lesson_id = excluded.lesson_id, set_at = now();
+  return jsonb_build_object('ok', true);
+end $$;
+
+-- 내 중요 수업 id(교사 화면의 ⭐ 표시)
+create or replace function my_featured() returns uuid
+language sql stable security definer set search_path = public as $$
+  select lesson_id from featured_lessons where teacher = auth.uid() and is_teacher()
+$$;
+
+-- 학생 입장 화면: 중요 수업의 코드와 제목(끝낸 수업은 빼고). 누구나 부를 수 있다(코드를 칸에 미리 넣으려는 것)
+create or replace function featured_code(p_teacher uuid default null) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object('code', l.code, 'title', l.title)
+  from featured_lessons f join lessons l on l.id = f.lesson_id
+  where not l.ended and (p_teacher is null or f.teacher = p_teacher)
+  order by f.set_at desc limit 1
+$$;
+revoke all on function set_featured(uuid) from public;
+revoke all on function my_featured() from public;
+revoke all on function featured_code(uuid) from public;
+grant execute on function set_featured(uuid) to authenticated;
+grant execute on function my_featured() to authenticated;
+grant execute on function featured_code(uuid) to anon, authenticated;
+
 -- ------------------------------------------------------------
 -- 교사 이메일: happywax0206@gmail.com 을 자기 이메일(소문자)로 바꾸세요. 여러 명이면 줄을 더하면 됩니다.
 -- 함께 쓸 선생님은 여기에 적지 않아도 됩니다: 교사 화면 「⚙ 설정 → 프로필·공동작업자」에서 이메일로 초대하면 됩니다.

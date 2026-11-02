@@ -562,3 +562,11 @@ main.with-folders { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1
 .lesson-card-title { padding: 0 .2rem; font-size: .98rem; line-height: 1.35; overflow-wrap: anywhere; }
 .lesson-card-folder { width: 100%; min-height: 34px; padding: .2rem .5rem; font-size: .82rem; margin-top: auto; }
 @media (prefers-reduced-motion: reduce) { .lesson-card, .folder-tile { transition: none; } .lesson-card:hover { transform: none; } }
+/* 중요 수업(학생 입장 화면 수업 코드 칸에 저절로 들어감) */
+.lesson-thumb { position: relative; }
+.lesson-star { position: absolute; top: .3rem; right: .3rem; min-height: 0; width: 2.1rem; height: 2.1rem; padding: 0; border: 1px solid var(--line); border-radius: 999px; background: rgba(255, 255, 255, .92); color: var(--muted); font-size: 1.15rem; line-height: 1; }
+.lesson-star:hover { color: #b45309; border-color: #f59e0b; }
+.lesson-star.on { color: #fff; background: #f59e0b; border-color: #f59e0b; }
+.featured-box { display: grid; gap: .4rem; padding: .8rem; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
+.featured-box.on { border-color: #f59e0b; background: #fffbeb; }
+.featured-box > button { justify-self: start; }
