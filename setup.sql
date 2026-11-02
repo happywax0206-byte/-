@@ -1454,7 +1454,7 @@ revoke all on function bug_reply_delete(uuid) from public;
 grant execute on function bug_reply(uuid, text) to authenticated;
 grant execute on function bug_reply_delete(uuid) to authenticated;
 
--- 수업 폴더(「수업 설정」 옆 칸): 화면에는 수업을 만든 선생님마다 이름 폴더가 저절로 생기고(표에 없음, lesson_teachers로 이름만 받음),
+-- 수업 폴더(「프로필·공동작업자」 옆 칸): 화면에는 수업을 만든 선생님마다 이름 폴더가 저절로 생기고(표에 없음, lesson_teachers로 이름만 받음),
 -- 그 안에 선생님이 직접 만드는 폴더가 이 표다. 만든 선생님만 보고 다른 선생님에게는 보이지 않는다.
 -- teacher: 어느 선생님 폴더 안의 폴더인지(그 선생님이 만든 수업만 넣는다, 비어 있으면 나).
 -- lessons에는 이 폴더에 넣은 수업 id를 적는다. 수업이 지워져도 폴더는 남고 그 id만 무시된다.
