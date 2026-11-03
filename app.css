@@ -306,7 +306,15 @@ main.lesson .slide { cursor: zoom-in; }
 .thumb figcaption { display: flex; justify-content: space-between; align-items: center; font-size: .82rem; color: var(--muted); }
 .thumb .link { min-height: 32px; padding: 0 .3rem; font-size: .82rem; }
 .thumbs img { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 6px; }
-.thumb[draggable="true"] img { cursor: grab; }
+.thumb[draggable="true"] img { cursor: pointer; }
+.thumb-pic { position: relative; }
+.thumb-pic img { display: block; }
+.thumb-pick { position: absolute; top: 4px; left: 4px; width: 20px; height: 20px; margin: 0; cursor: pointer; accent-color: var(--accent); }
+.thumb.picked img { outline: 3px solid var(--accent); outline-offset: -1px; }
+.slide-zoom.with-bar img { height: calc(100% - 3.2rem); }
+.zoom-bar { display: flex; align-items: center; gap: 1rem; }
+.zoom-bar button { min-height: 34px; padding: 0 1rem; border: 0; border-radius: 999px; background: #2b3242; color: #fff; cursor: pointer; }
+.zoom-bar button:disabled { opacity: .35; cursor: default; }
 progress { width: 100%; height: 10px; }
 input[type=file] { font: inherit; max-width: 100%; }
 

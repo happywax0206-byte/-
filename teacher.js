@@ -3554,17 +3554,54 @@ function slidesCard() {
   const htmlOn = (i) => activities.find((a) => a.kind === "sim" && a.sim_full && a.page === i && !(a.page_to > i));
 
   // 미리보기를 끌어 순서를 바꾼다. 끄는 동안 다른 그림이 밀려나며 들어갈 빈칸을 보인다.
+  // 한 번 누르면 크게 보기. 왼쪽 위 네모 칸으로 여러 장 고르기(Shift를 누르고 고르면 그 사이를 모두)
   const thumbs = h("div", { class: "thumbs" });
   dragSort(thumbs, ".thumb", "grid", (el, to) => moveSlide(+el.dataset.i, to + 1, status), () => !slideBusy);
+  const picked = new Set();
+  const checks = [];
+  let lastPick = null;
+  const pickCount = h("span", { class: "muted small" });
+  const pickAll = h("button", { class: "ghost", type: "button", onclick() {
+    const all = picked.size < lesson.slide_count;
+    for (let i = 1; i <= lesson.slide_count; i++) setPick(i, all);
+    lastPick = null;
+    showPicks();
+  } });
+  const pickDel = h("button", { class: "ghost danger", type: "button", onclick() { deleteSlides([...picked], status); } });
+  const pickClear = h("button", { class: "link", type: "button", onclick() { for (const i of [...picked]) setPick(i, false); showPicks(); } }, "선택 해제");
+  function setPick(i, on) {
+    if (on) picked.add(i); else picked.delete(i);
+    checks[i].checked = on;
+    checks[i].closest(".thumb").classList.toggle("picked", on);
+  }
+  function showPicks() {
+    const n = picked.size;
+    pickAll.textContent = n === lesson.slide_count ? "전체 선택 해제" : "전체 선택";
+    pickCount.textContent = n ? n + "장 골랐습니다" : "그림 왼쪽 위 칸을 눌러 여러 장을 고를 수 있습니다(Shift를 누른 채 고르면 그 사이를 모두)";
+    pickDel.textContent = n ? "고른 " + n + "장 지우기" : "고른 슬라이드 지우기";
+    pickDel.disabled = !n || slideBusy;
+    pickClear.hidden = !n;
+  }
   for (let i = 1; i <= lesson.slide_count; i++) {
+    checks[i] = h("input", { type: "checkbox", class: "thumb-pick", "aria-label": i + "쪽 고르기", title: "고르기 (Shift: 사이를 모두)", draggable: "false",
+      onclick(ev) {
+        const on = ev.target.checked;
+        if (ev.shiftKey && lastPick) for (let p = Math.min(lastPick, i); p <= Math.max(lastPick, i); p++) setPick(p, on);
+        else setPick(i, on);
+        lastPick = i;
+        showPicks();
+      } });
     thumbs.append(h("figure", {
-      class: "thumb", draggable: "true", title: "끌어서 순서 바꾸기", "data-i": i,
+      class: "thumb", draggable: "true", title: "누르면 크게 보기 · 끌어서 순서 바꾸기", "data-i": i,
     },
-      h("img", { src: slideSrc(lesson, i, "s"), alt: i + "쪽", loading: "lazy", draggable: "false" }),
+      h("div", { class: "thumb-pic" },
+        h("img", { src: slideSrc(lesson, i, "s"), alt: i + "쪽", loading: "lazy", draggable: "false", onclick() { previewSlide(i); } }),
+        checks[i]),
       h("figcaption", {}, h("span", { title: htmlOn(i) ? htmlOn(i).title : null }, i + "쪽" + (htmlOn(i) ? " · 애니메이션" : "")),
-        h("button", { class: "link danger", type: "button", "aria-label": i + "쪽 삭제", onclick() { deleteSlide(i, status); } }, "삭제")),
+        h("button", { class: "link danger", type: "button", "aria-label": i + "쪽 삭제", onclick() { deleteSlides([i], status); } }, "삭제")),
       pageFx(i)));
   }
+  showPicks();
   const pdfBtn = lesson.slide_count ? h("button", { class: "ghost", type: "button", onclick() { downloadSlidesPdf(pdfBtn, status); } }, "⬇ PDF로 내려받기") : null;
   return h("section", { class: "card stack" },
     h("div", { class: "row between wrap" }, h("h2", {}, "슬라이드 " + (lesson.slide_count ? lesson.slide_count + "장" : "없음")), pdfBtn),
@@ -3577,8 +3614,45 @@ function slidesCard() {
     fxCard,
     lesson.slide_count ? h("div", { class: "row slide-tools" },
       h("span", { class: "muted small grow" }, "미리보기를 끌어서 순서를 바꿉니다(붙어 있는 질문도 따라갑니다). 빈 칸이 있거나 쪽 수가 맞지 않으면 →"),
-      h("button", { class: "ghost", type: "button", onclick() { deleteSlide(null, status); } }, "번호 다시 맞추기")) : null,
+      h("button", { class: "ghost", type: "button", onclick() { deleteSlides(null, status); } }, "번호 다시 맞추기")) : null,
+    lesson.slide_count ? h("div", { class: "row wrap slide-tools" }, pickAll, pickDel, pickClear, pickCount) : null,
     lesson.slide_count ? thumbs : null);
+}
+
+// 수업 설정의 미리보기 한 장을 화면 가득 띄운다. ← → (또는 아래 단추)로 넘기고, 그림을 누르거나 Esc로 닫는다.
+function previewSlide(n) {
+  let i = n;
+  const count = lesson.slide_count;
+  const big = h("img", { alt: "" });
+  const cap = h("p", {});
+  const prev = h("button", { type: "button", onclick(e) { e.stopPropagation(); go(i - 1); } }, "◀ 앞 쪽");
+  const next = h("button", { type: "button", onclick(e) { e.stopPropagation(); go(i + 1); } }, "다음 쪽 ▶");
+  const box = h("div", { class: "slide-zoom with-bar", role: "dialog", "aria-label": "슬라이드 크게 보기", onclick: close },
+    big, h("div", { class: "zoom-bar" }, prev, cap, next));
+  function go(k) {
+    if (k < 1 || k > count) return;
+    i = k;
+    big.src = slideSrc(lesson, i, slideSize());
+    big.alt = i + "쪽";
+    cap.textContent = i + " / " + count + "쪽 · 누르거나 Esc로 닫기";
+    prev.disabled = i <= 1;
+    next.disabled = i >= count;
+  }
+  function close() {
+    box.remove();
+    document.removeEventListener("keydown", key, true);
+  }
+  // 다른 화면의 쪽 넘기기 단축키가 같이 움직이지 않게 먼저 받아서 막는다
+  const key = (e) => {
+    const k = { Escape: 0, ArrowLeft: -1, ArrowUp: -1, PageUp: -1, ArrowRight: 1, ArrowDown: 1, PageDown: 1, " ": 1 }[e.key];
+    if (k === undefined) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (k === 0) close(); else go(i + k);
+  };
+  document.addEventListener("keydown", key, true);
+  document.body.append(box);
+  go(i);
 }
 
 async function loadPdfJs() {
@@ -3775,10 +3849,7 @@ function slideFolderOf(l) {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
-// 슬라이드 한 쪽 지우기: 그 쪽 그림을 지우고 뒤쪽 그림을 한 칸씩 앞으로 당긴다.
-// 질문의 쪽 번호도 함께 당긴다(지운 쪽에 붙어 있던 질문은 그 자리로 당겨진 다음 슬라이드에 붙는다).
-// 저장소에 실제로 있는 그림 목록을 보고 1, 2, 3 … 으로 다시 번호를 매기므로, 중간에 멈춰 꼬인 상태도 바로잡는다.
-// k 가 없으면(번호 다시 맞추기) 아무것도 지우지 않고 번호만 맞춘다.
+// 슬라이드 올리기·옮기기·지우기(deleteSlides)를 하는 중인지
 let slideBusy = false;
 
 // 이 수업만 쓰는 슬라이드 폴더. 복제한 다른 수업과 같은 그림을 쓰면 쪽 단위로 바꿀 수 없다.
@@ -3898,12 +3969,48 @@ function movedRange(a, from, newPos) {
   return { page, page_to: last > page ? last : null };
 }
 
-// 쪽 그림 이름 바꾸기. 보통 그림은 꼭 있어야 하고, 작은·큰 그림은 있을 때만(없으면 common.js가 보통 그림으로 대신)
-async function moveSlideFiles(folder, x, y) {
+// 일 여러 개를 한 번에 limit개씩 함께 한다(하나라도 실패하면 남은 일은 시작하지 않고 그 오류를 낸다)
+async function inParallel(jobs, limit, onDone) {
+  let next = 0, done = 0, failed = null;
+  const worker = async () => {
+    while (!failed && next < jobs.length) {
+      const job = jobs[next++];
+      try { await job(); } catch (e) { failed = failed || e; }
+      if (onDone) onDone(++done, jobs.length);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, jobs.length) }, worker));
+  if (failed) throw failed;
+}
+
+// 쪽 그림 이름을 한꺼번에 바꾼다. pairs = [[옛 번호, 새 번호], …]
+// 예전에는 한 장씩 차례로 옮겨 느렸다. 이제 ① 모두 「10000 + 새 번호」로 비켜 두고 ② 새 번호로 옮기는데, 단계마다 여러 장을 함께 옮긴다.
+// 비켜 둔 이름도 숫자라 중간에 멈춰도 「번호 다시 맞추기」가 맨 끝 쪽으로 되살린다.
+// 보통 그림은 꼭 있어야 하고, 작은·큰 그림은 있을 때만(없으면 common.js가 보통 그림으로 대신)
+async function renameSlides(folder, pairs, progress) {
+  pairs = pairs.filter(([x, y]) => x !== y);
+  if (!pairs.length) return;
   const st = sb.storage.from("slides");
-  const r = await st.move(folder + x + ".jpg", folder + y + ".jpg");
-  if (r.error) throw r.error;
-  if (slideSized(lesson)) for (const k of ["s", "l"]) await st.move(folder + x + SLIDE_SUFFIX[k] + ".jpg", folder + y + SLIDE_SUFFIX[k] + ".jpg");
+  const kinds = slideSized(lesson) ? ["m", "s", "l"] : ["m"];
+  const total = pairs.length * kinds.length * 2;
+  const step = async (list, start) => {
+    const jobs = list.flatMap(([x, y]) => kinds.map((k) => async () => {
+      const r = await st.move(folder + x + SLIDE_SUFFIX[k] + ".jpg", folder + y + SLIDE_SUFFIX[k] + ".jpg");
+      if (r.error && k === "m") throw r.error;
+    }));
+    await inParallel(jobs, 8, (n) => progress && progress(start + n, total));
+  };
+  const park = Math.max(10000, ...pairs.map(([x]) => x));   // 지금 있는 어느 번호와도 겹치지 않게(멈춘 뒤 남은 비켜 둔 그림까지)
+  await step(pairs.map(([x, y]) => [x, park + y]), 0);
+  await step(pairs.map(([, y]) => [park + y, y]), total / 2);
+}
+
+// 질문 쪽 번호 고치기를 여러 개 함께 보낸다. changes = [[질문 id, 바꿀 칸], …]
+function updateActivities(changes) {
+  return inParallel(changes.map(([id, change]) => async () => {
+    const u = await sb.from("activities").update(change).eq("id", id);
+    if (u.error) throw u.error;
+  }), 8);
 }
 
 async function moveSlide(from, to, status) {
@@ -3912,7 +4019,6 @@ async function moveSlide(from, to, status) {
   try { folder = editableSlideFolder(); } catch (e) { alert(e.message); return draw(); }   // 끌어 놓은 자리를 원래대로
   slideBusy = true;
   document.querySelectorAll(".thumb button, .slide-tools button").forEach((b) => { b.disabled = true; });
-  const mv = (x, y) => moveSlideFiles(folder, x, y);
   let acts;
   try {
     status.textContent = "최신 슬라이드 순서를 확인하는 중…";
@@ -3926,23 +4032,21 @@ async function moveSlide(from, to, status) {
   try {
     status.textContent = from + "쪽을 " + to + "쪽 자리로 옮기는 중…";
     await checkSlideNums(folder);
-    // 잠시 비켜 둘 이름. 중간에 멈춰도 「번호 다시 맞추기」를 누르면 맨 끝 쪽으로 되살아난다
-    const park = 9000 + from;
-    await mv(from, park);
-    const step = from < to ? 1 : -1;
-    for (let n = from + step; n !== to + step; n += step) await mv(n, n - step);
-    await mv(park, to);
-
     const newPos = slideMoveMap(from, to);
+    const pairs = [];
+    for (let n = Math.min(from, to); n <= Math.max(from, to); n++) pairs.push([n, newPos(n)]);
+    await renameSlides(folder, pairs, (k, total) => { status.textContent = from + "쪽을 " + to + "쪽 자리로 옮기는 중… " + Math.round(k / total * 100) + "%"; });
+
+    const changes = [];
     for (const a of acts) {
       if (a.page == null) continue;
       const r = movedRange(a, from, newPos);
       if (r.page === a.page && r.page_to === (a.page_to > a.page ? a.page_to : null)) continue;
       const change = { page: r.page };
       if ("page_to" in a) change.page_to = r.page_to;
-      const u = await sb.from("activities").update(change).eq("id", a.id);
-      if (u.error) throw u.error;
+      changes.push([a.id, change]);
     }
+    await updateActivities(changes);
     const dir = freshSlideDir(lesson.slide_dir, slideSized(lesson));   // 이름이 바뀐 그림을 브라우저가 예전 것으로 보이지 않게
     const u = await sb.from("lessons").update({ slide_dir: dir, page: newPos(lesson.page), ...transitionChange(newPos) }).eq("id", lesson.id);
     if (u.error) throw u.error;
@@ -3958,22 +4062,30 @@ async function moveSlide(from, to, status) {
   }
 }
 
-async function deleteSlide(k, status) {
+// 슬라이드 여러 쪽 지우기: 고른 쪽 그림을 지우고 남은 그림을 1, 2, 3 … 으로 당긴다. ks = 지울 쪽 번호 목록.
+// 질문의 쪽 번호도 함께 당긴다(지운 쪽에 붙어 있던 질문은 그 자리로 당겨진 다음 슬라이드에 붙는다).
+// ks 가 없으면(번호 다시 맞추기) 아무것도 지우지 않고 저장소에 실제로 있는 그림으로 번호만 맞춘다(중간에 멈춰 꼬인 상태도 바로잡는다).
+async function deleteSlides(ks, status) {
   if (slideBusy) return;
+  ks = ks ? [...new Set(ks)].sort((x, y) => x - y) : [];
+  const fixOnly = !ks.length;
   let folder;
   try { folder = editableSlideFolder(); } catch (e) { return alert(e.message); }
   const base = lesson.slide_dir.split("?")[0];
-  // 이 쪽 자리에 뜨는 애니메이션은 쪽과 함께 지운다(남겨 두면 당겨진 다음 슬라이드를 가린다)
-  const simsOf = (list) => k ? list.filter((a) => a.kind === "sim" && a.sim_full && a.page === k && !(a.page_to > k)) : [];
-  if (k) {
+  const gone = new Set(ks);
+  // 지우는 쪽 자리에 뜨는 애니메이션은 쪽과 함께 지운다(남겨 두면 당겨진 다음 슬라이드를 가린다)
+  const simsOf = (list) => list.filter((a) => a.kind === "sim" && a.sim_full && gone.has(a.page) && !(a.page_to > a.page));
+  if (!fixOnly) {
     const sims = simsOf(activities);
-    const onIt = activities.filter((a) => a.page === k && !(a.page_to > k) && !sims.includes(a));
-    if (!confirm(k + "쪽 슬라이드를 지울까요? 뒤쪽 슬라이드가 한 칸씩 앞으로 당겨집니다." +
-      (sims.length ? "\n이 쪽의 애니메이션 「" + sims.map((a) => a.title).join("」, 「") + "」도 함께 지웁니다." : "") +
-      (onIt.length ? "\n이 쪽에만 있던 질문 " + onIt.length + "개는 지우지 않고, 그 자리로 당겨지는 다음 슬라이드에 붙습니다." : ""))) return;
+    const onIt = activities.filter((a) => gone.has(a.page) && !(a.page_to > a.page) && !sims.includes(a));
+    const what = ks.length === lesson.slide_count ? "슬라이드 " + ks.length + "장을 모두"
+      : ks.length === 1 ? ks[0] + "쪽 슬라이드를" : "슬라이드 " + ks.length + "장(" + ks.join(", ") + "쪽)을";
+    if (!confirm(what + " 지울까요? 뒤쪽 슬라이드가 앞으로 당겨집니다." +
+      (sims.length ? "\n지우는 쪽의 애니메이션 「" + sims.map((a) => a.title).join("」, 「") + "」도 함께 지웁니다." : "") +
+      (onIt.length ? "\n지우는 쪽에만 있던 질문 " + onIt.length + "개는 지우지 않고, 그 자리로 당겨지는 다음 슬라이드에 붙습니다." : ""))) return;
   }
   slideBusy = true;
-  document.querySelectorAll(".thumb button, .slide-tools button").forEach((b) => { b.disabled = true; });
+  document.querySelectorAll(".thumb button, .thumb input, .slide-tools button").forEach((b) => { b.disabled = true; });
   const st = sb.storage.from("slides");
   let acts, sims;   // 서버에서 새로 받은 질문 목록(화면의 것은 예전 것일 수 있다)
   try {
@@ -3989,50 +4101,56 @@ async function deleteSlide(k, status) {
   try {
     status.textContent = "슬라이드 목록을 확인하는 중…";
     let nums = await slideNums(folder);
-    if (k) {
-      if (!nums.includes(k)) throw new Error(k + "쪽 그림이 이미 없습니다. 「번호 다시 맞추기」를 눌러 주세요.");
-      status.textContent = k + "쪽을 지우는 중…";
-      const r = await st.remove(Object.values(SLIDE_SUFFIX).map((x) => folder + k + x + ".jpg"));
-      if (r.error) throw r.error;
-      nums = nums.filter((x) => x !== k);
+    if (!fixOnly) {
+      const missing = ks.filter((k) => !nums.includes(k));
+      if (missing.length) throw new Error(missing.join(", ") + "쪽 그림이 이미 없습니다. 「번호 다시 맞추기」를 눌러 주세요.");
+      status.textContent = ks.length + "장을 지우는 중…";
+      const paths = ks.flatMap((k) => Object.values(SLIDE_SUFFIX).map((x) => folder + k + x + ".jpg"));
+      for (let i = 0; i < paths.length; i += 300) {
+        const r = await st.remove(paths.slice(i, i + 300));
+        if (r.error) throw r.error;
+      }
+      nums = nums.filter((x) => !gone.has(x));
     }
-    // 남은 그림을 1, 2, 3 … 으로 당긴다(작은 번호부터 옮기므로 옮길 자리는 늘 비어 있다)
-    for (const [i, num] of nums.entries()) {
-      if (num === i + 1) continue;
-      status.textContent = "슬라이드 번호를 맞추는 중 " + (i + 1) + " / " + nums.length;
-      await moveSlideFiles(folder, num, i + 1);
-    }
+    // 남은 그림을 1, 2, 3 … 으로 당긴다
+    await renameSlides(folder, nums.map((num, i) => [num, i + 1]), (k, total) => {
+      status.textContent = "슬라이드 번호를 맞추는 중… " + Math.round(k / total * 100) + "%";
+    });
     const left = nums.length;
     if (sims.length) {
       const d = await sb.from("activities").delete().in("id", sims.map((a) => a.id));
       if (d.error) throw d.error;
     }
-    if (k) {
-      const shift = (pg) => (pg == null ? pg : pg > k ? pg - 1 : pg);
+    // 새 쪽 번호: 그 쪽보다 앞에 남은 슬라이드 수 + 1 (지운 쪽은 그 자리로 당겨지는 다음 슬라이드)
+    const keep = [];
+    for (let p = 1; p <= lesson.slide_count; p++) if (!gone.has(p)) keep.push(p);
+    const newPos = (p) => Math.min(keep.filter((x) => x < p).length + 1, Math.max(left, 1));
+    if (!fixOnly) {
+      const changes = [];
       for (const a of acts) {
         if (a.page == null || sims.includes(a)) continue;
-        const page = Math.min(shift(a.page), Math.max(left, 1));
-        let to = a.page_to > a.page ? Math.min(shift(a.page_to), Math.max(left, 1)) : a.page_to ?? null;
+        const page = newPos(a.page);
+        let to = a.page_to > a.page ? newPos(a.page_to) : a.page_to ?? null;
         if (to != null && to <= page) to = null;
         if (page === a.page && to === (a.page_to ?? null)) continue;
         const change = { page };
         if ("page_to" in a) change.page_to = to;
-        const u = await sb.from("activities").update(change).eq("id", a.id);
-        if (u.error) throw u.error;
+        changes.push([a.id, change]);
       }
+      await updateActivities(changes);
     }
-    const pageNow = k && lesson.page > k ? lesson.page - 1 : lesson.page;
     const dir = freshSlideDir(base, slideSized(lesson));   // 이름이 바뀐 그림을 브라우저가 예전 것으로 보이지 않게
-    const u = await sb.from("lessons").update({ slide_dir: left ? dir : "", slide_count: left, page: Math.min(Math.max(pageNow, 1), Math.max(left, 1)),
-      ...(k ? transitionChange((p) => (p === k ? 0 : p > k ? p - 1 : p)) : {}) }).eq("id", lesson.id);
+    const u = await sb.from("lessons").update({ slide_dir: left ? dir : "", slide_count: left,
+      page: fixOnly ? Math.min(Math.max(lesson.page, 1), Math.max(left, 1)) : newPos(lesson.page),
+      ...(fixOnly ? {} : transitionChange((p) => (gone.has(p) ? 0 : newPos(p)))) }).eq("id", lesson.id);
     if (u.error) throw u.error;
-    flash(k ? k + "쪽을 지웠습니다." : "슬라이드 번호를 맞췄습니다 (" + left + "장).");
+    flash(fixOnly ? "슬라이드 번호를 맞췄습니다 (" + left + "장)." : ks.length === 1 ? ks[0] + "쪽을 지웠습니다." : ks.length + "장을 지웠습니다.");
     slideBusy = false;
     await loadLessons(lesson.id);
   } catch (e) {
     await releaseSlides().catch(() => {});
     slideBusy = false;
-    document.querySelectorAll(".thumb button, .slide-tools button").forEach((b) => { b.disabled = false; });
+    document.querySelectorAll(".thumb button, .thumb input, .slide-tools button").forEach((b) => { b.disabled = false; });
     status.textContent = "멈췄습니다: " + (e.message || e) + " · 「번호 다시 맞추기」를 누르면 남은 그림으로 번호를 다시 맞춥니다.";
     alert(status.textContent);
   }
