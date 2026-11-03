@@ -3141,8 +3141,9 @@ function drawSettings() {
       h("div", { class: "row" },
         h("button", { class: "ghost", type: "button", onclick: showJoin }, "QR 크게 보기"),
         h("button", { class: "ghost", type: "button", onclick: duplicate }, "다른 반용으로 복제"),
-        isMine(lesson) || (profile && profile.admin) ? h("button", { class: "ghost danger", type: "button", onclick: remove }, "수업 지우기") : null)) : null),
-    // 오른쪽 빈 칸: 수업 폴더(「프로필·공동작업자」와 같음) + 그 아래 누른 슬라이드 미리보기 카드(화면을 내리면 위에 붙어 따라옴)
+        isMine(lesson) || (profile && profile.admin) ? h("button", { class: "ghost danger", type: "button", onclick: remove }, "수업 지우기") : null)) : null,
+    lesson ? classFeaturedCard() : null),
+    // 오른쪽 빈 칸: 수업 폴더(「프로필·공동작업자」와 같음) + 바로 아래 누른 슬라이드 미리보기 카드(제자리에 고정)
     h("div", { class: "settings-side" }, panel.el, slides && slides._dock));
   main.classList.add("with-folders");
 }
@@ -3397,7 +3398,7 @@ function folderPanel(onChange) {
   return { el, repaint: changed };
 }
 
-// 「수업 설정 → 학생 접속」의 중요 수업 칸
+// 「수업 설정 → 학생 접속」의 일반 중요 수업 칸(폴더 카드의 ⭐와 같음)
 function featuredBox() {
   const on = lesson.id === featuredId;
   const url = myStudentUrl();
@@ -3407,8 +3408,7 @@ function featuredBox() {
     h("p", { class: "muted small" }, "중요 수업으로 정하면 학생 입장 화면의 수업 코드 칸에 이 수업 코드가 저절로 들어갑니다(선생님마다 하나). 학생은 코드를 지우고 다른 코드를 입력할 수도 있습니다."),
     h("p", { class: "small" }, "내 학생 입장 주소 ", h("span", { class: "muted" }, "(내 중요 수업 코드가 들어감)"), h("br"), h("span", { class: "join-url" }, url), " ",
       h("button", { class: "link", type: "button", onclick(e) { navigator.clipboard.writeText(url).then(() => { e.target.textContent = "복사했습니다"; }); } }, "주소 복사")),
-    h("p", { class: "muted small" }, "주소 끝의 ?t=… 없이 열면 가장 최근에 정한 중요 수업(어느 선생님이든)의 코드가 들어갑니다."),
-    classFeaturedBox());
+    h("p", { class: "muted small" }, "주소 끝의 ?t=… 없이 열면 가장 최근에 정한 중요 수업(어느 선생님이든)의 코드가 들어갑니다. 반마다 다르게 하려면 아래 「반별 중요 수업」 칸에서 정하세요."));
 }
 
 // 반별 중요 수업: 학생이 입장 화면에서 반을 고르면 그 반에 정한 수업 코드가 들어간다(반을 안 고르면 위의 공통 중요 수업)
@@ -3430,40 +3430,51 @@ async function setFeaturedClass(cls, l) {
   flash(l ? "⭐ " + cls + " 학생이 입장 화면에서 반을 고르면 「" + l.title + "」 코드가 들어갑니다." : cls + " 반을 목록에서 뺐습니다.");
   return true;
 }
-function classFeaturedBox() {
-  const box = h("div", { class: "stack class-featured" });
-  const forLesson = lesson;
+// 반별 중요 수업 칸(「수업 설정」 맨 아래 따로 있는 카드). 공통 중요 수업(폴더 카드의 ⭐)과는 따로 정한다.
+// 반마다 수업을 하나씩 고른다. 학생이 입장 화면에서 반을 고르면 그 반 수업 코드가 들어간다(반을 안 고르면 공통 중요 수업)
+function classFeaturedCard() {
+  const box = h("section", { class: "card stack class-featured" });
+  const lessonPick = (selected, label) => {
+    const list = lessons.filter((l) => !l.ended || l.id === selected);
+    return h("select", { "aria-label": label },
+      selected && !list.some((l) => l.id === selected) ? h("option", { value: selected, selected: true }, "(볼 수 없는 수업)") : null,
+      list.map((l) => h("option", { value: l.id, selected: l.id === selected }, lessonTag(l) + l.title + " (" + l.code + ")")));
+  };
   const paint = () => {
+    const head = [h("h2", {}, "⭐ 반별 중요 수업"),
+      h("p", { class: "muted small" }, "반마다 중요 수업을 따로 정합니다. 학생 입장 화면 맨 위에 「반」 고르는 칸이 생기고, 반을 고르면 그 반에 정한 수업 코드가 저절로 들어갑니다(학생 기기가 반을 기억). 반을 고르지 않은 학생에게는 폴더 카드의 ⭐(일반 중요 수업) 코드가 들어갑니다.")];
     if (featuredClasses === null) {
-      box.replaceChildren(h("p", { class: "muted small" }, "반마다 중요 수업을 따로 정하려면 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요."));
+      box.replaceChildren(...head, h("p", { class: "banner" }, "반별 중요 수업을 쓰려면 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요."));
       return;
     }
     const list = [...featuredClasses].sort(byClassName);
-    const nameIn = h("input", { type: "text", maxlength: 20, placeholder: "반 이름 (예: 2-3)", "aria-label": "반 이름" });
+    const nameIn = h("input", { type: "text", maxlength: 20, placeholder: "반 이름 (예: 2-3)", "aria-label": "새 반 이름" });
+    const newPick = lessonPick(lesson ? lesson.id : null, "새 반의 중요 수업");
     const add = async (e) => {
       e.preventDefault();
       const c = nameIn.value.trim();
       if (!c) return nameIn.focus();
+      const l = lessons.find((x) => x.id === newPick.value);
+      if (!l) return;
       const was = list.find((f) => f.class === c);
-      if (was && was.lesson !== forLesson.id && !confirm(c + " 반의 중요 수업을 「" + titleOf(was.lesson) + "」에서 이 수업으로 바꿀까요?")) return;
-      if (await setFeaturedClass(c, forLesson)) paint();
+      if (was && was.lesson !== l.id && !confirm(c + " 반은 이미 있습니다. 중요 수업을 「" + titleOf(was.lesson) + "」에서 「" + l.title + "」(으)로 바꿀까요?")) return;
+      if (await setFeaturedClass(c, l)) paint();
     };
-    box.replaceChildren(
-      h("strong", {}, "반별 중요 수업"),
-      h("p", { class: "muted small" }, "학생 입장 화면에 「반」 고르는 칸이 생기고, 반을 고르면 그 반에 정한 수업 코드가 저절로 들어갑니다. 체크하면 이 수업이 그 반의 중요 수업이 됩니다(반마다 하나). 반을 고르지 않은 학생에게는 위의 공통 중요 수업 코드가 들어갑니다."),
-      list.length ? h("div", { class: "class-list" }, list.map((f) => {
-        const mine = f.lesson === forLesson.id;
-        return h("label", { class: "check class-row" + (mine ? " on" : "") },
-          h("input", { type: "checkbox", checked: mine, async onchange(e) {
-            // 체크를 풀면 그 반은 목록에서 빠진다. 다른 수업이 정해진 반을 체크하면 이 수업으로 바뀐다
-            if (!mine && !confirm(f.class + " 반의 중요 수업을 「" + titleOf(f.lesson) + "」에서 이 수업으로 바꿀까요?")) { e.target.checked = false; return; }
-            if (mine && !confirm(f.class + " 반을 목록에서 뺄까요? 그 반 학생은 반 목록에서 고를 수 없게 됩니다.")) { e.target.checked = true; return; }
-            await setFeaturedClass(f.class, mine ? null : forLesson);
-            paint();
-          } }),
-          h("span", {}, h("strong", {}, f.class), mine ? " · 이 수업" : h("span", { class: "muted small" }, " · 지금: " + titleOf(f.lesson))));
-      })) : h("p", { class: "muted small" }, "아직 정한 반이 없습니다."),
-      h("form", { class: "row", onsubmit: add }, nameIn, h("button", { class: "ghost", type: "submit" }, "반 추가 · 이 수업으로")));
+    box.replaceChildren(...head,
+      list.length ? h("div", { class: "class-table" }, list.map((f) => {
+        const pick = lessonPick(f.lesson, f.class + " 반의 중요 수업");
+        pick.addEventListener("change", async () => {
+          const l = lessons.find((x) => x.id === pick.value);
+          if (l && !(await setFeaturedClass(f.class, l))) pick.value = f.lesson;
+          paint();
+        });
+        return h("div", { class: "class-row" }, h("strong", {}, f.class), pick,
+          h("button", { class: "link danger", type: "button", async onclick() {
+            if (!confirm(f.class + " 반을 목록에서 뺄까요? 그 반 학생은 입장 화면에서 이 반을 고를 수 없게 됩니다.")) return;
+            if (await setFeaturedClass(f.class, null)) paint();
+          } }, "빼기"));
+      })) : h("p", { class: "muted small" }, "아직 정한 반이 없습니다. 아래에서 반을 추가하세요."),
+      h("form", { class: "class-row add", onsubmit: add }, nameIn, newPick, h("button", { class: "primary", type: "submit" }, "반 추가")));
   };
   paint();
   return box;
@@ -3652,7 +3663,7 @@ function slidesCard() {
 
   // 미리보기를 끌어 순서를 바꾼다. 끄는 동안 다른 그림이 밀려나며 들어갈 빈칸을 보인다.
   // 끌어 놓아도 바로 저장하지 않고 화면에서만 바뀐다. 「순서 저장」을 눌러야 한꺼번에 저장된다(「되돌리기」는 원래대로).
-  // 한 번 누르면 오른쪽 빈 칸(좁은 화면이면 화면 가득)에 크게 보기. 왼쪽 위 네모 칸으로 여러 장 고르기(Shift를 누르고 고르면 그 사이를 모두)
+  // 한 번 누르면 오른쪽 폴더 칸 바로 아래 카드(좁은 화면이면 화면 가득)에 크게 보기. 왼쪽 위 네모 칸으로 여러 장 고르기(Shift를 누르고 고르면 그 사이를 모두)
   if (slideOrder && (slideOrder.id !== lesson.id || slideOrder.dir !== unlockedDir(lesson.slide_dir) || slideOrder.order.length !== lesson.slide_count)) slideOrder = null;
   const natural = Array.from({ length: lesson.slide_count }, (_, k) => k + 1);
   const order = () => (slideOrder ? slideOrder.order : natural);   // 자리 순서대로 원래 쪽 번호
@@ -3780,9 +3791,6 @@ function slidesCard() {
   function openPreview(pos) {
     if (matchMedia("(min-width: 1100px)").matches && dock.isConnected) {
       showDock(pos);
-      // 미리보기 카드가 화면 밖이면(폴더 칸이 길 때) 보이게 한다
-      const r = dock.getBoundingClientRect();
-      if (r.bottom < 0 || r.top > innerHeight - 80) dock.scrollIntoView({ block: "nearest", behavior: "smooth" });
     } else previewSlide(pos, order());
   }
   showPicks();

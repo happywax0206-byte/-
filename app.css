@@ -546,10 +546,10 @@ body.present .credit { display: none; }
 main.with-folders { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
 @media (min-width: 1100px) { main.with-folders { grid-template-columns: minmax(0, 600px) minmax(0, 1fr); } }
 .folder-panel { gap: .8rem; }
-/* 오른쪽 칸: 누른 슬라이드 미리보기는 화면을 내려도 위에 붙어 따라온다(넓은 화면에서만, 좁으면 화면 가득 띄움) */
-.settings-side { display: flex; flex-direction: column; gap: 1rem; align-self: stretch; min-width: 0; }
-.slide-dock { position: sticky; top: calc(var(--top-h, 64px) + .75rem); z-index: 3; gap: .6rem; }
-.slide-dock .slide { width: 100%; max-height: calc(100vh - var(--top-h, 64px) - 11rem); object-fit: contain; aspect-ratio: 16 / 9; background: #fff; border: 1px solid var(--line); border-radius: 8px; }
+/* 오른쪽 칸: 폴더 칸 바로 아래에 누른 슬라이드 미리보기 카드(제자리에 고정, 넓은 화면에서만, 좁으면 화면 가득 띄움) */
+.settings-side { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+.slide-dock { gap: .6rem; }
+.slide-dock .slide { width: 100%; object-fit: contain; aspect-ratio: 16 / 9; background: #fff; border: 1px solid var(--line); border-radius: 8px; }
 @media (max-width: 1099px) { .slide-dock { display: none; } }
 .thumb.viewing img { outline: 3px solid var(--ink); outline-offset: -1px; }
 /* 끌어서 바꾼 순서를 아직 저장하지 않았을 때: 슬라이드 칸 아래쪽에 붙어 있는 저장 줄 */
@@ -588,7 +588,8 @@ main.with-folders { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1
 .featured-box { display: grid; gap: .4rem; padding: .8rem; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
 .featured-box.on { border-color: #f59e0b; background: #fffbeb; }
 .featured-box > button { justify-self: start; }
-/* 「수업 설정 → 학생 접속」 반별 중요 수업 */
-.class-featured { gap: .5rem; padding-top: .6rem; border-top: 1px solid var(--line); }
-.class-list { display: flex; flex-wrap: wrap; gap: .3rem 1rem; }
-.class-row.on strong { color: var(--accent); }
+/* 「수업 설정」 맨 아래 반별 중요 수업 카드: 반 | 수업 고르기 | 빼기 */
+.class-table { display: grid; gap: .4rem; }
+.class-row { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr) auto; gap: .5rem; align-items: center; }
+.class-row select { min-width: 0; }
+.class-row.add { padding-top: .6rem; border-top: 1px solid var(--line); }
