@@ -168,17 +168,62 @@ function simBoxEl(a, box, full) {
 }
 
 // 층에 시뮬레이션들을 얹는다. list 가 그대로면(같은 활동·자리·내용) 다시 띄우지 않는다.
+// 앞 쪽에도 있던 같은 시뮬레이션(같은 활동·자리·내용)은 그 상자를 그대로 둔다. 다시 띄우면 처음부터 다시 불러와 깜빡이고 움직이던 것도 처음으로 돌아간다.
+// 쪽을 넘기는 효과(changeSlide)가 진행 중이면(layer._turn) 없어질 상자는 바로 지우지 않고 앞 슬라이드와 함께 나가게, 새 상자는 새 슬라이드와 함께 들어오게 맡긴다.
 function showSimBoxes(layer, list, getHtml, full) {
-  const key = list.map((a) => a.id + ":" + JSON.stringify(a.sim_box) + ":" + (a.html_ver || (a.html || "").length)).join("|");
+  const keyOf = (a) => a.id + ":" + JSON.stringify(a.sim_box) + ":" + (a.html_ver || (a.html || "").length);
+  const key = list.map(keyOf).join("|");
   if (layer._key !== key) {
     layer._key = key;
-    layer.replaceChildren(...list.map((a) => {
+    const turn = layer._turn;
+    const old = [...layer.children].filter((b) => !b._leaving);
+    const added = [];
+    for (const a of list) {
+      const k = keyOf(a);
+      const same = old.findIndex((b) => b._k === k);
+      if (same >= 0) { old.splice(same, 1); continue; }
       const el = simBoxEl(a, a.sim_box, full);
-      Promise.resolve(getHtml(a)).then((html) => { if (layer._key === key) el._frame.srcdoc = html || ""; }).catch(() => {});
-      return el;
-    }));
+      el._k = k;
+      Promise.resolve(getHtml(a)).then((html) => { if (el.parentNode === layer && !el._leaving) el._frame.srcdoc = html || ""; }).catch(() => {});
+      added.push(el);
+    }
+    if (turn) {
+      for (const b of old) { b._leaving = true; turn.leave.push(b); }
+      for (const el of added) { el.style.opacity = "0"; turn.enter.push(el); }   // 새 슬라이드 그림이 다 오면 함께 움직이기 시작
+    } else old.forEach((b) => b.remove());
+    layer.append(...added);   // 남겨 둔 상자는 옮기지 않는다(iframe은 옮기기만 해도 다시 불러온다)
   }
   layer.relayout();
+}
+
+// 슬라이드 위 상자가 슬라이드 그림과 똑같이 움직이게 넘김 효과를 고친다. 효과는 그림 크기 기준(%)이라
+// 상자에서는 그림 크기만큼의 px로 바꾸고, 돌리거나 키우는 중심도 그림의 중심(책 넘기기는 그림 왼쪽 끝)에 맞춘다.
+function boxFrames(frames, img, box) {
+  const W = img.offsetWidth, H = img.offsetHeight;
+  const layer = box.offsetParent || box.parentNode;
+  const bl = (layer.offsetLeft || 0) + box.offsetLeft - img.offsetLeft, bt = (layer.offsetTop || 0) + box.offsetTop - img.offsetTop;   // 그림 왼쪽 위에서 상자까지
+  const bw = box.offsetWidth;
+  const leftEdge = frames.some((f) => f.transformOrigin === "left center");
+  box.style.transformOrigin = ((leftEdge ? 0 : W / 2) - bl) + "px " + (H / 2 - bt) + "px";
+  const px = (v, size) => (parseFloat(v) / 100) * size + "px";
+  const ins = (f) => { const m = /inset\(\S+ ([-\d.]+)%? \S+ ([-\d.]+)%?\)/.exec(f.clipPath || ""); return m ? [+m[1], +m[2]] : null; };
+  if (frames.length === 2 && ins(frames[0]) && ins(frames[1])) {
+    // 닦아내기: 그림을 드러내는 선이 상자에서도 같은 때에 같은 곳을 지나가게, 선이 상자에 닿기 전·지난 뒤는 끝값으로 멈춘다
+    const [[r0, l0], [r1, l1]] = [ins(frames[0]), ins(frames[1])];
+    return Array.from({ length: 21 }, (_, i) => {
+      const t = i / 20;
+      const r = Math.max(0, ((r0 + (r1 - r0) * t) / 100) * W - (W - bl - bw)), l = Math.max(0, ((l0 + (l1 - l0) * t) / 100) * W - bl);
+      return { clipPath: "inset(0px " + r + "px 0px " + l + "px)", offset: t };
+    });
+  }
+  return frames.map((f) => {
+    const g = { ...f };
+    delete g.transformOrigin;
+    delete g.boxShadow;   // 넘어가는 종이 그림자는 그림에만(상자는 제 그림자를 그대로)
+    if (g.transform) g.transform = g.transform.replace(/translateX\(([-\d.]+)%\)/g, (_, v) => "translateX(" + px(v, W) + ")")
+      .replace(/translateY\(([-\d.]+)%\)/g, (_, v) => "translateY(" + px(v, H) + ")");
+    return g;
+  });
 }
 
 // content(시뮬레이션·링크 칸)를 화면 가득 띄운다. 닫기 버튼이나 Esc로 닫는다. onclose: 닫힐 때 부를 함수. extra: 제목 옆에 둘 것.
@@ -341,7 +386,9 @@ function transitionFrames(type, dir) {
 }
 
 // 슬라이드 그림(img)을 src로 바꾸며 넘김 효과를 준다. 예전 그림의 복사본을 같은 자리에 겹쳐 두고,
-// 새 그림을 다 불러오면 둘을 함께 움직인다. also: 함께 서서히 나타날 요소(슬라이드 위 시뮬레이션 층)
+// 새 그림을 다 불러오면 둘을 함께 움직인다. also: 슬라이드 위 시뮬레이션 층(slideLayer) 등.
+// 층이면 바로 뒤에 부르는 showSimBoxes가 없어질 상자·새 상자를 알려 주고(layer._turn), 그 상자들이 앞·새 슬라이드와 똑같이 나가고 들어온다.
+// 두 쪽에 걸친 같은 시뮬레이션은 움직이지 않고 그 자리에 그대로 있다. 층이 아닌 것은 끝 무렵에 서서히 나타난다.
 function changeSlide(img, src, fx, dir, also) {
   if (img.getAttribute("src") === src) return;
   if (img._fx) img._fx();   // 아직 끝나지 않은 효과는 바로 끝낸다
@@ -361,6 +408,9 @@ function changeSlide(img, src, fx, dir, also) {
   if (newOnTop) img.before(ghost); else img.after(ghost);
   parent.classList.add("slide-fx");
   img.style.opacity = "0";
+  const layers = (also || []).filter((el) => el && typeof el.relayout === "function");
+  const others = (also || []).filter((el) => el && !layers.includes(el));
+  for (const l of layers) l._turn = { enter: [], leave: [] };
   const anims = [];
   let done = false, started = false, timer = 0;
   const finish = () => {
@@ -375,6 +425,13 @@ function changeSlide(img, src, fx, dir, also) {
     img.style.opacity = "";
     img.style.position = "";
     parent.classList.remove("slide-fx");
+    for (const l of layers) {
+      const t = l._turn;
+      if (!t) continue;
+      l._turn = null;
+      t.leave.forEach((b) => b.remove());
+      t.enter.forEach((b) => { b.style.opacity = ""; b.style.transformOrigin = ""; });
+    }
   };
   function start() {
     if (done || started) return;
@@ -384,7 +441,17 @@ function changeSlide(img, src, fx, dir, also) {
     const opt = { duration: fx.ms, easing: "ease-in-out" };
     anims.push(img.animate(inK, opt));
     if (outK) anims.push(ghost.animate(outK, { ...opt, fill: "forwards" }));
-    for (const el of also || []) if (el && !el.hidden) anims.push(el.animate([{ opacity: 0 }, { opacity: 0, offset: 0.6 }, { opacity: 1 }], opt));
+    for (const l of layers) {
+      const t = l._turn;
+      if (!t) continue;
+      for (const b of t.enter) { b.style.opacity = ""; anims.push(b.animate(boxFrames(inK, img, b), opt)); }
+      // 앞 슬라이드가 제자리에 있고 새 슬라이드가 덮는 효과(덮기·닦아내기 등)면 앞 상자는 덮이는 동안 서서히 사라진다
+      for (const b of t.leave) {
+        if (!newOnTop) b.style.zIndex = "1";   // 앞 슬라이드가 위에서 넘어가는 효과면 앞 상자도 위에
+        anims.push(b.animate(outK ? boxFrames(outK, img, b) : [{ opacity: 1 }, { opacity: 0 }], { ...opt, fill: "forwards" }));
+      }
+    }
+    for (const el of others) if (!el.hidden) anims.push(el.animate([{ opacity: 0 }, { opacity: 0, offset: 0.6 }, { opacity: 1 }], opt));
     anims[0].finished.then(finish, finish);
   }
   img._fx = finish;

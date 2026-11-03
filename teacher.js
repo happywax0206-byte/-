@@ -851,7 +851,7 @@ function draw() {
   ({ run: drawRun, preview: drawRun, live: drawLive, build: drawBuild, students: drawStudents, settings: drawSettings, people: drawPeople, manage: drawManage, tabs: drawTabSettings, notes: drawNotes, bugs: drawBugs })[tab]();
   if (readOnly() && !GEAR.includes(tab) && !isRunTab()) {   // 수업 진행 화면은 높이가 꼭 맞으므로 위쪽 「보기만」 표시만
     // 수업 폴더 칸은 내 것이므로 보기만 수업을 보고 있어도 쓸 수 있다
-    if (tab === "build" || tab === "settings") main.querySelectorAll(":scope > :not(.folder-panel)").forEach((el) => { el.inert = true; el.classList.add("read-only"); });
+    if (tab === "build" || tab === "settings") main.querySelectorAll(":scope > :not(.folder-panel):not(.settings-side)").forEach((el) => { el.inert = true; el.classList.add("read-only"); });
     main.before(h("p", { class: "banner read-only-banner" }, "👁 보기만 할 수 있는 수업입니다. 쪽을 넘겨도 학생 화면은 따라가지 않고, 아무것도 바뀌지 않습니다. 고치려면 수업을 만든 선생님께 고치기 권한을 달라고 하세요."));
   }
   schedule();
@@ -1753,7 +1753,7 @@ function mirrorTarget() {
   if (presentShowEl && presentShowEl.isConnected) return { el: presentShowEl, mode: "show" };
   if (presentShow || !isRunTab() || !run || !lesson || !lesson.slide_count || !run.stage.isConnected) return null;
   if (!run.simStage.hidden && run.simStage.firstChild) return { el: run.simStage, mode: "stage" };
-  const boxes = [...run.simLayer.children];
+  const boxes = [...run.simLayer.children].filter((b) => !b._leaving);   // 넘김 효과로 나가는 중인 상자는 빼고
   if (boxes.length === 1) return { el: boxes[0], mode: "box", id: boxes[0]._id };
   if (boxes.length > 1) return { el: run.stage, mode: "all" };
   return null;
@@ -3088,6 +3088,7 @@ function drawSettings() {
     await loadLessons(null);
   }
 
+  const slides = lesson && lesson.kind !== "survey" ? slidesCard() : null;
   main.replaceChildren(h("div", { class: "stack narrowish" },
     h("form", { class: "card stack", onsubmit: submit },
       h("h2", {}, lesson ? (lesson.kind === "survey" ? "설문 설정" : "수업 설정") : "새로 만들기"),
@@ -3097,7 +3098,7 @@ function drawSettings() {
       folderLabel,
       msg,
       h("button", { class: "primary big", type: "submit" }, lesson ? "제목 저장" : "수업 만들기")),
-    lesson && lesson.kind !== "survey" ? slidesCard() : null,
+    slides,
     lesson ? h("section", { class: "card stack" },
       h("h2", {}, "학생 접속"),
       h("p", { class: "join-url" }, joinUrl(lesson)),
@@ -3106,7 +3107,8 @@ function drawSettings() {
         h("button", { class: "ghost", type: "button", onclick: showJoin }, "QR 크게 보기"),
         h("button", { class: "ghost", type: "button", onclick: duplicate }, "다른 반용으로 복제"),
         isMine(lesson) || (profile && profile.admin) ? h("button", { class: "ghost danger", type: "button", onclick: remove }, "수업 지우기") : null)) : null),
-    panel.el);   // 오른쪽 빈 칸: 수업 폴더(「프로필·공동작업자」와 같음)
+    // 오른쪽 빈 칸: 누른 슬라이드 미리보기(화면을 내려도 따라옴) + 수업 폴더(「프로필·공동작업자」와 같음)
+    h("div", { class: "settings-side" }, slides && slides._dock, panel.el));
   main.classList.add("with-folders");
 }
 
@@ -3554,11 +3556,22 @@ function slidesCard() {
   const htmlOn = (i) => activities.find((a) => a.kind === "sim" && a.sim_full && a.page === i && !(a.page_to > i));
 
   // 미리보기를 끌어 순서를 바꾼다. 끄는 동안 다른 그림이 밀려나며 들어갈 빈칸을 보인다.
-  // 한 번 누르면 크게 보기. 왼쪽 위 네모 칸으로 여러 장 고르기(Shift를 누르고 고르면 그 사이를 모두)
+  // 끌어 놓아도 바로 저장하지 않고 화면에서만 바뀐다. 「순서 저장」을 눌러야 한꺼번에 저장된다(「되돌리기」는 원래대로).
+  // 한 번 누르면 오른쪽 빈 칸(좁은 화면이면 화면 가득)에 크게 보기. 왼쪽 위 네모 칸으로 여러 장 고르기(Shift를 누르고 고르면 그 사이를 모두)
+  if (slideOrder && (slideOrder.id !== lesson.id || slideOrder.dir !== unlockedDir(lesson.slide_dir) || slideOrder.order.length !== lesson.slide_count)) slideOrder = null;
+  const natural = Array.from({ length: lesson.slide_count }, (_, k) => k + 1);
+  const order = () => (slideOrder ? slideOrder.order : natural);   // 자리 순서대로 원래 쪽 번호
   const thumbs = h("div", { class: "thumbs" });
-  dragSort(thumbs, ".thumb", "grid", (el, to) => moveSlide(+el.dataset.i, to + 1, status), () => !slideBusy);
+  dragSort(thumbs, ".thumb", "grid", (el, to, list) => {
+    const from = order().indexOf(+el.dataset.i) + 1;
+    const next = list.map((x) => +x.dataset.i);
+    if (next.every((n, k) => n === k + 1)) slideOrder = null;   // 원래 순서로 돌아왔다
+    else slideOrder = { id: lesson.id, dir: unlockedDir(lesson.slide_dir), order: next, moves: [...(slideOrder ? slideOrder.moves : []), [from, to + 1]] };
+    showOrder();
+  }, () => !slideBusy);
   const picked = new Set();
   const checks = [];
+  const figs = [];
   let lastPick = null;
   const pickCount = h("span", { class: "muted small" });
   const pickAll = h("button", { class: "ghost", type: "button", onclick() {
@@ -3572,14 +3585,16 @@ function slidesCard() {
   function setPick(i, on) {
     if (on) picked.add(i); else picked.delete(i);
     checks[i].checked = on;
-    checks[i].closest(".thumb").classList.toggle("picked", on);
+    figs[i].classList.toggle("picked", on);
   }
   function showPicks() {
     const n = picked.size;
     pickAll.textContent = n === lesson.slide_count ? "전체 선택 해제" : "전체 선택";
-    pickCount.textContent = n ? n + "장 골랐습니다" : "그림 왼쪽 위 칸을 눌러 여러 장을 고를 수 있습니다(Shift를 누른 채 고르면 그 사이를 모두)";
+    pickCount.textContent = slideOrder ? "바꾼 순서를 저장하거나 되돌린 뒤에 고르거나 지울 수 있습니다."
+      : n ? n + "장 골랐습니다" : "그림 왼쪽 위 칸을 눌러 여러 장을 고를 수 있습니다(Shift를 누른 채 고르면 그 사이를 모두)";
     pickDel.textContent = n ? "고른 " + n + "장 지우기" : "고른 슬라이드 지우기";
-    pickDel.disabled = !n || slideBusy;
+    pickDel.disabled = !n || slideBusy || !!slideOrder;
+    pickAll.disabled = slideBusy || !!slideOrder;
     pickClear.hidden = !n;
   }
   for (let i = 1; i <= lesson.slide_count; i++) {
@@ -3591,19 +3606,93 @@ function slidesCard() {
         lastPick = i;
         showPicks();
       } });
-    thumbs.append(h("figure", {
+    const label = h("span", { title: htmlOn(i) ? htmlOn(i).title : null });
+    figs[i] = h("figure", {
       class: "thumb", draggable: "true", title: "누르면 크게 보기 · 끌어서 순서 바꾸기", "data-i": i,
     },
       h("div", { class: "thumb-pic" },
-        h("img", { src: slideSrc(lesson, i, "s"), alt: i + "쪽", loading: "lazy", draggable: "false", onclick() { previewSlide(i); } }),
+        h("img", { src: slideSrc(lesson, i, "s"), alt: i + "쪽", loading: "lazy", draggable: "false", onclick() { openPreview(order().indexOf(i) + 1); } }),
         checks[i]),
-      h("figcaption", {}, h("span", { title: htmlOn(i) ? htmlOn(i).title : null }, i + "쪽" + (htmlOn(i) ? " · 애니메이션" : "")),
+      h("figcaption", {}, label,
         h("button", { class: "link danger", type: "button", "aria-label": i + "쪽 삭제", onclick() { deleteSlides([i], status); } }, "삭제")),
-      pageFx(i)));
+      pageFx(i));
+    figs[i]._label = label;
+  }
+  for (const n of order()) thumbs.append(figs[n]);
+
+  // 아직 저장하지 않은 순서: 쪽 번호를 새 자리로 보이고, 번호에 매인 다른 일(지우기·고르기·쪽마다 효과·올리기)은 잠시 막는다
+  const orderSave = h("button", { class: "primary", type: "button", onclick() { saveSlideOrder(status); } }, "순서 저장");
+  const orderUndo = h("button", { class: "ghost", type: "button", onclick() {
+    slideOrder = null;
+    for (const n of natural) thumbs.append(figs[n]);
+    showOrder();
+  } }, "되돌리기");
+  const orderBar = h("div", { class: "order-bar", role: "status" },
+    h("span", { class: "grow" }, "순서를 바꿨습니다. 아직 저장하지 않았습니다."), orderUndo, orderSave);
+  function showOrder() {
+    const pending = !!slideOrder;
+    order().forEach((n, k) => {
+      figs[n]._label.textContent = (k + 1) + "쪽" + (pending && n !== k + 1 ? " (원래 " + n + "쪽)" : "") + (htmlOn(n) ? " · 애니메이션" : "");
+    });
+    orderBar.hidden = !pending;
+    for (const el of thumbs.querySelectorAll(".thumb button, .thumb input, .thumb select")) el.disabled = pending || slideBusy;
+    for (const b of buttons) b.disabled = pending || slideBusy;
+    if (pending && picked.size) for (const i of [...picked]) setPick(i, false);
+    showPicks();
+    if (dockN) showDock(order().indexOf(dockN) + 1);
+  }
+
+  // 오른쪽 빈 칸의 미리보기(수업 설정 화면이 넓을 때). 좁으면 화면 가득 띄운다
+  const dockImg = h("img", { class: "slide", alt: "" });
+  const dockWhere = h("strong", {});
+  const dockPrev = h("button", { class: "ghost", type: "button", "aria-label": "앞 쪽", onclick() { showDock(dockPos - 1); } }, "◀ 앞 쪽");
+  const dockNext = h("button", { class: "ghost", type: "button", "aria-label": "다음 쪽", onclick() { showDock(dockPos + 1); } }, "다음 쪽 ▶");
+  const dock = h("aside", { class: "card stack slide-dock", hidden: true, "aria-label": "슬라이드 미리보기" },
+    h("div", { class: "row between" }, h("h2", {}, "미리보기"),
+      h("button", { class: "link", type: "button", onclick() { dock.hidden = true; markDock(0); } }, "닫기 ✕")),
+    dockImg,
+    h("div", { class: "row between" }, dockPrev, dockWhere, dockNext),
+    h("p", { class: "muted small" }, "← → 키로도 넘깁니다. 다른 미리보기를 누르면 그 쪽으로 바뀝니다."));
+  let dockPos = 0, dockN = 0;
+  function markDock(n) {
+    if (dockN && figs[dockN]) figs[dockN].classList.remove("viewing");
+    dockN = n;
+    if (n && figs[n]) figs[n].classList.add("viewing");
+  }
+  function showDock(pos) {
+    const ord = order();
+    if (pos < 1 || pos > ord.length) return;
+    dockPos = pos;
+    const n = ord[pos - 1];
+    dock.hidden = false;
+    const src = slideSrc(lesson, n, slideSize(dockImg));
+    if (dockImg.getAttribute("src") !== src) dockImg.src = src;
+    dockImg.alt = pos + "쪽";
+    dockWhere.textContent = pos + " / " + ord.length + "쪽" + (slideOrder && n !== pos ? " (원래 " + n + "쪽)" : "") + (htmlOn(n) ? " · 애니메이션" : "");
+    dockPrev.disabled = pos <= 1;
+    dockNext.disabled = pos >= ord.length;
+    markDock(n);
+  }
+  const dockKey = (e) => {
+    if (!dock.isConnected) return document.removeEventListener("keydown", dockKey);
+    if (dock.hidden || e.altKey || e.ctrlKey || e.metaKey || e.target.closest("input, textarea, select, [contenteditable]")) return;
+    const k = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[e.key];
+    if (!k) return;
+    e.preventDefault();
+    showDock(dockPos + k);
+  };
+  document.addEventListener("keydown", dockKey);
+  function openPreview(pos) {
+    if (matchMedia("(min-width: 1100px)").matches && dock.isConnected) {
+      showDock(pos);
+      // 미리보기 칸이 화면 밖이면 보이게(그림을 누르면 바로 오른쪽에 나타나야 한다)
+      const r = dock.getBoundingClientRect();
+      if (r.bottom < 0 || r.top > innerHeight) dock.scrollIntoView({ block: "nearest" });
+    } else previewSlide(pos, order());
   }
   showPicks();
   const pdfBtn = lesson.slide_count ? h("button", { class: "ghost", type: "button", onclick() { downloadSlidesPdf(pdfBtn, status); } }, "⬇ PDF로 내려받기") : null;
-  return h("section", { class: "card stack" },
+  const card = h("section", { class: "card stack" },
     h("div", { class: "row between wrap" }, h("h2", {}, "슬라이드 " + (lesson.slide_count ? lesson.slide_count + "장" : "없음")), pdfBtn),
     lesson.slide_count ? h("p", { class: "muted small" }, "「PDF로 내려받기」는 지금 이 수업의 슬라이드(순서를 바꾸거나 끝에 더한 것까지 그대로)를 PDF 한 파일로 묶어 줍니다. 쪽마다 그림으로 들어가므로 글자를 고칠 수는 없고, 애니메이션 쪽은 ▶ 자리 표시 그림으로 들어갑니다.") : null,
     h("p", { class: "muted small" }, "PowerPoint에서 「파일 → 다른 이름으로 저장 → PDF」로 저장한 파일을 올리면 쪽마다 그림으로 바뀝니다. 그림 파일(PNG, JPG) 여러 장을 올려도 됩니다(파일 이름 순서). 100쪽까지."),
@@ -3613,16 +3702,26 @@ function slidesCard() {
     bar, status,
     fxCard,
     lesson.slide_count ? h("div", { class: "row slide-tools" },
-      h("span", { class: "muted small grow" }, "미리보기를 끌어서 순서를 바꿉니다(붙어 있는 질문도 따라갑니다). 빈 칸이 있거나 쪽 수가 맞지 않으면 →"),
+      h("span", { class: "muted small grow" }, "미리보기를 끌어서 순서를 바꾼 뒤 「순서 저장」을 누르세요(붙어 있는 질문도 따라갑니다). 빈 칸이 있거나 쪽 수가 맞지 않으면 →"),
       h("button", { class: "ghost", type: "button", onclick() { deleteSlides(null, status); } }, "번호 다시 맞추기")) : null,
     lesson.slide_count ? h("div", { class: "row wrap slide-tools" }, pickAll, pickDel, pickClear, pickCount) : null,
-    lesson.slide_count ? thumbs : null);
+    lesson.slide_count ? thumbs : null,
+    lesson.slide_count ? orderBar : null);
+  showOrder();
+  card._dock = lesson.slide_count ? dock : null;   // drawSettings가 오른쪽 칸에 놓는다
+  return card;
 }
 
-// 수업 설정의 미리보기 한 장을 화면 가득 띄운다. ← → (또는 아래 단추)로 넘기고, 그림을 누르거나 Esc로 닫는다.
-function previewSlide(n) {
-  let i = n;
-  const count = lesson.slide_count;
+// 수업 설정에서 끌어 바꾼, 아직 저장하지 않은 슬라이드 순서. { id, dir(바꾸기 시작할 때의 slide_dir), order: 자리마다 원래 쪽 번호, moves: [[from, to], …] 끈 차례 }
+// 다른 탭에 갔다 와도 남아 있고, 그사이 슬라이드가 바뀌었으면(dir이 다르면) 버린다.
+let slideOrder = null;
+window.addEventListener("beforeunload", (e) => { if (slideOrder) { e.preventDefault(); e.returnValue = ""; } });
+
+// 슬라이드 한 장을 화면 가득 띄운다(좁은 화면용). ← → (또는 아래 단추)로 넘기고, 그림을 누르거나 Esc로 닫는다.
+// pos: 몇 번째 자리, ord: 자리마다 원래 쪽 번호(아직 저장하지 않은 순서도 그대로 보인다)
+function previewSlide(pos, ord) {
+  let i = pos;
+  const count = ord.length;
   const big = h("img", { alt: "" });
   const cap = h("p", {});
   const prev = h("button", { type: "button", onclick(e) { e.stopPropagation(); go(i - 1); } }, "◀ 앞 쪽");
@@ -3632,7 +3731,7 @@ function previewSlide(n) {
   function go(k) {
     if (k < 1 || k > count) return;
     i = k;
-    big.src = slideSrc(lesson, i, slideSize());
+    big.src = slideSrc(lesson, ord[i - 1], slideSize());
     big.alt = i + "쪽";
     cap.textContent = i + " / " + count + "쪽 · 누르거나 Esc로 닫기";
     prev.disabled = i <= 1;
@@ -4013,34 +4112,40 @@ function updateActivities(changes) {
   }), 8);
 }
 
-async function moveSlide(from, to, status) {
-  if (slideBusy || from === to) return;
+// 끌어서 바꿔 둔 순서(slideOrder)를 한꺼번에 저장한다. 그림은 새 자리 번호로 한 번에 바꾸고,
+// 질문은 끈 차례(moves)대로 한 장씩 옮긴 것처럼 따라간다(여러 쪽에 걸친 질문은 옮긴 슬라이드를 빼고 남은 쪽들을 따라감).
+async function saveSlideOrder(status) {
+  const pend = slideOrder;
+  if (slideBusy || !pend) return;
   let folder;
-  try { folder = editableSlideFolder(); } catch (e) { alert(e.message); return draw(); }   // 끌어 놓은 자리를 원래대로
+  try { folder = editableSlideFolder(); } catch (e) { return alert(e.message); }
+  const lock = (on) => document.querySelectorAll(".thumb button, .thumb input, .thumb select, .slide-tools button, .order-bar button").forEach((b) => { b.disabled = on; });
   slideBusy = true;
-  document.querySelectorAll(".thumb button, .slide-tools button").forEach((b) => { b.disabled = true; });
+  lock(true);
   let acts;
   try {
     status.textContent = "최신 슬라이드 순서를 확인하는 중…";
     acts = await claimSlides();
   } catch (e) {
     slideBusy = false;
-    if (e instanceof SlidesChanged) return slidesChanged(e);
-    alert("옮기지 못했습니다: " + (e.message || e));
-    return loadLessons(lesson.id);
+    if (e instanceof SlidesChanged) { slideOrder = null; return slidesChanged(e); }
+    lock(false);
+    status.textContent = "";
+    return alert("저장하지 못했습니다: " + (e.message || e));
   }
   try {
-    status.textContent = from + "쪽을 " + to + "쪽 자리로 옮기는 중…";
+    status.textContent = "바꾼 순서를 저장하는 중…";
     await checkSlideNums(folder);
-    const newPos = slideMoveMap(from, to);
-    const pairs = [];
-    for (let n = Math.min(from, to); n <= Math.max(from, to); n++) pairs.push([n, newPos(n)]);
-    await renameSlides(folder, pairs, (k, total) => { status.textContent = from + "쪽을 " + to + "쪽 자리로 옮기는 중… " + Math.round(k / total * 100) + "%"; });
+    const maps = pend.moves.map(([f, t]) => [f, slideMoveMap(f, t)]);
+    const newPos = (p) => maps.reduce((q, [, m]) => m(q), p);
+    if (pend.order.some((n, k) => newPos(n) !== k + 1)) throw new Error("바꾼 순서를 계산하지 못했습니다. 「되돌리기」를 누르고 다시 해 주세요.");
+    await renameSlides(folder, pend.order.map((n, k) => [n, k + 1]), (k, total) => { status.textContent = "바꾼 순서를 저장하는 중… " + Math.round(k / total * 100) + "%"; });
 
     const changes = [];
     for (const a of acts) {
       if (a.page == null) continue;
-      const r = movedRange(a, from, newPos);
+      let r = { page: a.page, page_to: a.page_to };
+      for (const [f, m] of maps) r = movedRange(r, f, m);
       if (r.page === a.page && r.page_to === (a.page_to > a.page ? a.page_to : null)) continue;
       const change = { page: r.page };
       if ("page_to" in a) change.page_to = r.page_to;
@@ -4050,13 +4155,15 @@ async function moveSlide(from, to, status) {
     const dir = freshSlideDir(lesson.slide_dir, slideSized(lesson));   // 이름이 바뀐 그림을 브라우저가 예전 것으로 보이지 않게
     const u = await sb.from("lessons").update({ slide_dir: dir, page: newPos(lesson.page), ...transitionChange(newPos) }).eq("id", lesson.id);
     if (u.error) throw u.error;
-    flash(from + "쪽을 " + to + "쪽으로 옮겼습니다.");
+    slideOrder = null;
+    flash("슬라이드 순서를 저장했습니다.");
     slideBusy = false;
     await loadLessons(lesson.id);
   } catch (e) {
     await releaseSlides().catch(() => {});
+    slideOrder = null;   // 그림이 일부만 옮겨졌을 수 있어 바꿔 둔 순서는 더 쓸 수 없다
     slideBusy = false;
-    document.querySelectorAll(".thumb button, .slide-tools button").forEach((b) => { b.disabled = false; });
+    lock(false);
     status.textContent = "멈췄습니다: " + (e.message || e) + " · 「번호 다시 맞추기」를 누르면 남은 그림으로 번호를 다시 맞춥니다.";
     alert(status.textContent);
   }
