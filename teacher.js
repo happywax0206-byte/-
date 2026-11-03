@@ -9,6 +9,7 @@ let lessonOwners = {};   // 관리자만: 초대받지 않은 수업 id → 만�
 let lessonRights = {};   // 수업 id → 고칠 수 있는지(false = 보기만 공동작업자)
 let lessonFolders = null; // 내 수업 폴더 [{ id, name, teacher, lessons: [수업 id], sort }]. null = setup.sql을 아직 다시 실행하지 않음
 let featuredId = null;    // 내 중요 수업 id(학생 입장 화면의 수업 코드 칸에 저절로 들어감)
+let featuredClasses = null;   // 내 반별 중요 수업 [{ class, lesson }]. setup.sql 전이면 null
 let lessonTeachers = {};  // 볼 수 있는 수업을 만든 선생님 id → {email, name} (수업 폴더의 선생님 이름)
 let lesson = null;        // 지금 고른 수업(없으면 새 수업 만들기)
 let activities = [];
@@ -682,19 +683,21 @@ async function loadLessons(selectId) {
   // 세 가지를 한꺼번에 묻는다(차례로 기다리지 않아 첫 화면이 빨리 뜬다)
   // 관리자: 초대받지 않은 다른 선생님 수업도 보이므로 누가 만들었는지 함께 받는다
   // lesson_rights: 공동작업자로 「보기만」 초대받은 수업. setup.sql 전이면 모두 고칠 수 있다고 본다
-  const [{ data, error }, r, rights, fd, lt, ft] = await Promise.all([
+  const [{ data, error }, r, rights, fd, lt, ft, fc] = await Promise.all([
     sb.from("lessons").select("*").order("created_at"),
     profile && profile.admin ? sb.rpc("lesson_owners") : null,
     sb.rpc("lesson_rights"),
     sb.from("lesson_folders").select("*").order("sort").order("created_at"),
     sb.rpc("lesson_teachers"),
     sb.rpc("my_featured"),
+    sb.rpc("my_featured_classes"),
   ]);
   if (error) return fatal(error);
   lessons = data;
   lessonFolders = fd.error ? null : fd.data;
   lessonTeachers = lt.error || !lt.data ? {} : lt.data;
   featuredId = ft.error ? null : ft.data || null;
+  featuredClasses = fc.error || !Array.isArray(fc.data) ? null : fc.data;
   lessonOwners = r && !r.error && r.data ? r.data : {};
   lessonRights = rights.error || !rights.data ? {} : rights.data;
   lesson = lessons.find((l) => l.id === selectId) || lessons[0] || null;
@@ -861,7 +864,7 @@ function draw() {
 // 위쪽 「수업 고르기」 목록. 수업 폴더처럼 선생님마다(👤), 그 안에 만든 폴더마다(📁) 묶는다. 내 수업만 있고 폴더도 없으면 그냥 목록
 let pickEl = null;
 function pickerOptions() {
-  const opt = (l) => h("option", { value: l.id, selected: lesson && l.id === lesson.id }, (l.ended ? "[종료] " : "") + (l.kind === "survey" ? "[설문] " : "") + (l.id === featuredId ? "⭐ " : "") + lessonTag(l) + l.title + " (" + l.code + ")");
+  const opt = (l) => h("option", { value: l.id, selected: lesson && l.id === lesson.id }, (l.ended ? "[종료] " : "") + (l.kind === "survey" ? "[설문] " : "") + (l.id === featuredId ? "⭐ " : "") + featuredTag(l) + lessonTag(l) + l.title + " (" + l.code + ")");
   const ids = teacherIds();
   const folders = (lessonFolders || []).map((f) => [f, folderLessons(f)]).filter(([, ls]) => ls.length);
   const last = h("option", { value: "new", selected: !lesson }, "+ 새 수업 만들기");
@@ -3039,39 +3042,71 @@ function drawSettings() {
     return;
   }
 
-  async function duplicate() {
-    const { data: copy, error } = await sb.rpc("create_lesson", { p_title: (lesson.title + " (복사)").slice(0, 100), p_kind: lesson.kind });
-    if (error) return alert("복제하지 못했습니다: " + error.message);
-    allowWrite = true;   // 보기만 수업이어도 복사본(내 수업)에는 쓴다
-    try { await copyInto(copy); } finally { allowWrite = false; }
-    await loadLessons(copy.id);
-    flash("복제했습니다. 제목을 고쳐 주세요.");
+  async function duplicate(e) {
+    const b = e && e.currentTarget;
+    if (b) { b.disabled = true; b.textContent = "복제하는 중…"; }
+    try {
+      const { data: copy, error } = await sb.rpc("create_lesson", { p_title: (lesson.title + " (복사)").slice(0, 100), p_kind: lesson.kind });
+      if (error) return alert("복제하지 못했습니다: " + error.message);
+      allowWrite = true;   // 보기만 수업이어도 복사본(내 수업)에는 쓴다
+      let problem = "";
+      try { problem = await copyInto(copy, (t) => { if (b) b.textContent = t; }); } finally { allowWrite = false; }
+      await loadLessons(copy.id);
+      if (problem) alert("복제는 했지만 " + problem);
+      else flash("복제했습니다. 제목을 고쳐 주세요.");
+    } finally {
+      if (b && b.isConnected) { b.disabled = false; b.textContent = "다른 반용으로 복제"; }
+    }
   }
 
-  async function copyInto(copy) {
-    // 슬라이드 그림은 같은 것을 함께 쓴다(원래 수업을 지워도 다른 수업이 쓰는 그림은 남긴다)
-    await sb.from("lessons").update({ slide_dir: unlockedDir(lesson.slide_dir), slide_count: lesson.slide_count,
-      ...("transition" in lesson && lesson.transition ? { transition: lesson.transition } : {}) }).eq("id", copy.id);
-    if (activities.length) {
-      // 자료 파일은 새 수업 폴더로 복사한다(원래 수업을 지우면 그 폴더의 파일도 지워지므로)
-      const files = {};
-      for (const a of activities) {
-        if (!Array.isArray(a.files) || !a.files.length) continue;
-        files[a.id] = [];
-        for (const f of a.files) {
-          const path = copy.id + "/m_" + randomHex() + "." + fileExt(f.path);
-          const { error } = await sb.storage.from("shared").copy(f.path, path);
-          if (!error) files[a.id].push({ ...f, path });
-        }
+  // 복사본에 슬라이드·넘김 효과·질문(설문·퀴즈·시뮬레이션)·자료 파일을 옮긴다. 잘 안 된 것이 있으면 그 설명을 돌려준다
+  async function copyInto(copy, progress) {
+    const problems = [];
+    // 슬라이드 그림도 복사본만의 폴더로 복사한다. 그래야 두 수업이 서로 다른 수업으로 따로 쪽을 옮기거나 지울 수 있다.
+    // (주소 모양이 예전 것이라 폴더를 알 수 없으면 예전처럼 같은 그림을 함께 쓴다)
+    let slide_dir = unlockedDir(lesson.slide_dir);
+    const from = slideFolderOf(lesson);
+    if (lesson.slide_count && from) {
+      const to = (copy.owner || me.id) + "/" + copy.id + "/";
+      try {
+        await copySlideFiles(from, to, lesson.slide_count, slideSized(lesson), (k, n) => progress("슬라이드 복사 중 " + Math.round(k / n * 100) + "%"));
+        slide_dir = freshSlideDir(SB_URL + "/storage/v1/object/public/slides/" + to + "{n}.jpg", slideSized(lesson));
+      } catch (e) {
+        problems.push("슬라이드 그림을 따로 복사하지 못해 원래 수업과 같은 그림을 함께 씁니다(" + (e.message || e) + ").");
       }
-      const r = await sb.from("activities").insert(activities.map((a) => ({
-        lesson_id: copy.id, kind: a.kind, title: a.title, page: a.page, show_answer: a.show_answer, named: a.named, hidden: a.hidden || undefined, questions: a.questions, sort: a.sort,
-        // 나중에 더한 칸은 데이터베이스에 있을 때만 복사한다(시뮬레이션 html·띄우는 자리, 끝 쪽)
-        ...Object.fromEntries(["page_to", "html", "sim_full", "sim_box"].filter((k) => k in a).map((k) => [k, a[k]])),
-        ...(files[a.id] ? { files: files[a.id] } : {}),
-      })));
-      if (r.error) alert("활동을 복사하지 못했습니다: " + r.error.message);
     }
+    const u = await sb.from("lessons").update({ slide_dir, slide_count: lesson.slide_count,
+      ...("transition" in lesson && lesson.transition ? { transition: lesson.transition } : {}) }).eq("id", copy.id);
+    if (u.error) problems.push("슬라이드를 붙이지 못했습니다(" + u.error.message + ").");
+    // 질문은 화면에 있던 것 대신 서버의 최신 목록을 복사한다(공동작업자가 그사이 고쳤을 수 있다)
+    progress("질문 복사 중…");
+    const got = await sb.from("activities").select("*").eq("lesson_id", lesson.id);
+    if (got.error) { problems.push("질문을 불러오지 못했습니다(" + got.error.message + ")."); return problems.join("\n"); }
+    const acts = got.data;
+    if (!acts.length) return problems.join("\n");
+    // 자료 파일은 새 수업 폴더로 복사한다(원래 수업을 지우면 그 폴더의 파일도 지워지므로)
+    const files = {};
+    for (const a of acts) {
+      if (!Array.isArray(a.files) || !a.files.length) continue;
+      files[a.id] = [];
+      for (const f of a.files) {
+        const path = copy.id + "/m_" + randomHex() + "." + fileExt(f.path);
+        const { error } = await sb.storage.from("shared").copy(f.path, path);
+        if (!error) files[a.id].push({ ...f, path });
+      }
+    }
+    // 모든 칸을 그대로 복사한다(빠진 칸이 있으면 서버가 그 칸을 빈 값(null)으로 넣으려다 통째로 거절했었다).
+    // 학생 답을 친구들에게 공개한 것(shared, shared_q, shared_a)은 원래 수업의 일이라 처음 상태로 둔다
+    const rows = acts.map(({ id, lesson_id, created_at, shared, shared_q, shared_a, ...rest }) => ({
+      ...rest, lesson_id: copy.id,
+      ...(shared !== undefined ? { shared: false } : {}),
+      ...(shared_q !== undefined ? { shared_q: [] } : {}),
+      ...(shared_a !== undefined ? { shared_a: {} } : {}),
+      ...("files" in rest ? { files: files[id] || [] } : {}),
+    }));
+    const r = await sb.from("activities").insert(rows);
+    if (r.error) problems.push("질문·설문을 복사하지 못했습니다(" + r.error.message + ").");
+    return problems.join("\n");
   }
 
   async function remove() {
@@ -3107,8 +3142,8 @@ function drawSettings() {
         h("button", { class: "ghost", type: "button", onclick: showJoin }, "QR 크게 보기"),
         h("button", { class: "ghost", type: "button", onclick: duplicate }, "다른 반용으로 복제"),
         isMine(lesson) || (profile && profile.admin) ? h("button", { class: "ghost danger", type: "button", onclick: remove }, "수업 지우기") : null)) : null),
-    // 오른쪽 빈 칸: 누른 슬라이드 미리보기(화면을 내려도 따라옴) + 수업 폴더(「프로필·공동작업자」와 같음)
-    h("div", { class: "settings-side" }, slides && slides._dock, panel.el));
+    // 오른쪽 빈 칸: 수업 폴더(「프로필·공동작업자」와 같음) + 그 아래 누른 슬라이드 미리보기 카드(화면을 내리면 위에 붙어 따라옴)
+    h("div", { class: "settings-side" }, panel.el, slides && slides._dock));
   main.classList.add("with-folders");
 }
 
@@ -3372,8 +3407,68 @@ function featuredBox() {
     h("p", { class: "muted small" }, "중요 수업으로 정하면 학생 입장 화면의 수업 코드 칸에 이 수업 코드가 저절로 들어갑니다(선생님마다 하나). 학생은 코드를 지우고 다른 코드를 입력할 수도 있습니다."),
     h("p", { class: "small" }, "내 학생 입장 주소 ", h("span", { class: "muted" }, "(내 중요 수업 코드가 들어감)"), h("br"), h("span", { class: "join-url" }, url), " ",
       h("button", { class: "link", type: "button", onclick(e) { navigator.clipboard.writeText(url).then(() => { e.target.textContent = "복사했습니다"; }); } }, "주소 복사")),
-    h("p", { class: "muted small" }, "주소 끝의 ?t=… 없이 열면 가장 최근에 정한 중요 수업(어느 선생님이든)의 코드가 들어갑니다."));
+    h("p", { class: "muted small" }, "주소 끝의 ?t=… 없이 열면 가장 최근에 정한 중요 수업(어느 선생님이든)의 코드가 들어갑니다."),
+    classFeaturedBox());
 }
+
+// 반별 중요 수업: 학생이 입장 화면에서 반을 고르면 그 반에 정한 수업 코드가 들어간다(반을 안 고르면 위의 공통 중요 수업)
+const byClassName = (x, y) => x.class.localeCompare(y.class, "ko", { numeric: true });
+const featuredTag = (l) => {
+  const cs = (featuredClasses || []).filter((f) => f.lesson === l.id).sort(byClassName).map((f) => f.class);
+  return cs.length ? "⭐(" + cs.join("·") + ") " : "";
+};
+async function setFeaturedClass(cls, l) {
+  const r = await sb.rpc("set_featured_class", { p_class: cls, p_lesson: l ? l.id : null });
+  const err = r.error ? r.error.message : r.data && r.data.error;
+  if (err) {
+    alert(/set_featured_class|function/i.test(err) ? "반별 중요 수업을 쓰려면 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요."
+      : { bad_class: "반 이름은 1~20자로 적으세요.", full: "반은 40개까지 만들 수 있습니다.", not_allowed: "이 수업은 정할 수 없습니다." }[err] || "정하지 못했습니다: " + err);
+    return false;
+  }
+  const rest = (featuredClasses || []).filter((f) => f.class !== cls);
+  featuredClasses = l ? [...rest, { class: cls, lesson: l.id }] : rest;
+  flash(l ? "⭐ " + cls + " 학생이 입장 화면에서 반을 고르면 「" + l.title + "」 코드가 들어갑니다." : cls + " 반을 목록에서 뺐습니다.");
+  return true;
+}
+function classFeaturedBox() {
+  const box = h("div", { class: "stack class-featured" });
+  const forLesson = lesson;
+  const paint = () => {
+    if (featuredClasses === null) {
+      box.replaceChildren(h("p", { class: "muted small" }, "반마다 중요 수업을 따로 정하려면 Supabase SQL Editor에서 setup.sql을 한 번 다시 실행하세요."));
+      return;
+    }
+    const list = [...featuredClasses].sort(byClassName);
+    const nameIn = h("input", { type: "text", maxlength: 20, placeholder: "반 이름 (예: 2-3)", "aria-label": "반 이름" });
+    const add = async (e) => {
+      e.preventDefault();
+      const c = nameIn.value.trim();
+      if (!c) return nameIn.focus();
+      const was = list.find((f) => f.class === c);
+      if (was && was.lesson !== forLesson.id && !confirm(c + " 반의 중요 수업을 「" + titleOf(was.lesson) + "」에서 이 수업으로 바꿀까요?")) return;
+      if (await setFeaturedClass(c, forLesson)) paint();
+    };
+    box.replaceChildren(
+      h("strong", {}, "반별 중요 수업"),
+      h("p", { class: "muted small" }, "학생 입장 화면에 「반」 고르는 칸이 생기고, 반을 고르면 그 반에 정한 수업 코드가 저절로 들어갑니다. 체크하면 이 수업이 그 반의 중요 수업이 됩니다(반마다 하나). 반을 고르지 않은 학생에게는 위의 공통 중요 수업 코드가 들어갑니다."),
+      list.length ? h("div", { class: "class-list" }, list.map((f) => {
+        const mine = f.lesson === forLesson.id;
+        return h("label", { class: "check class-row" + (mine ? " on" : "") },
+          h("input", { type: "checkbox", checked: mine, async onchange(e) {
+            // 체크를 풀면 그 반은 목록에서 빠진다. 다른 수업이 정해진 반을 체크하면 이 수업으로 바뀐다
+            if (!mine && !confirm(f.class + " 반의 중요 수업을 「" + titleOf(f.lesson) + "」에서 이 수업으로 바꿀까요?")) { e.target.checked = false; return; }
+            if (mine && !confirm(f.class + " 반을 목록에서 뺄까요? 그 반 학생은 반 목록에서 고를 수 없게 됩니다.")) { e.target.checked = true; return; }
+            await setFeaturedClass(f.class, mine ? null : forLesson);
+            paint();
+          } }),
+          h("span", {}, h("strong", {}, f.class), mine ? " · 이 수업" : h("span", { class: "muted small" }, " · 지금: " + titleOf(f.lesson))));
+      })) : h("p", { class: "muted small" }, "아직 정한 반이 없습니다."),
+      h("form", { class: "row", onsubmit: add }, nameIn, h("button", { class: "ghost", type: "submit" }, "반 추가 · 이 수업으로")));
+  };
+  paint();
+  return box;
+}
+const titleOf = (id) => { const l = lessons.find((x) => x.id === id); return l ? l.title : "(볼 수 없는 수업)"; };
 
 // 공동작업자: 수업을 만든 교사가 이메일로 초대한 교사는 이 수업을 함께 보고 고치고 진행한다(지우기는 만든 교사만)
 function membersCard() {
@@ -3685,9 +3780,9 @@ function slidesCard() {
   function openPreview(pos) {
     if (matchMedia("(min-width: 1100px)").matches && dock.isConnected) {
       showDock(pos);
-      // 미리보기 칸이 화면 밖이면 보이게(그림을 누르면 바로 오른쪽에 나타나야 한다)
+      // 미리보기 카드가 화면 밖이면(폴더 칸이 길 때) 보이게 한다
       const r = dock.getBoundingClientRect();
-      if (r.bottom < 0 || r.top > innerHeight) dock.scrollIntoView({ block: "nearest" });
+      if (r.bottom < 0 || r.top > innerHeight - 80) dock.scrollIntoView({ block: "nearest", behavior: "smooth" });
     } else previewSlide(pos, order());
   }
   showPicks();
@@ -3951,14 +4046,50 @@ function slideFolderOf(l) {
 // 슬라이드 올리기·옮기기·지우기(deleteSlides)를 하는 중인지
 let slideBusy = false;
 
-// 이 수업만 쓰는 슬라이드 폴더. 복제한 다른 수업과 같은 그림을 쓰면 쪽 단위로 바꿀 수 없다.
+// 이 수업의 슬라이드 폴더(주소 모양이 예전 것이라 알 수 없으면 오류). 다른 수업과 함께 쓰는 폴더일 수도 있다
 function editableSlideFolder() {
   const folder = slideFolderOf(lesson);
   if (!folder) throw new Error("이 수업의 슬라이드 위치를 알 수 없습니다. 슬라이드를 다시 올려 주세요.");
-  if (folder !== slideFolder(lesson) || slidesShared(lesson)) {
-    throw new Error("이 슬라이드는 복제한 다른 수업과 함께 쓰고 있어서 쪽을 지우거나 옮기거나 더할 수 없습니다.\n이 수업에서 PDF를 「다시 올리기」하면 이 수업만의 슬라이드가 됩니다.");
-  }
   return folder;
+}
+
+// 지금 슬라이드 폴더를 이 수업만 쓰는지(이 수업 폴더 안이고, 복제한 다른 수업이 같은 그림을 쓰지 않음)
+function ownsSlides() {
+  const folder = slideFolderOf(lesson);
+  return !!folder && folder.startsWith(slideFolder(lesson)) && !slidesShared(lesson);
+}
+// 이 수업 폴더 안의 새 폴더(다른 수업이 쓰는 그림과 겹치지 않게)
+const newSlideFolder = () => slideFolder(lesson) + "c" + Date.now().toString(36) + "/";
+
+// 슬라이드 그림 count쪽을 다른 폴더로 복사한다(작은·큰 그림은 있을 때만)
+async function copySlideFiles(from, to, count, sized, progress) {
+  const st = sb.storage.from("slides");
+  const kinds = sized ? ["m", "s", "l"] : ["m"];
+  const jobs = [];
+  for (let n = 1; n <= count; n++) for (const k of kinds) jobs.push(async () => {
+    const r = await st.copy(from + n + SLIDE_SUFFIX[k] + ".jpg", to + n + SLIDE_SUFFIX[k] + ".jpg");
+    if (r.error && k === "m" && !/exists|duplicate/i.test(r.error.message || "")) throw r.error;
+  });
+  await inParallel(jobs, 8, progress);
+}
+
+// 쪽을 옮기거나 지우거나 더하기 전에 부른다: 복제한 다른 수업과 같은 그림을 쓰고 있으면 이 수업만의 새 폴더로 그림을 복사하고
+// 주소(slide_dir)를 바꾼다. 그래서 복제한 수업끼리도 서로 다른 수업처럼 따로 고칠 수 있다(다른 수업은 원래 그림을 그대로 씀).
+// 「바꾸는 중」 표시(claimSlides)가 있으면 그대로 이어 붙인다. 이 수업만의 폴더를 돌려준다.
+async function ownSlideFolder(status) {
+  const folder = editableSlideFolder();
+  if (ownsSlides()) return folder;
+  const to = newSlideFolder(), sized = slideSized(lesson);
+  await copySlideFiles(folder, to, lesson.slide_count, sized, (k, n) => { if (status) status.textContent = "이 수업만의 슬라이드로 복사하는 중… " + Math.round(k / n * 100) + "%"; });
+  const lock = /[?&](busy=[^&]*)$/.exec(lesson.slide_dir || "");
+  const base = SB_URL + "/storage/v1/object/public/slides/" + to + "{n}.jpg";
+  const dir = freshSlideDir(base, sized) + (lock ? "&" + lock[1] : "");
+  const u = await sb.from("lessons").update({ slide_dir: dir }).eq("id", lesson.id).eq("slide_dir", lesson.slide_dir).select("id");
+  if (u.error) throw u.error;
+  if (!u.data.length) throw new Error("그사이 다른 선생님이 슬라이드를 바꿨습니다. 새로고침한 뒤 다시 해 주세요.");
+  lesson.slide_dir = dir;
+  slidesSharedFor = { id: lesson.id, dir: base, shared: false };
+  return to;
 }
 
 // 저장소에 실제로 있는 슬라이드 그림 번호(작은 것부터)
@@ -4134,6 +4265,7 @@ async function saveSlideOrder(status) {
     return alert("저장하지 못했습니다: " + (e.message || e));
   }
   try {
+    folder = await ownSlideFolder(status);   // 복제한 수업과 같은 그림을 쓰면 먼저 이 수업만의 그림으로
     status.textContent = "바꾼 순서를 저장하는 중…";
     await checkSlideNums(folder);
     const maps = pend.moves.map(([f, t]) => [f, slideMoveMap(f, t)]);
@@ -4178,7 +4310,6 @@ async function deleteSlides(ks, status) {
   const fixOnly = !ks.length;
   let folder;
   try { folder = editableSlideFolder(); } catch (e) { return alert(e.message); }
-  const base = lesson.slide_dir.split("?")[0];
   const gone = new Set(ks);
   // 지우는 쪽 자리에 뜨는 애니메이션은 쪽과 함께 지운다(남겨 두면 당겨진 다음 슬라이드를 가린다)
   const simsOf = (list) => list.filter((a) => a.kind === "sim" && a.sim_full && gone.has(a.page) && !(a.page_to > a.page));
@@ -4206,6 +4337,7 @@ async function deleteSlides(ks, status) {
     return loadLessons(lesson.id);
   }
   try {
+    folder = await ownSlideFolder(status);   // 복제한 수업과 같은 그림을 쓰면 먼저 이 수업만의 그림으로
     status.textContent = "슬라이드 목록을 확인하는 중…";
     let nums = await slideNums(folder);
     if (!fixOnly) {
@@ -4246,7 +4378,7 @@ async function deleteSlides(ks, status) {
       }
       await updateActivities(changes);
     }
-    const dir = freshSlideDir(base, slideSized(lesson));   // 이름이 바뀐 그림을 브라우저가 예전 것으로 보이지 않게
+    const dir = freshSlideDir(lesson.slide_dir, slideSized(lesson));   // 이름이 바뀐 그림을 브라우저가 예전 것으로 보이지 않게
     const u = await sb.from("lessons").update({ slide_dir: left ? dir : "", slide_count: left,
       page: fixOnly ? Math.min(Math.max(lesson.page, 1), Math.max(left, 1)) : newPos(lesson.page),
       ...(fixOnly ? {} : transitionChange((p) => (gone.has(p) ? 0 : newPos(p)))) }).eq("id", lesson.id);
@@ -4265,7 +4397,8 @@ async function deleteSlides(ks, status) {
 
 async function uploadSlides(files, progress) {
   const images = await toSlideImages(files, progress);
-  const folder = slideFolder(lesson);
+  // 이 수업만 쓰는 폴더면 그 자리에, 아니면(복제한 수업과 함께 쓰거나 처음 올림) 새 폴더에 올린다(다른 수업의 그림을 덮지 않게)
+  const folder = ownsSlides() ? slideFolderOf(lesson) : newSlideFolder();
   for (const [i, img] of images.entries()) {
     progress(i, images.length, "올리는 중");
     await putSlide(folder, i + 1, img, true);
@@ -4284,7 +4417,7 @@ async function uploadSlides(files, progress) {
 
 // 기존 슬라이드는 그대로 두고 마지막 쪽 뒤에 붙인다. 질문의 쪽 번호도 바뀌지 않는다.
 async function appendSlides(files, progress) {
-  if (lesson.slide_count) await checkSlideNums(editableSlideFolder());   // 오래 걸리는 PDF 변환 전에 먼저 확인
+  if (lesson.slide_count) await checkSlideNums(await ownSlideFolder());   // 오래 걸리는 PDF 변환 전에 먼저 확인(함께 쓰는 그림이면 이 수업만의 그림으로 복사)
   const images = await toSlideImages(files, progress);
   await appendImages(images, progress);
   return images.length;
@@ -4293,7 +4426,7 @@ async function appendSlides(files, progress) {
 // 그림 묶음을 마지막 쪽 뒤에 붙이고, 붙이기 전의 쪽 수를 돌려준다. 슬라이드가 없으면 이 수업의 폴더에 1쪽부터 올린다.
 async function appendImages(images, progress) {
   const start = lesson.slide_count;
-  const folder = start ? editableSlideFolder() : slideFolder(lesson);
+  const folder = start ? await ownSlideFolder() : ownsSlides() ? slideFolderOf(lesson) : newSlideFolder();
   if (start) await checkSlideNums(folder);
   if (start + images.length > 100) throw new Error("슬라이드는 모두 100장까지입니다(지금 " + start + "장, 더할 것 " + images.length + "장).");
   // 예전에 보통 그림 하나로만 올린 수업에 더할 때는 그대로 하나만(쪽마다 크기 종류가 섞이지 않게)

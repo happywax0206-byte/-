@@ -1533,6 +1533,65 @@ grant execute on function set_featured(uuid) to authenticated;
 grant execute on function my_featured() to authenticated;
 grant execute on function featured_code(uuid) to anon, authenticated;
 
+-- 반별 중요 수업: 선생님이 반(예: 2-3)마다 수업을 하나씩 정한다. 학생이 입장 화면에서 반을 고르면 그 반 수업 코드가 칸에 들어간다.
+-- 반은 중요 수업을 정할 때 생기고, 그 반의 중요 수업을 풀면 목록에서 빠진다. 반을 고르지 않은 학생은 위의 공통 중요 수업.
+create table if not exists featured_classes (
+  teacher    uuid not null,
+  class_name text not null check (length(class_name) between 1 and 20),
+  lesson_id  uuid not null references lessons(id) on delete cascade,
+  set_at     timestamptz not null default now(),
+  primary key (teacher, class_name)
+);
+alter table featured_classes enable row level security;   -- 정책 없음: 아래 함수로만 쓴다
+revoke all on featured_classes from anon, authenticated;
+
+-- 반의 중요 수업 정하기(p_lesson이 null이면 그 반을 뺀다)
+create or replace function set_featured_class(p_class text, p_lesson uuid) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  c text := trim(coalesce(p_class, ''));
+begin
+  if not is_teacher() then raise exception 'not a teacher'; end if;
+  if c = '' or length(c) > 20 then return jsonb_build_object('error', 'bad_class'); end if;
+  if p_lesson is null then
+    delete from featured_classes where teacher = auth.uid() and class_name = c;
+    return jsonb_build_object('ok', true);
+  end if;
+  if not can_lesson(p_lesson) then return jsonb_build_object('error', 'not_allowed'); end if;
+  if (select count(*) from featured_classes where teacher = auth.uid() and class_name <> c) >= 40 then
+    return jsonb_build_object('error', 'full');
+  end if;
+  insert into featured_classes (teacher, class_name, lesson_id, set_at) values (auth.uid(), c, p_lesson, now())
+    on conflict (teacher, class_name) do update set lesson_id = excluded.lesson_id, set_at = now();
+  return jsonb_build_object('ok', true);
+end $$;
+
+-- 내 반별 중요 수업 [{class, lesson}](교사 화면)
+create or replace function my_featured_classes() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(jsonb_build_object('class', class_name, 'lesson', lesson_id) order by class_name), '[]'::jsonb)
+  from featured_classes where teacher = auth.uid() and is_teacher()
+$$;
+
+-- 학생 입장 화면의 반 목록 [{class, code, title}](끝낸 수업은 빼고). p_teacher가 없으면 가장 최근에 중요 수업을 정한 선생님 것
+create or replace function featured_class_list(p_teacher uuid default null) returns jsonb
+language sql stable security definer set search_path = public as $$
+  with who as (
+    select coalesce(p_teacher, (select x.teacher from (
+      select teacher, set_at from featured_classes union all select teacher, set_at from featured_lessons) x
+      order by x.set_at desc limit 1)) as id
+  )
+  select coalesce(jsonb_agg(jsonb_build_object('class', f.class_name, 'code', l.code, 'title', l.title) order by f.class_name), '[]'::jsonb)
+  from featured_classes f join lessons l on l.id = f.lesson_id join who on f.teacher = who.id
+  where not l.ended
+$$;
+revoke all on function set_featured_class(text, uuid) from public;
+revoke all on function my_featured_classes() from public;
+revoke all on function featured_class_list(uuid) from public;
+grant execute on function set_featured_class(text, uuid) to authenticated;
+grant execute on function my_featured_classes() to authenticated;
+grant execute on function featured_class_list(uuid) to anon, authenticated;
+
 -- ------------------------------------------------------------
 -- 교사 이메일: happywax0206@gmail.com 을 자기 이메일(소문자)로 바꾸세요. 여러 명이면 줄을 더하면 됩니다.
 -- 함께 쓸 선생님은 여기에 적지 않아도 됩니다: 교사 화면 「⚙ 설정 → 프로필·공동작업자」에서 이메일로 초대하면 됩니다.

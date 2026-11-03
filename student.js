@@ -28,15 +28,24 @@ const cards = new Map(); // 활동 id → 화면 카드
 // 시작은 파일 맨 끝에서 한다(아래쪽 let/const가 모두 만들어진 뒤에 poll이 돌아야 한다)
 
 // 중요 수업: 선생님이 고른 수업의 코드를 입장 화면 칸에 미리 넣는다(주소의 t=선생님id, 없으면 가장 최근에 정한 것)
-let featured = null;   // { code, title }
+// 반별 중요 수업이 있으면 입장 화면에 「반」 칸이 생기고, 고른 반(이 기기에 기억)의 수업 코드가 들어간다.
+let featured = null;   // { code, title, class? } 지금 칸에 넣은 중요 수업
+let commonFeatured = null;   // 반을 고르지 않았을 때의 공통 중요 수업
+let classList = [];    // [{ class, code, title }]
+const CLASS_KEY = "cra-class";
 
 async function start() {
   if (!params.get("c")) {
-    try {
-      const t = (params.get("t") || "").trim();
-      const { data } = await sb.rpc("featured_code", /^[0-9a-f-]{36}$/i.test(t) ? { p_teacher: t } : {});
-      if (data && data.code) featured = data;
-    } catch (e) { /* 서버가 예전 판이면 그냥 넘어간다 */ }
+    const t = (params.get("t") || "").trim();
+    const arg = /^[0-9a-f-]{36}$/i.test(t) ? { p_teacher: t } : {};
+    // 서버가 예전 판이면(함수가 없으면) 그냥 넘어간다
+    const [one, many] = await Promise.all([
+      sb.rpc("featured_code", arg).then((r) => r.data, () => null),
+      sb.rpc("featured_class_list", arg).then((r) => r.data, () => null),
+    ]);
+    if (one && one.code) commonFeatured = one;
+    classList = Array.isArray(many) ? many.sort((x, y) => x.class.localeCompare(y.class, "ko", { numeric: true })) : [];
+    featured = classFeatured(localStorage.getItem(CLASS_KEY)) || commonFeatured;
   }
   const last = (localStorage.getItem("cra-last-code") || "").trim();
   code = (params.get("c") || (featured && featured.code) || last).trim();
@@ -76,6 +85,7 @@ function showCodeOnly(notice) {
   const me = keep().getItem(ME_KEY) || "";
   const codeIn = h("input", { type: "text", value: code, autocomplete: "off", maxlength: 20, placeholder: "예: K7P2Q", autocapitalize: "characters", required: true });
   const msg = h("p", { class: "msg" }, notice || "");
+  const note = h("div", {}, featuredNote());
   app.replaceChildren(h("main", { class: "narrow" },
     h("header", { class: "intro" }, h("p", { class: "eyebrow" }, me ? me + " 학생" : "수업 응답"), h("h1", {}, "수업 코드 입력")),
     h("form", {
@@ -86,7 +96,7 @@ function showCodeOnly(notice) {
         history.replaceState(null, "", "?c=" + encodeURIComponent(codeIn.value.trim()));
         enterLesson(codeIn.value);
       },
-    }, h("label", {}, "수업 코드", codeIn), featuredNote(), h("button", { class: "primary big", type: "submit" }, "입장하기"), msg),
+    }, classPick(codeIn, note), h("label", {}, "수업 코드", codeIn), note, h("button", { class: "primary big", type: "submit" }, "입장하기"), msg),
     h("p", { class: "center" }, h("button", { class: "link", type: "button", onclick() { logout(""); } }, me ? me + " 학생이 아니면: 다른 학생으로 들어가기" : "다른 학생으로 들어가기"))));
   codeIn.focus();
   codeIn.select();
@@ -111,6 +121,7 @@ function showEntry(notice) {
     h("span", {}, "내 개인 기기예요 (자동 로그인) ", h("span", { class: "muted small" }, "(나만 쓰는 휴대폰·태블릿일 때만 체크하세요. 체크하지 않으면 창을 닫을 때 자동으로 나가집니다)")));
   const msg = h("p", { class: "msg" }, notice || "");
   const btn = h("button", { class: "primary big", type: "submit" }, "입장하기");
+  const note = h("div", {}, featuredNote());
 
   const form = h("form", {
     class: "card stack",
@@ -156,8 +167,9 @@ function showEntry(notice) {
       } else msg.textContent = "알 수 없는 오류입니다. 다시 시도하세요.";
     },
   },
+    classPick(codeIn, note),
     h("label", {}, "수업 코드", codeIn),
-    featuredNote(),
+    note,
     h("label", {}, "번호", noIn),
     h("label", {}, "이름", nameIn),
     h("label", {}, "비밀번호 (숫자 4자리)", pinIn),
@@ -180,8 +192,30 @@ function showEntry(notice) {
 // 코드 칸 아래 안내: 중요 수업 코드가 들어가 있을 때
 function featuredNote() {
   return featured && code === featured.code && !params.get("c")
-    ? h("p", { class: "muted small" }, "⭐ 선생님이 정한 오늘의 수업 「" + featured.title + "」 코드가 들어가 있습니다. 다른 수업이면 코드를 지우고 새로 입력하세요.")
+    ? h("p", { class: "muted small" }, "⭐ 선생님이 " + (featured.class ? featured.class + " 반에 " : "") + "정한 오늘의 수업 「" + featured.title + "」 코드가 들어가 있습니다. 다른 수업이면 코드를 지우고 새로 입력하세요.")
     : null;
+}
+
+const classFeatured = (c) => { const f = c && classList.find((x) => x.class === c); return f ? { ...f } : null; };
+
+// 「반」 고르는 칸(선생님이 반별 중요 수업을 정했을 때만). 고르면 그 반 수업 코드를 코드 칸에 넣고, 이 기기에 기억한다.
+// 주소에 수업 코드(?c=)가 있으면 그 코드로 들어가므로 보이지 않는다.
+function classPick(codeIn, note) {
+  if (!classList.length || params.get("c")) return null;
+  const saved = localStorage.getItem(CLASS_KEY) || "";
+  const sel = h("select", {
+    "aria-label": "반",
+    onchange() {
+      const c = sel.value;
+      if (c) localStorage.setItem(CLASS_KEY, c); else localStorage.removeItem(CLASS_KEY);
+      featured = classFeatured(c) || commonFeatured;
+      if (featured) { codeIn.value = featured.code; code = featured.code; }
+      note.replaceChildren(...[featuredNote()].filter(Boolean));
+    },
+  },
+    h("option", { value: "" }, "반을 고르세요"),
+    classList.map((f) => h("option", { value: f.class, selected: f.class === saved }, f.class)));
+  return h("label", {}, "반 ", h("span", { class: "muted small" }, "(고르면 우리 반 수업 코드가 저절로 들어갑니다)"), sel);
 }
 
 // 나간 순간을 교사 화면 「마지막 접속」에 적는다. 화면을 닫는 중에도 끝까지 가도록 keepalive로 직접 보낸다.

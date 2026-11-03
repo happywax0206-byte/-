@@ -588,3 +588,7 @@ main.with-folders { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1
 .featured-box { display: grid; gap: .4rem; padding: .8rem; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
 .featured-box.on { border-color: #f59e0b; background: #fffbeb; }
 .featured-box > button { justify-self: start; }
+/* 「수업 설정 → 학생 접속」 반별 중요 수업 */
+.class-featured { gap: .5rem; padding-top: .6rem; border-top: 1px solid var(--line); }
+.class-list { display: flex; flex-wrap: wrap; gap: .3rem 1rem; }
+.class-row.on strong { color: var(--accent); }
