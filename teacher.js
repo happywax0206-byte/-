@@ -3143,7 +3143,7 @@ function drawSettings() {
         h("button", { class: "ghost", type: "button", onclick: duplicate }, "다른 반용으로 복제"),
         isMine(lesson) || (profile && profile.admin) ? h("button", { class: "ghost danger", type: "button", onclick: remove }, "수업 지우기") : null)) : null,
     lesson ? classFeaturedCard() : null),
-    // 오른쪽 빈 칸: 수업 폴더(「프로필·공동작업자」와 같음) + 바로 아래 누른 슬라이드 미리보기 카드(제자리에 고정)
+    // 오른쪽 빈 칸: 수업 폴더(「프로필·공동작업자」와 같음) + 그 아래 누른 슬라이드 미리보기 카드(화면을 내리면 위에 붙어 따라옴)
     h("div", { class: "settings-side" }, panel.el, slides && slides._dock));
   main.classList.add("with-folders");
 }

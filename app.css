@@ -546,10 +546,11 @@ body.present .credit { display: none; }
 main.with-folders { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
 @media (min-width: 1100px) { main.with-folders { grid-template-columns: minmax(0, 600px) minmax(0, 1fr); } }
 .folder-panel { gap: .8rem; }
-/* 오른쪽 칸: 폴더 칸 바로 아래에 누른 슬라이드 미리보기 카드(제자리에 고정, 넓은 화면에서만, 좁으면 화면 가득 띄움) */
-.settings-side { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
-.slide-dock { gap: .6rem; }
-.slide-dock .slide { width: 100%; object-fit: contain; aspect-ratio: 16 / 9; background: #fff; border: 1px solid var(--line); border-radius: 8px; }
+/* 오른쪽 칸: 폴더 칸 아래에 누른 슬라이드 미리보기 카드. 화면을 내리면 위쪽에 붙어 따라온다(넓은 화면에서만, 좁으면 화면 가득 띄움).
+   따라오려면 오른쪽 칸이 왼쪽 칸 끝까지 길어야 한다(align-self: stretch) */
+.settings-side { display: flex; flex-direction: column; gap: 1rem; min-width: 0; align-self: stretch; }
+.slide-dock { position: sticky; top: calc(var(--top-h, 64px) + .75rem); z-index: 3; gap: .6rem; }
+.slide-dock .slide { width: 100%; max-height: calc(100vh - var(--top-h, 64px) - 11rem); object-fit: contain; aspect-ratio: 16 / 9; background: #fff; border: 1px solid var(--line); border-radius: 8px; }
 @media (max-width: 1099px) { .slide-dock { display: none; } }
 .thumb.viewing img { outline: 3px solid var(--ink); outline-offset: -1px; }
 /* 끌어서 바꾼 순서를 아직 저장하지 않았을 때: 슬라이드 칸 아래쪽에 붙어 있는 저장 줄 */
